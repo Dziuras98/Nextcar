@@ -77,3 +77,40 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Gate 2: add an Unreal plugin/module with a worker-thread simulation wrapper and procedural audio source; prove clean start/stop, RPM response, and glitch-free output before coupling it to vehicle dynamics.
   - Gate 3: introduce explicit engine, clutch, gearbox, and driveline state; replace direct throttle-to-speed behavior progressively while preserving the existing deterministic vehicle tests.
   - Gate 4: construct the first vertical slice with one car, one engine configuration, simple test map, telemetry HUD, performance budgets, and repeatable acceptance tests.
+
+## 2026-07-17 — Windows 11 Unreal runner runbook
+
+- Timestamp: 2026-07-17 14:52 (Europe/Warsaw)
+- User request: Prepare concrete instructions for running the project's local GitHub Actions runner on a Windows 11 computer.
+- Baseline branch and commit: `main` at `0ddf61cb77e5edeb8bceab56877a592f8a49e158`.
+- Repository history reviewed:
+  - Reviewed the complete seven-commit `main` history available through the GitHub connector, including the two previous manager-history entries.
+  - Re-read the complete current `AGENTS.md` and `docs/manager-history.md`.
+  - Re-inspected open draft PR #1 and its `unreal-full-ci.yml` workflow, including trigger conditions, required runner labels, `ENABLE_UNREAL_CI`, build command, test command, report requirement, and artifact paths.
+  - Reviewed current official GitHub documentation for Windows self-hosted runner registration, labels, services, variables, network requirements, and public-repository security; reviewed current Epic Unreal Engine 5.8 documentation for Windows, Visual Studio, SDK, and C++ toolchain requirements.
+- Repository state found:
+  - `Nextcar` remains public and PR #1 remains the only open gameplay PR requiring an Unreal Engine 5.8 Windows build.
+  - The workflow requires labels `self-hosted`, `Windows`, `X64`, and `unreal-5.8`, and skips pull-request execution unless repository variable `ENABLE_UNREAL_CI` is `true`.
+  - A permanently online self-hosted runner on this public repository would expose the Windows host to untrusted workflow code, so the current safe operating mode is a manually started interactive runner used only for reviewed same-repository changes.
+- Workstream decomposition and programmer-agent assignments:
+  - The task was decomposed into repository-specific workflow analysis, current GitHub runner/security requirements, current Unreal/Visual Studio prerequisites, PowerShell preflight commands, runner registration, workflow activation, shutdown, and troubleshooting.
+  - No programmer agent was dispatched because the requested output is one cohesive operational runbook and the only writable files are shared documentation/history files requiring sequential integration.
+- Files and behavior changed:
+  - Added `docs/windows-self-hosted-runner.md` with Windows 11 prerequisites, `UE_ROOT` setup, exact local UBT and Unreal Automation Test preflight, runner registration and labels, safe interactive operation, `ENABLE_UNREAL_CI` activation, result verification, shutdown, optional service configuration, and troubleshooting.
+  - Appended this manager-history entry. No gameplay, workflow, build, or simulation behavior was changed.
+- Evidence and exact tests:
+  - Verified the runbook against the current PR #1 workflow and official GitHub and Epic documentation.
+  - Attempted `git clone --branch agent/nc-002-windows-runner-runbook --single-branch https://github.com/Dziuras98/Nextcar.git /tmp/nextcar-runner-runbook && python scripts/validate_repository.py`; the command stopped before checkout because the tool container could not resolve `github.com`. This is an environment/network blocker, not a repository validation result.
+  - The exact repository branch must pass the `Repository validation` GitHub Actions workflow before merge; the final result will be recorded in this entry before completion.
+  - No Unreal build is required because this change affects Markdown documentation only.
+- Decisions and integration notes:
+  - For the current public repository, interactive `run.cmd` operation is the default; permanent Windows-service operation is documented only as an option after making the repository private or restricting workflow access to trusted code.
+  - The runbook uses the current workflow contract rather than generic runner instructions, including the exact custom label, machine-level `UE_ROOT`, `NextcarEditor` build target, `Nextcar.*` tests, and report artifact paths.
+- Unresolved risks or blockers:
+  - The actual Windows machine, Unreal Engine installation path, Visual Studio installation, runner registration, and UE build have not yet been exercised by the user.
+  - The current runner workflow remains on PR #1 rather than `main`; an old skipped run may require a new trusted PR synchronization after setting `ENABLE_UNREAL_CI=true`.
+  - Persistent self-hosted execution remains unsafe while the repository is public and accepts pull requests containing executable workflow/project code.
+- Next steps:
+  - Complete the runbook on the Windows 11 machine through the local Unreal preflight.
+  - Register `NEXTCAR-UE58` with the custom `unreal-5.8` label, start it interactively, enable `ENABLE_UNREAL_CI`, and run Full Unreal Engine CI for PR #1.
+  - Preserve the automation report and logs, set `ENABLE_UNREAL_CI=false`, stop the runner, then use the build/test evidence to decide whether PR #1 can be updated and merged.
