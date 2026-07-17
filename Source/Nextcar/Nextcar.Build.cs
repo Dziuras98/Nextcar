@@ -14,14 +14,5 @@ public class Nextcar : ModuleRules
                 "Engine",
                 "InputCore"
             });
-
-        if (Target.bBuildDeveloperTools)
-        {
-            PrivateDefinitions.Add("WITH_NEXTCAR_AUTOMATION_TESTS=1");
-        }
-        else
-        {
-            PrivateDefinitions.Add("WITH_NEXTCAR_AUTOMATION_TESTS=0");
-        }
     }
 }
