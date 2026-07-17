@@ -51,9 +51,9 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - The related `Dziuras98/engine-sim` fork was inspected at its default branch for build structure, core/runtime separation, audio-output API, dependencies, and license.
 - Repository state found:
   - `main` contains repository policy, validation, cleanup automation, README, and manager history, but the playable Unreal prototype is still isolated in draft PR #1.
-  - PR #1 adds a code-only Unreal Engine 5.8 project, kinematic arcade vehicle, infinite recentering test ground, HUD, portable deterministic simulation, standalone tests, and opt-in self-hosted Unreal CI.
+  - PR #1 adds a code-only Unreal Engine 5.8 project, kinematic arcade vehicle, infinite test ground, HUD, portable deterministic simulation, standalone tests, and opt-in self-hosted Unreal CI.
   - Repository validation and hosted GCC, Clang, and UBSan vehicle tests pass. Full Unreal Engine CI is skipped because no enabled Windows Unreal Engine 5.8 self-hosted runner has compiled `NextcarEditor` or run Unreal Automation Tests.
-  - The `engine-sim` fork already defines the simulation core as a static `engine-sim` library and exposes PCM audio through `Simulator::readAudioOutput`. Its complete application build also includes optional scripting, UI, Discord, and Windows-specific executable concerns that should remain outside the UE runtime.
+  - The `engine-sim` fork already defines the simulation core as a static C++ library and exposes PCM audio through `Simulator::readAudioOutput`, but its documented complete application build is Windows-only and includes optional scripting/UI dependencies that should not be copied wholesale into the UE runtime.
 - Workstream decomposition and programmer-agent assignments:
   - This run was analysis and change-control only; no programmer agent was dispatched because the user requested a proposal rather than feature implementation and no independent code change was authorized.
   - The next execution should use three sequentially gated phases. After PR #1 is validated and merged, the engine integration spike can safely split into three parallel non-overlapping workstreams: core-library extraction/build, Unreal procedural-audio adapter, and benchmark/test harness. Vehicle/powertrain coupling follows only after those interfaces are proven.
@@ -61,7 +61,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Evidence and exact tests:
   - Inspected `AGENTS.md`, the complete prior `docs/manager-history.md`, repository metadata, all visible `main` commits, all PRs and issues, PR #1 diff and changed files, CI results, selected vehicle production/test headers, `Nextcar.Build.cs`, and relevant `engine-sim` README, license, CMake, simulator, piston simulator, and synthesizer interfaces.
   - `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed workspace before publication; GitHub Actions validation is required on this history-only pull request.
-  - No Unreal build is required because this history-only Markdown change.
+  - No Unreal build is required for this history-only Markdown change.
 - Decisions and integration notes:
   - The immediate project gate is to compile and validate PR #1 with Unreal Engine 5.8, update it against `main`, and merge it before starting engine-audio integration.
   - The first `engine-sim` deliverable should be a headless, benchmarked core producing stable PCM for one fixed engine configuration. Direct UE integration should use a narrow wrapper and Unreal procedural audio, not the original SDL/UI application.
