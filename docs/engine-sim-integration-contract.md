@@ -1,12 +1,16 @@
 # Engine-sim integration contract
 
-Status: **Review blocked: cold-start calibration and mandatory third-party provenance are unresolved**
+Status: **Architecture frozen; NC-003A is ready for review and merge after repository validation**
 
-Contract version: **1.1**
+Contract version: **1.2**
 
 Target project: **nEXTcAR vertical slice**
 
-This document is the architecture and ownership contract for the first `engine-sim` integration spike. Version 1.1 corrects the native-ring startup model, freezes automatic Core-managed cold start, removes the upstream synthesizer thread from the architecture, and makes PCM production semantics explicit. NC-003B, NC-003C, and NC-003D are **not authorized to start** until the blocking calibration and provenance items identified in sections 5.7 and 13.3 are resolved with reproducible evidence and approved by the manager. No implementation agent may guess the missing values or silently substitute an asset.
+This document is the architecture, ownership, provenance, calibration, and acceptance contract for the first `engine-sim` integration spike.
+
+Version 1.2 preserves the accepted version 1.1 decisions for automatic Core-managed cold start, synchronous owner-thread simulation and synthesis, lifecycle behavior, native-ring initialization, `Advance()`/`PullPcm()` ordering, and actual-produced PCM accounting. It resolves the exact simple-solver pin and license, replaces the unapproved WAV dependency with a project-generated identity impulse response, and moves numeric cold-start calibration into NC-003B Phase 0.
+
+The architectural decisions are frozen. After PR #11 is merged and the manager creates the shared plugin scaffold, NC-003B, NC-003C, and NC-003D may begin in parallel within the non-overlapping write scopes in section 10. The four cold-start values remain mandatory and may not be guessed. Their absence or unsupported calibration blocks acceptance and merge of NC-003B, not NC-003A.
 
 ## 1. Baseline and primary evidence
 
@@ -14,103 +18,100 @@ This document is the architecture and ownership contract for the first `engine-s
 
 | Repository | Branch | Pinned commit | Use in this contract |
 |---|---|---|---|
-| `Dziuras98/Nextcar` | `main` | `3ce2579f45b568e2c5fd43ee26249b561a055f1c` | Project structure, current gameplay boundary, tests, workflows, Unreal version, and integration policy. |
-| `Dziuras98/engine-sim` | `master` | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | Core source graph, simulator and synthesizer behavior, fixed engine fixture, dependencies, and license. |
+| `Dziuras98/Nextcar` | `main` | `3ce2579f45b568e2c5fd43ee26249b561a055f1c` | Project structure, gameplay boundary, tests, workflows, Unreal version, and integration policy. |
+| `Dziuras98/engine-sim` | `master` | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | Core source graph, simulator and synthesizer behavior, fixed mechanical fixture, dependency graph, and root license. |
+| `ange-yaghi/simple-2d-constraint-solver` | gitlink dependency | `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` | Required solver source used by `PistonEngineSimulator`. |
 
 The target engine version is **Unreal Engine 5.8**. `Nextcar.uproject` at the pinned Nextcar commit declares `EngineAssociation: "5.8"`.
 
 ### 1.2 Nextcar evidence reviewed
 
-The following files and interfaces were reviewed at the pinned Nextcar commit:
+The contract is based on the complete project policy and integration boundary, including:
 
-- `AGENTS.md`, in full.
-- `docs/manager-history.md`, in full.
-- All eleven commits reachable on `main` at the start of this task.
-- All ten existing pull requests and their final states.
-- `README.md`.
-- `Nextcar.uproject`.
-- `Source/Nextcar/Nextcar.Build.cs`.
-- `Source/Nextcar/ArcadeVehicleSimulation.h`.
-- `.github/workflows/repository-validation.yml`.
-- `.github/workflows/unreal-ci.yml`.
-- `.github/workflows/unreal-full-ci.yml`.
-- `.github/workflows/delete-merged-branch.yml`.
-- `Tests/ArcadeVehicleMathStandaloneTests.cpp`.
-- `Source/Nextcar/Tests/ArcadeVehicleMathTests.cpp`.
-- `Source/Nextcar/Tests/NextcarSmokeTests.cpp`.
-- `scripts/validate_repository.py`.
+- `AGENTS.md`;
+- `docs/manager-history.md`;
+- `README.md`;
+- `Nextcar.uproject`;
+- `Source/Nextcar/Nextcar.Build.cs`;
+- `Source/Nextcar/ArcadeVehicleSimulation.h`;
+- repository and Unreal workflows;
+- standalone and Unreal Automation Tests;
+- `scripts/validate_repository.py`;
+- PR #11 and manager comments, including `#issuecomment-5006829488`.
 
-Verified project facts used by this contract:
+Verified project facts:
 
-1. The existing gameplay module has no audio or third-party simulation dependency; its build dependencies are `Core`, `CoreUObject`, `Engine`, and `InputCore`.
-2. The present `ArcadeVehicleSimulation` state contains arcade speed and wheel rotation, not an engine, clutch, gearbox, or driveline model.
-3. The repository already has portable standalone tests, Unreal Automation Tests under `Nextcar.*`, repository validation, and an opt-in Unreal Engine 5.8 Windows self-hosted workflow.
-4. The existing arcade movement is therefore an integration boundary to preserve, not the first consumer of engine-sim internals.
+1. The existing gameplay module has no engine-sim or procedural-audio dependency.
+2. The existing arcade vehicle state is not an engine, clutch, gearbox, or driveline model.
+3. The current gameplay implementation is an integration boundary to preserve.
+4. The first engine-sim slice must remain independently testable and must not require gameplay changes.
 
 ### 1.3 engine-sim evidence reviewed
 
-The following files and interfaces were re-reviewed at engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`:
+The selected closure was reviewed at engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`, including:
 
-- `LICENSE`, `.gitmodules`, root `CMakeLists.txt`, and dependency CMake files;
-- `include/ring_buffer.h`;
-- `include/simulator.h`, `src/simulator.cpp`;
-- `include/piston_engine_simulator.h`, `src/piston_engine_simulator.cpp`;
-- `include/synthesizer.h`, `src/synthesizer.cpp`;
-- `include/ignition_module.h`, `src/ignition_module.cpp`;
-- `include/starter_motor.h`, `src/starter_motor.cpp`;
-- `include/engine.h`, `src/engine.cpp`;
-- `include/throttle.h`, `include/direct_throttle_linkage.h`, `src/direct_throttle_linkage.cpp`;
-- `include/dynamometer.h`, `src/dynamometer.cpp`;
-- `include/transmission.h`, `include/vehicle.h`;
-- `src/engine_sim_application.cpp`, especially throttle, ignition, and starter handling;
-- `assets/main.mr` and `assets/engines/atg-video-2/01_subaru_ej25_eh.mr`;
-- `es/sound-library/impulse_responses.mr` and the referenced `es/sound-library/new/minimal_muffling_02.wav`;
-- wrapper headers `include/scs.h`, `include/delta.h`, and `include/csv_io.h`.
+- root `LICENSE`, `.gitmodules`, and CMake dependency declarations;
+- simulator, piston-engine simulator, synthesizer, ring buffer, engine, ignition, starter, throttle, dynamometer, transmission, and vehicle sources;
+- `src/engine_sim_application.cpp`;
+- `assets/main.mr`;
+- `assets/engines/atg-video-2/01_subaru_ej25_eh.mr`;
+- sound-library references;
+- wrapper headers for the simple solver, delta, and csv-io.
 
-Verified facts used by version 1.1:
+Frozen facts:
 
-1. The root build defines a separate C++17 static target named `engine-sim`. The complete application, scripting interpreter, Discord integration, rendering, and UI are separate concerns.
-2. `Simulator::readAudioOutput(int, int16_t*)` delegates to `Synthesizer::readAudioOutput`.
-3. `Synthesizer::readAudioOutput` copies only the native samples currently reported by its ring, zero-fills the caller's remaining requested tail, and returns the count actually consumed. The zero-filled tail is shortage handling, not produced PCM.
-4. `RingBuffer` stores only `m_writeIndex` and `m_start`; it has no occupancy count or full/empty discriminator. `Synthesizer::initialize` performs exactly `audioBufferSize` zero writes. With capacity 44,100, that full wrap returns `writeIndex` to `start`, and `RingBuffer::size()` reports zero. The native output ring therefore starts **logically empty**, not with a readable 44,100-frame zero prefix.
-5. `Simulator::initializeSynthesizer` fixes native output to signed 16-bit PCM at 44,100 Hz. Input channels equal exhaust-system count, while `Synthesizer::renderAudio` sums them into one mono output sample.
-6. The upstream renderer attempts at most 2,000 samples per `renderAudio()` pass.
-7. `IgnitionModule::m_enabled` is initialized to `false`; ignition events are emitted only while it is enabled.
-8. `StarterMotor::m_enabled` is initialized to `false`.
-9. The original application maps throttle, starter, and ignition to separate controls: Q/W/E/R change throttle, S holds the starter, and A toggles ignition. Throttle alone does not start the engine.
-10. The upstream synthesizer thread is not an acceptable integration boundary. Although `m_run` is atomic in the pinned header, `m_processed` is written under different mutex regimes, and the native audio ring is written after releasing `m_lock0` while `readAudioOutput` reads it under `m_lock0`; the ring indices themselves are plain `size_t`. Retaining that path would leave concurrent native-buffer access and undefined-behavior risk.
-11. `Simulator::endFrame()` calls `Synthesizer::endInputBlock()`, which establishes a natural point for explicit synchronous processing on the same owner thread.
-12. `src/synthesizer.cpp` includes `delta.h` but does not use delta-studio types. No selected headless Core source uses `csv_io.h`. Version 1.1 therefore excludes `delta-studio` and `csv-io` from the intended minimal copied dependency set, subject to NC-003B's manifest verifier proving the final source closure.
-13. `PistonEngineSimulator` still requires the simple 2D constraint solver and internal `Engine`, `Vehicle`, and `Transmission` objects.
-14. The selected fixture requests 20,000 Hz simulation and uses a 70 lb-ft, 500 RPM starter specification, but those fixture parameters do not by themselves establish safe starter-disengagement, stability-window, startup-timeout, or startup-throttle thresholds.
+1. The root project contains a separable C++17 `engine-sim` target; the original application, UI, rendering, scripting, Discord, and direct-to-video code are not required by the Core adapter.
+2. Native output is signed int16 mono at 44,100 Hz.
+3. `readAudioOutput` returns the count actually consumed from the native ring and zero-fills only the caller-visible shortage tail.
+4. The pinned ring has no full/empty discriminator. The upstream initialization loop that writes exactly the 44,100-sample capacity wraps its indices to equality, so the ring is logically empty and reports zero available samples.
+5. There is no readable 44,100-frame startup prefix and no fixed startup drain.
+6. Ignition and starter both initialize disabled and are controlled independently in the original application.
+7. `Simulator::endFrame()` provides the frozen point after which one bounded synchronous synthesizer pass runs.
+8. The upstream private audio-renderer thread is not part of the Nextcar architecture.
+9. `PistonEngineSimulator` requires the simple 2D constraint solver.
+10. `delta-studio`/`delta-basic` and `csv-io` are not part of the intended minimal source closure.
+11. The mechanical Subaru EJ25 fixture requests 20,000 Hz simulation and specifies a 70 lb-ft, 500 RPM starter, but those mechanical values do not determine safe cold-start thresholds.
 
-### 1.4 Unreal Engine 5.8 primary documentation reviewed
+### 1.4 Exact solver provenance
 
-The Unreal-facing decision is based on Epic's Unreal Engine 5.8 documentation, not third-party examples:
+The simple-solver pin is resolved as follows:
 
-- [Audio Mixer Overview](https://dev.epicgames.com/documentation/en-us/unreal-engine/audio-mixer-overview-in-unreal-engine): the Audio Mixer owns an audio render thread distinct from the audio thread; procedural sources provide 32-bit float buffers; audio rendering must be real-time safe.
-- [`USynthComponent::CreateSoundGenerator`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/AudioMixer/USynthComponent/CreateSoundGenerator): creates an `ISoundGenerator` without requiring a `UObject` on the audio render thread.
-- [`USynthComponent::OnGenerateAudio`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/AudioMixer/USynthComponent/OnGenerateAudio): explicitly marked as a path that is to be deprecated for new synth components in favor of `CreateSoundGenerator`.
-- [`ISoundGenerator`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/ISoundGenerator): `OnGenerateAudio(float *, int32)` and generator lifecycle run for mixer buffer production.
-- [`FSoundGeneratorInitParams`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FSoundGeneratorInitParams): exposes sample rate, channel count, and callback frame sizes.
-- [`USynthComponent::Initialize`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/AudioMixer/USynthComponent/Initialize): permits an explicit source sample-rate override.
-- [`USoundWaveProcedural::OnGeneratePCMAudio`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/USoundWaveProcedural/OnGeneratePCMAudio) and [`USoundWaveProcedural`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/USoundWaveProcedural): confirm that procedural generation is called from the audio render path and that the legacy class uses an internal thread-safe queued-audio mechanism.
+- engine-sim commit that changed the gitlink:
+  `b92176f911463f143f4aba9ced495de06b9799c7`;
+- prior gitlink:
+  `44eeaecf35bdb776bbb3a7791260692f1c4e35be`;
+- resulting gitlink:
+  `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3`;
+- comparison from `b92176f911463f143f4aba9ced495de06b9799c7` through pinned engine-sim commit
+  `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` shows no later change to
+  `dependencies/submodules/simple-2d-constraint-solver`;
+- the solver `LICENSE` at `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` is MIT,
+  copyright 2022 Ange Yaghi.
+
+NC-003B must vendor the solver only from that exact commit and must create:
+
+```text
+ThirdPartyNotices/simple-2d-constraint-solver.txt
+```
+
+containing the solver's complete MIT license text, including copyright, permission notice, and warranty disclaimer.
 
 ### 1.5 License and reproducibility baseline
 
-The engine-sim repository root contains the MIT license, copyright 2022 AngeTheGreat (Ange Yaghi). The selected solver repository currently exposes an MIT license, copyright 2022 Ange Yaghi. Those facts establish the license texts found at the inspected repository paths; they do not prove the origin or redistribution rights of a separately sourced binary recording, and they do not substitute for recording the exact solver gitlink commit used by the pinned engine-sim tree.
+Resolved inputs:
 
-No separate author, source-recording statement, copyright notice, or redistribution grant was found for `es/sound-library/new/minimal_muffling_02.wav`. The root MIT file alone is not treated as proof that every contributor or uploader held rights to redistribute that recording or authorize a generated C++ derivative. The WAV is therefore **not approved for copying or conversion** in this contract revision.
+- engine-sim selected source and Subaru script: repository MIT terms;
+- simple solver at the exact gitlink above: MIT;
+- identity impulse response: project-owned generated data.
 
-A reproducible cold-start probe was also attempted but could not be built in the available execution environment because the exact repository and recursive submodules could not be fetched. The actual command and result were:
+Excluded inputs:
 
-```text
-git ls-remote https://github.com/Dziuras98/engine-sim.git HEAD
-fatal: unable to access 'https://github.com/Dziuras98/engine-sim.git/': Could not resolve host: github.com
-exit_code=128
-```
+- `minimal_muffling_02.wav`: not copied, decoded, converted, or used to create a derivative;
+- `delta-studio`/`delta-basic`;
+- `csv-io`;
+- Piranha, UI/rendering, Discord, direct-to-video, and original application code.
 
-The GitHub connector permits source inspection but does not provide a complete checkout or an executable build surface. Consequently, version 1.1 does not invent a starter-disengagement RPM, startup throttle, stability window, or timeout. Section 5.7 defines the mandatory probe protocol and marks those values as a blocking calibration record.
+NC-003A does not execute the cold-start probe and does not publish numeric cold-start values. The required measurements are an explicit deliverable of NC-003B Phase 0. No implementation agent may infer or guess them from starter specifications, source constants, recordings, or visual inspection.
 
 ## 2. Goals and non-goals
 
@@ -118,63 +119,70 @@ The GitHub connector permits source inspection but does not provide a complete c
 
 The first integration stage shall:
 
-- run exactly one piston-engine fixture;
-- run without the original engine-sim UI or executable;
-- accept a throttle target and an opposing-load target;
-- expose current RPM and a stable telemetry snapshot;
-- generate continuous PCM suitable for a real-time consumer;
+- run exactly one deterministic piston-engine fixture;
+- run without the original engine-sim executable or UI;
+- accept throttle and opposing-load targets;
+- expose RPM and a stable telemetry snapshot;
+- produce continuous PCM suitable for a real-time consumer;
 - progress simulation at real-time speed when the host can sustain it;
-- have explicit, repeatable start, stop, restart, and destruction behavior;
-- be testable without a Nextcar pawn, map, game mode, or gameplay tick;
-- be buildable and testable in a standalone harness as well as through Unreal Build Tool;
-- expose no engine-sim implementation type across the public adapter boundary.
+- have explicit repeatable start, stop, restart, cancellation, failure, and destruction behavior;
+- be testable without a pawn, map, game mode, or gameplay tick;
+- build through UBT and a standalone headless harness;
+- expose no engine-sim implementation type across the public adapter boundary;
+- use a versioned, measured cold-start profile as a required build input.
 
 ### 2.2 Explicit non-goals
 
 The first integration stage shall not include:
 
-- SDL or any original application UI;
+- SDL or original application UI;
 - Discord Rich Presence;
-- original application rendering, geometry, gauges, or input handling;
-- Piranha or any other runtime scripting dependency in the game build;
+- original rendering, geometry, gauges, or input handling;
+- Piranha or runtime `.mr` parsing;
+- runtime WAV or other fixture file I/O;
 - player selection among multiple engines;
 - a complete clutch, gearbox, differential, tire, or driveline model;
-- replacement of `Source/Nextcar/**` arcade movement;
+- replacement of `Source/Nextcar/**` movement;
 - gameplay coupling between road speed and engine RPM;
-- final sound mixing, production equalization, source effects, submix design, occlusion, attenuation tuning, or finished spatial audio;
-- a hard CPU budget or final latency target before benchmark data exists on the actual Windows runner.
+- final production exhaust coloration, equalization, submix design, occlusion, attenuation, or spatial-audio tuning;
+- a final CPU, latency, or buffer budget before measurement on the actual Windows runner.
 
-The fixed `Vehicle` and `Transmission` objects required by `PistonEngineSimulator` are internal fixture scaffolding only. They must remain in neutral/disengaged state for this spike and are not the future Nextcar powertrain contract.
+The fixed `Vehicle` and `Transmission` objects required internally by `PistonEngineSimulator` remain neutral/disengaged fixture scaffolding only.
 
 ## 3. Source import and pinning strategy
 
-### 3.1 Options evaluated
+### 3.1 Frozen strategy
 
-| Option | Deterministic pin | UBT and packaging | Debugging | CI/environment risk | Update and license properties | Decision |
-|---|---|---|---|---|---|---|
-| Git submodule | Strong gitlink pin when recursively checked out. | Requires every developer, hosted job, and self-hosted runner to fetch nested repositories correctly; UBT still needs a custom source/build bridge. Packaged source provenance is split across repositories. | Good if submodules are present. | Higher risk of missing recursive checkout, credentials, detached submodule state, or unavailable network on the Windows runner. | Upstream updates are direct, but all submodule licenses still need aggregation. | Rejected for the vertical slice. |
-| Vendored source snapshot | Strong when copied from a detached commit and protected by a generated manifest of paths and hashes. | Sources compile directly under UBT and are available to packaging without a network or CMake configure step. | Best source-level debugging in Visual Studio and Unreal call stacks. | Lowest dependence on developer machine tools or network after checkout. | Requires a disciplined update tool, provenance manifest, patch record, and notice preservation. | **Selected.** |
-| External CMake build during Unreal build | Can pin source and CMake inputs. | Introduces a second build graph, generator/toolchain coordination, CRT/configuration matching, artifact discovery, and packaging logic outside UBT. | Split debug/build experience. | Depends on CMake, generator, compiler, environment variables, and potentially networked `FetchContent`. | Upstream layout is preserved, but reproducibility depends on the external toolchain and cache. | Rejected for the first slice. |
-| Checked-in prebuilt static library | Binary can be checksum-pinned. | Easy to link for one exact Windows configuration, but every compiler, CRT, architecture, Unreal configuration, and debug-symbol variant becomes an artifact matrix. | Poor source stepping unless matching symbols and source are retained. | High ABI and toolchain drift risk; opaque to standalone sanitizers. | Redistribution and provenance must include binary build recipe and all linked licenses. | Rejected for the first slice. |
+NC-003B shall create a **minimal vendored source snapshot** from:
 
-### 3.2 Frozen decision
+```text
+engine-sim:
+85f7c3b959a908ed5232ede4f1a4ac7eafe6b630
 
-After sections 5.7 and 13.3 are resolved and the manager authorizes implementation, NC-003B shall create a **minimal vendored source snapshot** from engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` and the exact transitive source dependencies proven necessary by compilation. It shall not vendor the full original application tree by default.
+simple-2d-constraint-solver:
+e009f4ff1c9c4c5874e865e893cdb62e208fb2b3
+```
 
 The snapshot shall:
 
-- contain only the source and headers required by the headless simulator, synthesizer, fixed fixture, and their verified transitive dependencies;
-- exclude application UI/rendering, Discord, direct-to-video, Piranha runtime scripting, example engine selection, and original executable entry points;
-- compile through UBT as source, not by launching CMake during an Unreal build;
-- remain compilable by the standalone core test build;
-- preserve original copyright headers and license texts;
-- retain a machine-readable manifest that proves its origin and detects drift.
+- contain only the source and headers required by the headless simulator, synchronous synthesizer, fixed fixture, solver, and proven transitive closure;
+- compile through UBT as source;
+- compile through the standalone Core harness;
+- preserve source copyright notices;
+- preserve and distribute full applicable MIT notices;
+- use an allowlisted vendor generator;
+- be fully described by a machine-verifiable manifest;
+- contain no runtime or build-time network dependency.
 
-`csv-io` and `delta-basic` appear in the broad upstream CMake link list, but the reviewed headless source closure does not use `csv_io.h`, and the only selected-source `delta.h` include is unused in `src/synthesizer.cpp`. Version 1.1 therefore requires that include to be removed as a recorded patch and excludes both dependencies from the intended snapshot. The manifest verifier and standalone/UBT compile must fail rather than silently add either dependency. The simple 2D constraint solver remains required and blocked pending its exact gitlink provenance in section 13.3.
+Git submodules in the game repository, build-time external CMake, and checked-in prebuilt libraries remain rejected for the first slice.
+
+### 3.2 Excluded dependency closure
+
+`delta-studio`/`delta-basic` and `csv-io` remain excluded. The unused `delta.h` include in the selected synthesizer source shall be removed as a recorded local patch. The manifest verifier and standalone/UBT compilation must fail rather than silently expand the source closure.
 
 ### 3.3 Required provenance files
 
-NC-003B owns these files under the future snapshot:
+NC-003B owns:
 
 ```text
 Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/
@@ -185,6 +193,11 @@ Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/
     SOURCE_MANIFEST.json
     PATCHES.md
     UPDATE.md
+    UPSTREAM_LICENSE
+
+ThirdPartyNotices/
+  engine-sim.txt
+  simple-2d-constraint-solver.txt
 ```
 
 `ENGINE_SIM_COMMIT` must contain exactly:
@@ -193,56 +206,62 @@ Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/
 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630
 ```
 
-`SOURCE_MANIFEST.json` must contain, at minimum:
+`SOURCE_MANIFEST.json` must contain at minimum:
 
 - schema version;
 - source repository URL;
-- engine-sim commit SHA;
-- source branch name for human context only;
+- engine-sim commit;
+- source branch for human context only;
 - UTC generation timestamp;
-- every vendored path and its SHA-256 hash;
-- every included submodule repository URL and exact gitlink commit;
-- every included dependency license identifier and notice path;
-- every local patch identifier and affected file hash;
-- fixture source paths and hashes for every approved source or generated asset;
-- generation tool version.
+- every vendored path and SHA-256;
+- simple-solver repository URL and exact gitlink commit;
+- every included dependency license and notice mapping;
+- every local patch identifier, reason, upstream SHA-256, and patched SHA-256;
+- every copied, patched, or generated fixture path and hash;
+- generation-tool version.
 
-`PATCHES.md` must distinguish unmodified upstream files from local portability patches. A patch may not be hidden as a silent edited snapshot.
+For generated data, the manifest must additionally record:
 
-### 3.4 Exact update procedure
+- status `generated`;
+- generator path;
+- generator SHA-256;
+- exact generation command;
+- generation inputs and scalar metadata;
+- generated-file SHA-256;
+- license `project-owned/generated`;
+- explicit absence of a WAV dependency.
 
-NC-003B shall add and own `Tools/EngineSimVendor/`. Updating the pin later must use this sequence:
+### 3.4 Required update procedure
+
+NC-003B shall add `Tools/EngineSimVendor/` and use this sequence for the initial import and every later source update:
 
 ```text
 1. Create a clean temporary clone of https://github.com/Dziuras98/engine-sim.git.
-2. Fetch the desired exact commit object.
+2. Fetch the desired exact engine-sim commit.
 3. Checkout that commit in detached-HEAD state.
 4. Run: git submodule update --init --recursive
-5. Record the engine-sim commit and every included submodule gitlink commit.
-6. Verify the license of every source or asset selected for copying.
-7. Run:
-   python Tools/EngineSimVendor/vendor_engine_sim.py \
-     --source <detached-checkout> \
-     --commit <40-character-sha>
-8. Review PATCHES.md and the complete generated diff.
-9. Run:
-   python Tools/EngineSimVendor/verify_engine_sim_vendor.py
-10. Run all NC-003B standalone compilation and tests before committing.
+5. Verify the simple-solver gitlink is the contract pin.
+6. Verify the license blob for every selected source or generated input.
+7. Run the allowlisted vendor generator.
+8. Generate the identity impulse response with the frozen command.
+9. Generate provenance files and notices.
+10. Review PATCHES.md and the complete generated diff.
+11. Run the vendor verifier.
+12. Run Phase 0 or Phase 1 standalone compilation and tests, as applicable.
 ```
 
-The vendoring tool must use an explicit allowlist. It must not recursively copy the complete repository.
+A hand-edited vendored or generated file without a matching manifest entry must fail validation.
 
 ### 3.5 Accidental version-change detection
 
-The pinned version is considered changed when any of the following occurs:
+The pin is considered changed when any of the following occurs:
 
 - `ENGINE_SIM_COMMIT` changes;
-- a vendored source hash differs from `SOURCE_MANIFEST.json`;
-- an included dependency gitlink or license entry changes;
-- a fixture source hash changes;
-- the compiled `GetPinnedEngineSimCommit()` string differs from `ENGINE_SIM_COMMIT`.
-
-`verify_engine_sim_vendor.py` shall fail in all such cases unless the manifest and provenance were deliberately regenerated by the update procedure. NC-003D shall invoke this verification in CI. A hand-edited vendored file without a matching recorded patch must fail validation.
+- the simple-solver commit differs from `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3`;
+- any vendored source hash differs from the manifest;
+- an included license or notice entry changes;
+- a fixture/profile/generated-data hash changes;
+- `GetPinnedEngineSimCommit()` differs from `ENGINE_SIM_COMMIT`.
 
 ## 4. Frozen directories and module boundaries
 
@@ -258,41 +277,49 @@ Plugins/NextcarEngineSim/
       Public/
       Private/
         Fixtures/
+        Generated/
+          IdentityImpulseResponse.generated.h
+          SubaruEJ25ColdStartProfile.generated.h
     NextcarEngineSimRuntime/                       # NC-003C
       Public/
       Private/
         Tests/
+
 Tools/
   EngineSimVendor/                                 # NC-003B
+    generate_identity_impulse_response.py
   EngineSimBenchmark/                              # NC-003D
-.github/workflows/
-  engine-sim-benchmark.yml                         # NC-003D (new file only)
+
 Tests/
   EngineSimCore/                                   # NC-003B
+    Fixtures/
+      subaru_ej25_cold_start_profile.json
+
 ThirdPartyNotices/                                 # NC-003B
+
+.github/workflows/
+  engine-sim-benchmark.yml                         # NC-003D, new path only
 ```
 
-The manager shall create or integrate `NextcarEngineSim.uplugin` as a shared scaffold before merging parallel implementation branches. `Nextcar.uproject`, `Source/Nextcar/**`, and shared plugin module declarations remain manager-owned integration surfaces.
+The manager shall create the shared `NextcarEngineSim.uplugin` and common module scaffold after merging NC-003A and before parallel NC-003B/C/D work begins. `Nextcar.uproject`, `Source/Nextcar/**`, the shared plugin descriptor, and shared plugin-level declarations remain manager-owned integration surfaces.
 
 ### 4.2 Module contracts
 
-| Module/path | Responsibility | Allowed dependencies | Forbidden dependencies | Public API | Unreal types allowed? | Future owner |
-|---|---|---|---|---|---|---|
-| `ThirdParty/EngineSim` | Pinned minimal upstream source, dependency headers/sources, provenance, UBT external/build rules. | C++ standard library; verified vendored dependencies. | Nextcar gameplay, UObjects, SDL, Piranha, Discord, original UI/rendering. | No gameplay-facing API; upstream symbols are private implementation details of Core. | No. | NC-003B |
-| `NextcarEngineSimCore` | Portable adapter, fixed fixture construction, engine-sim lifecycle, native-to-public PCM conversion, core telemetry. | `ThirdParty/EngineSim`, C++ standard library. UBT module boilerplate may use Unreal build infrastructure, but portable sources may not include Unreal headers. | `Source/Nextcar/**`, `AudioMixer`, gameplay classes, UObjects, Slate, Engine UI, runtime scripting. | The interface in section 5 only. | No in public or portable implementation code. | NC-003B |
-| `NextcarEngineSimRuntime` | Unreal component/facade, dedicated worker, control handoff, bounded SPSC PCM ring, `ISoundGenerator`, test double, Automation Tests. | `Core`, `CoreUObject`, `Engine`, `AudioMixer`, `NextcarEngineSimCore`. | Direct upstream engine-sim headers/types; original UI, SDL, Discord, Piranha; direct gameplay-module dependency in the first spike. | Unreal-facing component/facade and test seams; it consumes only the Core API. | Yes. | NC-003C |
-| `Tools/EngineSimVendor` | Repeatable source import, manifest generation, hash verification, and provenance for manager-approved generated fixture data. | Python standard library and local git executable for update operations. | Network access during ordinary builds/tests; silent source rewriting. | Command-line tools described in section 3. | No. | NC-003B |
-| `Tests/EngineSimCore` | Standalone adapter/fixture/lifecycle/PCM tests. | `NextcarEngineSimCore` portable sources and selected third-party sources. | Unreal, gameplay, audio device. | Test executable only. | No. | NC-003B |
-| `Tools/EngineSimBenchmark` | Standalone benchmark, stress/soak runner, telemetry aggregation, JSON/CSV output. | Public Core API only; platform timing primitives. | Upstream engine-sim types, Unreal gameplay, direct mutation of Core internals. | CLI and report schema. | No for the required benchmark. | NC-003D |
-| `ThirdPartyNotices` | Distribution-ready notices and provenance summary. | Verified license texts. | Unsupported license assumptions. | Distribution documents. | No. | NC-003B |
-
-The Core module and its tests must not include `ArcadeCarPawn`, `ArcadeVehicleSimulation`, `NextcarGameMode`, or any future gameplay class. NC-003C shall use a fake implementation of the section 5 interface until the manager performs the real Core-to-Runtime integration.
+| Module/path | Responsibility | Allowed dependencies | Forbidden dependencies | Owner |
+|---|---|---|---|---|
+| `ThirdParty/EngineSim` | Exact minimal upstream and solver source, build rules, patches, provenance. | C++ standard library and verified vendored closure. | Gameplay, UObjects, SDL, Piranha, Discord, UI/rendering. | NC-003B |
+| `NextcarEngineSimCore` | Portable fixture, lifecycle, synchronous simulation/synthesis, PCM conversion, telemetry, profile consumption. | ThirdParty source and C++ standard library. | Gameplay, AudioMixer, UObjects, Slate, runtime scripting. | NC-003B |
+| `NextcarEngineSimRuntime` | Unreal worker, controls, SPSC ring, `USynthComponent`, `ISoundGenerator`, fake Core. | Core public interface and Unreal runtime/audio modules. | Direct upstream headers or gameplay dependency. | NC-003C |
+| `Tools/EngineSimVendor` | Deterministic import, patching, generation, manifest, hash and license verification. | Python standard library and local git for explicit update operations. | Network during ordinary build/test; silent rewrites. | NC-003B |
+| `Tests/EngineSimCore` | Phase 0 calibration harness and Phase 1 standalone tests. | Portable Core/fixture and selected source closure. | Unreal, gameplay, audio device. | NC-003B |
+| `Tools/EngineSimBenchmark` | Benchmark, schema, stress/soak harness, report aggregation. | Public Core interface or contract-compatible stub/fake. | Upstream types, Core internals, gameplay. | NC-003D |
+| `ThirdPartyNotices` | Distribution-ready complete notices. | Verified license texts. | License assumptions. | NC-003B |
 
 ## 5. Frozen narrow C++ interface
 
 ### 5.1 Public declarations
 
-The following declaration is normative. Mechanical export macros and include-path adjustments are allowed; semantics, ownership, units, and state transitions are not.
+The following declarations are normative. Mechanical export macros and include-path changes are allowed; semantics, ownership, units, and state transitions are not.
 
 ```cpp
 #pragma once
@@ -322,7 +349,6 @@ enum class LifecycleState : std::uint8_t
 enum class StartupFailureReason : std::uint8_t
 {
     None,
-    CalibrationUnavailable,
     Timeout,
     NonFiniteRpm,
     StarterDisengagementNotReached,
@@ -351,7 +377,7 @@ enum class ErrorCode : std::uint16_t
 struct Status final
 {
     ErrorCode code = ErrorCode::Ok;
-    std::array<char, 192> message{}; // UTF-8, NUL-terminated when non-empty.
+    std::array<char, 192> message{};
 
     [[nodiscard]] bool ok() const noexcept { return code == ErrorCode::Ok; }
 };
@@ -359,17 +385,11 @@ struct Status final
 struct InitializationConfig final
 {
     EngineFixtureId fixture = EngineFixtureId::SubaruEJ25AtgVideo2;
-
-    // Version 1.1 supports exactly the pinned native output format.
     std::uint32_t sample_rate_hz = 44'100;
     std::uint16_t channel_count = 1;
     std::uint32_t simulation_frequency_hz = 20'000;
     double target_synthesizer_latency_seconds = 0.1;
-
-    // One Advance performs no more than one bounded synchronous synthesis pass.
     std::uint32_t max_synchronous_synthesis_frames = 2'000;
-
-    // Maximum caller request to PullPcm. Accepted range [1, 8,192].
     std::uint32_t max_pull_frames = 2'048;
 };
 
@@ -378,14 +398,14 @@ struct AdvanceResult final
     Status status{};
     std::uint64_t simulation_steps = 0;
     double advanced_simulation_seconds = 0.0;
-    std::uint32_t produced_frames = 0; // Newly converted and queued float frames.
+    std::uint32_t produced_frames = 0;
 };
 
 struct PcmPullResult final
 {
     Status status{};
     std::uint32_t requested_frames = 0;
-    std::uint32_t produced_frames = 0; // Frames removed from the Core float queue.
+    std::uint32_t produced_frames = 0;
 };
 
 struct CoreTelemetry final
@@ -435,33 +455,16 @@ public:
     IEngineSimCore(IEngineSimCore&&) = delete;
     IEngineSimCore& operator=(IEngineSimCore&&) = delete;
 
-    // Synchronous. Returns Ok only after automatic cold start, starter
-    // disengagement, post-starter stability, and non-empty finite PCM proof.
     virtual Status Start(const InitializationConfig& config) noexcept = 0;
-
-    // The only cross-thread Core method. It sets one atomic cancellation flag
-    // and performs no upstream call, allocation, lock, logging, or cleanup.
     virtual void RequestStop() noexcept = 0;
-
-    // Runtime controls do not expose ignition or starter in the first spike.
     virtual Status SetThrottleTarget(float throttle_target_ratio) noexcept = 0;
     virtual Status SetLoadTargetNm(double load_target_newton_metres) noexcept = 0;
-
-    // Valid only in Running. wall_delta_seconds must be finite and in
-    // (0, 1/30]. The call performs physics and one bounded synchronous audio pass.
     virtual AdvanceResult Advance(double wall_delta_seconds) noexcept = 0;
-
-    // Pulls already-produced Core float PCM only. It never advances simulation
-    // and never invokes upstream synthesis.
     virtual PcmPullResult PullPcm(
         float* out_interleaved,
         std::uint32_t requested_frames) noexcept = 0;
-
     virtual double GetRpm() const noexcept = 0;
     virtual CoreTelemetry GetTelemetry() const noexcept = 0;
-
-    // Idempotent for Stopped. From Failed, Stop transitions to Stopped after
-    // confirming that no native resources remain.
     virtual Status Stop() noexcept = 0;
 };
 
@@ -471,129 +474,117 @@ public:
 } // namespace nextcar::enginesim
 ```
 
+There is no production `CalibrationUnavailable` behavior. The cold-start profile and generated header are mandatory versioned build inputs. A missing generated header must cause compilation failure or a deterministic validation/test failure before production execution.
+
 ### 5.2 Ownership and lifetime
 
 - `CreateEngineSimCore()` returns the sole owning `std::unique_ptr`.
-- The creating/starting owner thread is the only thread allowed to call Core methods, including telemetry access, except for the lock-free `RequestStop()` cancellation signal.
-- Core owns the fixture, simulator, native synthesizer state, native scratch buffers, converted float queue, and cold-start state.
-- Runtime owns Core through its dedicated worker. Gameplay and the Unreal audio render thread never hold upstream pointers.
-- Destruction invokes `Stop()` if necessary. No upstream object may outlive Core.
+- The creating/starting owner thread is the only thread allowed to call Core methods except lock-free `RequestStop()`.
+- Core owns fixture, simulator, synthesizer state, scratch buffers, converted PCM queue, profile data, and cold-start state.
+- Runtime owns Core through its dedicated worker.
+- Gameplay and the Unreal audio render thread never hold upstream pointers.
+- Destruction invokes `Stop()` if required; no upstream object outlives Core.
 
 ### 5.3 Exceptions and failure behavior
 
-- The public boundary is `noexcept`; exceptions must not cross it.
-- Invalid input returns `InvalidArgument` and preserves the previous valid target.
-- Calls in an illegal lifecycle state return `InvalidState` without mutation.
-- Non-finite RPM, simulation output, or PCM causes full cleanup and `Failed`.
-- `Start()` failure always returns `InitializationFailed`, records a specific `StartupFailureReason`, disables starter and ignition if constructed, destroys all fixture/simulator/synthesizer objects, clears native and converted PCM, and leaves the object in `Failed` with no live native resources.
-- A failed object may be recovered only by `Stop()` (`Failed -> Stopped`) followed by a new `Start()`.
-- No method logs, allocates from the Unreal audio callback, or hides failure by reporting zero-filled shortage frames as produced.
+- The public boundary is `noexcept`.
+- Invalid inputs return `InvalidArgument` and preserve prior valid targets.
+- Illegal lifecycle calls return `InvalidState`.
+- Non-finite RPM, simulation data, or PCM causes complete cleanup and `Failed`.
+- `Start()` failure records a specific `StartupFailureReason`, disables starter then ignition, destroys native state, clears queues, and leaves no live native resource.
+- Recovery is `Failed -> Stop -> Stopped -> Start`.
+- No shortage zero is reported as produced PCM.
 
-### 5.4 Units and value semantics
+### 5.4 Units and values
 
-- sample rate: integer hertz;
-- channel count: channels per frame; version 1.1 requires one;
+- sample rate: hertz;
 - simulation frequency: steps per simulated second;
-- wall/simulation durations: seconds;
+- duration: seconds;
 - RPM: revolutions per minute;
-- throttle target: finite ratio `[0.0, 1.0]`;
-- load target: finite opposing dynamometer torque in N·m, `[0.0, 13'558.179483314]`;
-- PCM: normalized float32, finite, nominal `[-1.0, 1.0]`;
-- `requested_frames` and `produced_frames`: audio frames, not bytes and not scalar-count aliases;
-- mono interleaving: one scalar per frame.
+- throttle: finite `[0.0, 1.0]`;
+- load: finite opposing dynamometer torque in N·m;
+- PCM: finite normalized float32 mono;
+- frame counters: audio frames, never bytes or requested-count aliases.
 
 ### 5.5 Normative `Advance()` ordering
 
-Every successful `Advance(wall_delta_seconds)` performs exactly this owner-thread sequence:
+Every successful `Advance(wall_delta_seconds)` executes on the Core owner thread:
 
-1. atomically read/apply the latest coherent throttle/load targets supplied to Core by Runtime;
-2. apply throttle through `Engine::setSpeedControl` and the load through the bounded dynamometer adapter;
+1. read and apply the latest coherent throttle/load targets;
+2. apply throttle and bounded dynamometer load;
 3. call `Simulator::startFrame(wall_delta_seconds)`;
-4. execute all required `simulateStep()` calls for that frame;
+4. execute required `simulateStep()` calls;
 5. call `Simulator::endFrame()` exactly once;
-6. synchronously process pending synthesizer input on the same owner thread, producing at most `max_synchronous_synthesis_frames` native samples;
-7. call native `readAudioOutput` into a preallocated `int16_t` scratch buffer for at most that same bound;
-8. trust only the integer returned by `readAudioOutput`; convert exactly that prefix to normalized float32 and append it to Core's bounded float queue;
-9. ignore the native function's zero-filled shortage tail for production, RMS, peak, clipping, readiness, and `produced_frames` accounting;
-10. update telemetry and return.
+6. synchronously process pending synthesizer input on the same owner thread, capped by `max_synchronous_synthesis_frames`;
+7. call native `readAudioOutput` into a preallocated int16 scratch buffer;
+8. trust only the returned count;
+9. convert exactly that returned prefix to normalized float32 and append it to the bounded Core queue;
+10. exclude the shortage zero tail from production, RMS, peak, clipping, readiness, hashes, and `produced_frames`;
+11. update telemetry and return.
 
-`Advance()` automatically produces PCM. `PullPcm()` only removes already-produced float frames. There is no alternate legal ordering for NC-003B.
+One call is bounded by:
 
-The maximum work in one call is bounded by:
+- finite `wall_delta_seconds` in `(0, 1/30]`;
+- a conservative bounded physics-step count;
+- one synchronous synthesis pass of at most 2,000 frames;
+- one native read/conversion of at most 2,000 frames.
 
-- `wall_delta_seconds <= 1/30`;
-- simulation steps no greater than `ceil((round(wall_delta_seconds * simulation_frequency_hz) + 1) * 1.1)`, the conservative upper bound implied by the pinned low-latency adjustment; Core treats a larger upstream count as an invariant failure;
-- one synchronous synthesis pass capped at 2,000 native frames;
-- one native read/conversion capped at 2,000 frames.
+`PullPcm()` never advances simulation and never invokes synthesis.
 
-A caller with more than `1/30` second of accumulated wall time must invoke multiple `Advance()` calls. Runtime preserves real-time factor by accumulating monotonic elapsed wall time and consuming it in bounded slices; it may not change simulated time merely to fill audio buffers. Buffer watermarks control when the worker wakes, not how much simulation time exists.
-
-### 5.6 PCM pull and partial-production semantics
+### 5.6 PCM pull semantics
 
 For `PullPcm(out, requested_frames)`:
 
-- `requested_frames == 0` is a successful no-op and permits `out == nullptr`;
+- zero requested frames is a successful no-op and permits `out == nullptr`;
 - otherwise `out` must hold `requested_frames * channel_count` floats;
-- Core removes up to `requested_frames` already-produced frames and reports that exact number in `produced_frames`;
-- if fewer frames exist, Core writes the produced prefix, zero-fills the caller-visible tail, and returns `Ok` with `produced_frames < requested_frames`;
-- caller-visible shortage zeros are never appended to Core's queue, never counted as produced, and never used to satisfy startup/audio-readiness tests;
-- no PCM availability is inferred from buffer contents alone; `produced_frames` is the sole availability authority.
+- Core removes up to the requested number of already-produced frames;
+- the returned `produced_frames` is the exact removed count;
+- a caller-visible shortage tail may be zero-filled;
+- shortage zeros are not added to queues, readiness, hashes, RMS, or production counters;
+- the production count is the sole PCM-availability authority.
 
-### 5.7 Automatic cold-start state machine and blocked calibration record
+### 5.7 Automatic cold-start model
 
-The first spike uses **automatic Core-managed cold start**. Runtime does not control ignition or starter.
+The first slice uses **automatic Core-managed cold start**. Runtime does not expose ignition or starter controls.
 
-Normative lifecycle:
+Lifecycle:
 
 ```text
 Stopped --Start--> Starting --success--> Running --Stop--> Stopping --> Stopped
                          |
                          +--failure/timeout-----------> Failed --Stop--> Stopped
+
 Running --fatal simulation/audio error---------------> Failed
 ```
 
 `Start()` runs synchronously on the Core owner thread:
 
-1. validate immutable configuration and enter `Starting`;
-2. construct the deterministic fixture, simulator, synchronous synthesizer, scratch buffers, and empty Core PCM queue;
-3. verify the native output ring reports zero available frames after initialization;
-4. set the fixed cold-start throttle from the measured fixture profile;
-5. enable ignition before the first simulated cranking step;
-6. enable the starter;
-7. execute the same bounded Core cycle as section 5.5 in deterministic `1/120`-second wall-delta slices;
-8. when measured disengagement criteria are met, record actual RPM and disable the starter;
-9. continue with ignition enabled for the measured stability window;
-10. fail if RPM becomes non-finite, never reaches the disengagement criterion before the measured timeout, or falls below the measured running criterion after starter removal;
-11. require at least one native read with returned count greater than zero, all converted samples finite, and RMS greater than zero over actually produced post-start samples;
-12. enter `Running` and return `Ok` only after all checks pass.
+1. validate configuration and mandatory generated cold-start profile;
+2. enter `Starting`;
+3. construct the deterministic fixture, simulator, synchronous synthesizer, scratch buffers, and empty PCM queue;
+4. verify the native output ring is empty;
+5. apply the measured startup throttle from the generated profile;
+6. enable ignition before the first simulated starter step;
+7. enable starter;
+8. execute bounded Core cycles in deterministic `1/120`-second slices;
+9. disengage starter only when the generated profile criterion is met;
+10. continue with ignition enabled for the generated stability window;
+11. require RPM to remain at or above the generated post-starter minimum;
+12. fail at the generated maximum startup simulation time;
+13. require actual produced native frames, finite converted samples, and non-zero RMS over actual post-start PCM;
+14. enter `Running` only after all checks pass.
 
-`RequestStop()` may be called while `Start()` is running; the Start loop polls it at least once per 1/120-second cycle. On observation, Start records `StopRequested`, disables starter then ignition, performs full cleanup, enters `Stopped`, and returns `InitializationFailed`. Owner-thread `Stop()` from `Running` or `Failed` also disables starter and ignition before releasing objects whenever those objects still exist.
+`RequestStop()` is polled at least once per `1/120`-second cycle. Cancellation disables starter then ignition, performs complete cleanup, and ends in `Stopped`.
 
-The following four fixture constants are **not calibrated in this revision and must not be guessed**:
+The following values are mandatory outputs of NC-003B Phase 0, not prerequisites for starting NC-003B:
 
-| Cold-start constant | Required evidence | Version 1.1 value |
-|---|---|---|
-| startup throttle ratio | sweep proving reliable start without excessive flare | **BLOCKED — no executable probe** |
-| starter-disengagement RPM/criterion | RPM trace with starter on/off transition | **BLOCKED — no executable probe** |
-| post-starter stability window and minimum running criterion | RPM trace showing self-sustained operation | **BLOCKED — no executable probe** |
-| maximum startup simulation time | repeated successful/failed starts plus margin rationale | **BLOCKED — no executable probe** |
+- startup throttle;
+- starter-disengagement criterion;
+- post-starter minimum running RPM;
+- stability-window duration;
+- maximum startup simulation time.
 
-Required non-published probe protocol:
-
-- exact engine-sim commit and exact dependency gitlinks;
-- deterministic fixture builder equivalent to the selected script;
-- synchronous synthesizer patch described in section 6.2;
-- fixed seed `0x4E433033`;
-- `1/120`-second Core-cycle schedule;
-- ignition enabled before the first cycle;
-- candidate throttle sweep recorded per run;
-- starter enabled from simulated time zero until each candidate disengagement criterion;
-- RPM, ignition, starter, throttle, produced native frames, PCM RMS, and failure state sampled every Core cycle;
-- at least ten repeated starts per candidate with identical hashes/statistics;
-- a negative timeout case and a stall-after-disengagement case;
-- JSON output containing the full RPM trace and the command/build revision.
-
-The executed environment produced no RPM trace because the exact checkout and submodules were unavailable. Until a manager-reviewed probe supplies the four values and margins, NC-003A remains blocked and NC-003B/C/D may not begin.
+The values may not be guessed. Absence of the profile, a mismatched hash, or values unsupported by trace evidence blocks NC-003B Phase 1 acceptance and merge.
 
 ## 6. Frozen threading and lifecycle model
 
@@ -601,11 +592,11 @@ The executed environment produced no RPM trace because the exact checkout and su
 
 | Thread | Owns/calls | Forbidden work |
 |---|---|---|
-| Game thread | publishes latest coherent throttle/load targets; creates/stops Runtime service | upstream simulation calls, native PCM reads, blocking audio work |
-| Runtime worker / Core owner | all Core lifecycle, fixture objects, upstream physics, synchronous synthesis, native PCM read, int16-to-float conversion, external-ring writes | Unreal audio callback work, hidden child threads |
-| Unreal audio render thread | reads preallocated external SPSC float ring into `ISoundGenerator` output and zero-fills deficits | Core/upstream calls, allocations, mutex waits, file I/O, logging |
+| Game thread | Publishes coherent throttle/load targets and controls Runtime service lifecycle. | Upstream simulation, native PCM read, blocking audio work. |
+| Runtime worker / Core owner | All Core lifecycle, fixture, physics, synchronous synthesis, native PCM read, conversion, external-ring writes. | Unreal audio callback work and hidden child threads. |
+| Unreal audio render thread | Copies from the preallocated external SPSC ring and zero-fills deficits. | Core calls, allocation, mutex waits, file I/O, logging. |
 
-There is exactly one thread that executes upstream engine-sim code: the Core owner thread. Core must record its owner thread identity at `Start()` and reject/assert every upstream operation attempted from another thread. NC-003B must provide a test seam or counter proving no extra thread is created.
+Exactly one thread executes engine-sim code. Core records its owner thread and rejects or asserts any upstream operation from another thread. Core creates no child thread.
 
 ### 6.2 Mandatory synchronous synthesizer patch
 
@@ -613,560 +604,582 @@ NC-003B shall not call `Simulator::startAudioRenderingThread()` or `Synthesizer:
 
 The vendored patch shall:
 
-1. add a bounded `processPendingInputSynchronously(max_output_frames)` operation;
-2. call it only after `endFrame()` and only on the Core owner thread;
-3. move pending input into preallocated transfer buffers, render no more than the supplied bound, commit/removal deterministically, and return the actual number appended to the native audio ring;
-4. remove or compile out the Core path's `m_thread`, `m_run`, condition variables, waits, and cross-mutex `m_processed` protocol;
-5. ensure native input rings, filter state, native output ring, reads, writes, and destruction are all owner-thread-only;
-6. remove the full-capacity zero-prefill loop so initialization leaves the native output ring explicitly/logically empty;
-7. replace process-global `rand()` with an instance-owned `std::minstd_rand`, seeded `0x4E433033` on every successful `Start()` attempt;
-8. introduce no process global, static mutable audio state, hidden task, or child thread.
+1. add bounded synchronous pending-input processing;
+2. invoke it only after `endFrame()` and on the owner thread;
+3. use preallocated transfer buffers;
+4. cap output by the supplied maximum;
+5. return the actual number appended to the native ring;
+6. remove or compile out the Core path's private renderer thread, waits, condition variables, and cross-thread `m_processed` protocol;
+7. keep native rings, filter state, reads, writes, and destruction owner-thread-only;
+8. remove the full-capacity zero-prefill loop;
+9. replace process-global `rand()` with instance-owned `std::minstd_rand`;
+10. seed each successful start attempt with `0x4E433033`;
+11. introduce no static mutable audio state, hidden task, or child thread.
 
-The synchronous function must return without waiting. If no input is pending or output capacity is unavailable, it returns zero. It may process less than the bound; the returned count is authoritative.
-
-### 6.3 Required vendored patch inventory
-
-Every modified file must be marked `patched` in `SOURCE_MANIFEST.json`, with upstream SHA-256, patched SHA-256, reason, and patch identifier. The required minimum inventory is:
+### 6.3 Minimum patch inventory
 
 | Upstream file | Required local difference |
 |---|---|
-| `include/synthesizer.h` | expose bounded synchronous processing; remove/disable native thread, condition-variable, and cross-thread state from the vendored Core build; add instance PRNG state |
-| `src/synthesizer.cpp` | remove 44,100 zero-prefill loop; implement synchronous bounded processing; remove native renderer-thread path; make all ring access owner-thread-only; replace `rand()`; remove unused `delta.h` include |
-| `include/simulator.h` | expose the internal synchronous processing seam and remove/disable native thread start/end surface from the vendored Core target |
-| `src/simulator.cpp` | route release/destruction without native thread join; provide the synchronous processing wrapper; preserve deterministic cleanup |
-| `src/piston_engine_simulator.cpp` | remove the function-static mutable `lastValveLift` state and keep all per-instance/per-cycle state owned by Core |
+| `include/synthesizer.h` | Bounded synchronous API, no Core renderer-thread state, instance PRNG. |
+| `src/synthesizer.cpp` | Empty native output initialization, synchronous processing, owner-thread ring access, no renderer thread, deterministic PRNG, no unused `delta.h`. |
+| `include/simulator.h` | Synchronous processing seam and no usable native thread-start surface in the vendored Core target. |
+| `src/simulator.cpp` | Synchronous wrapper and deterministic release without renderer-thread join. |
+| `src/piston_engine_simulator.cpp` | Remove function-static mutable valve-lift state. |
 
-If implementation proves another upstream file must change, it must also be marked `patched`; omission is a provenance-verifier failure. `include/ring_buffer.h` may remain byte-for-byte upstream only if the synchronous design and tests prove that no ring reaches ambiguous full capacity. Otherwise it must be patched with explicit occupancy semantics and added to this table by manager-approved contract update.
+Every modified upstream file must be marked `patched` with old/new hashes and reason. Any additional required patch must also be manifested.
 
-### 6.4 Control transfer
+### 6.4 Runtime control transfer
 
-Runtime publishes throttle and load as one coherent latest-value snapshot. Intermediate values may be coalesced. The worker reads one snapshot before each `Advance()` and calls Core setters on the owner thread. There is no unbounded control queue and no gameplay dependency in Core.
+Runtime publishes throttle and load as one coherent latest-value snapshot. Intermediate values may be coalesced. The worker reads one snapshot before each `Advance()` and invokes Core only on the owner thread.
 
 ### 6.5 External bounded SPSC PCM ring
 
-The Runtime ring is separate from every upstream ring:
+Frozen initial parameters:
 
-- producer: Runtime worker only;
-- consumer: Unreal audio render thread only;
-- element: one normalized float32 mono frame;
+- producer: Runtime worker;
+- consumer: Unreal audio render thread;
+- format: normalized float32 mono;
 - capacity: 8,192 frames;
 - startup prefill: 4,410 actually produced frames;
 - low-water target: 4,096 frames;
 - high-water target: 6,144 frames;
 - maximum Core production block: 2,000 frames;
-- memory allocated before audio starts;
-- lock-free SPSC indices with documented acquire/release ordering;
-- no overwrite of unread frames.
+- memory allocated before audio start;
+- acquire/release SPSC indices;
+- unread data is never overwritten.
 
-### 6.6 Audio readiness and startup publication
+### 6.6 Audio readiness
 
-Runtime may expose audible output only when all of the following are true:
+Runtime exposes audible output only when:
 
-1. Core lifecycle is `Running`;
-2. cumulative Core/native `produced_frames > 0` from actual `readAudioOutput` return values;
-3. all produced float samples are finite;
-4. RMS over actually produced post-start samples is greater than zero;
-5. the external Runtime ring contains at least 4,410 actually produced frames.
+1. Core is `Running`;
+2. actual cumulative produced native frames are greater than zero;
+3. all converted produced samples are finite;
+4. RMS over actual post-start produced samples is greater than zero;
+5. the Runtime ring holds at least 4,410 actually produced frames.
 
-There is no fixed native-drain step. A zero-filled shortage tail does not advance readiness or prefill.
+There is no native startup drain. Shortage zeros never advance readiness or prefill.
 
-### 6.7 Underrun and overrun
+### 6.7 Underrun, overrun, stop, and destruction
 
-On external-ring underrun, the audio callback copies available frames, zero-fills the remainder, increments event/frame counters, and never blocks. On overrun, the worker preserves unread data, rejects the newest whole excess block, increments event/frame counters, and never resizes or overwrites. Either event fails the sustained acceptance gate.
+- Underrun: copy available frames, zero-fill deficit, count event and frames, never block.
+- Overrun: preserve unread frames, reject newest whole excess block, count event and frames, never resize.
+- Stop order: stop controls, stop Unreal source, end callback consumption, signal worker, owner-thread Core stop, join worker, destroy Core, clear ring/counters.
+- Restart resets fixture, PRNG seed, profile state, queues, and counters deterministically.
+- Destruction is idempotent and tolerates cancellation during `Starting`.
 
-### 6.8 Start, stop, restart, pause, and destruction
+### 6.8 Unreal procedural-audio mechanism
 
-- Runtime creates its worker and Core while audio output is stopped.
-- A controller stop request invokes only lock-free `Core::RequestStop()` while the worker is inside Start/Advance; owner-thread cleanup follows.
-- The worker invokes synchronous `Core::Start()`; Core handles ignition/starter and returns only in `Running` or `Failed`.
-- After Core succeeds, the worker fills the external ring using bounded `Advance()`/`PullPcm()` calls until section 6.6 is satisfied.
-- Runtime then starts the `USynthComponent`/`ISoundGenerator` source.
-- Stop order: stop accepting controls; stop/deactivate Unreal source; wait until callback no longer consumes; signal worker; worker disables starter and ignition through `Core::Stop()`; join worker; destroy Core; clear ring/counters.
-- Restart constructs a fresh Core or starts a fully stopped reusable object; seed and fixture state reset identically.
-- Game pause may keep the worker running only if the chosen product behavior explicitly keeps audio alive; otherwise it follows the same controlled stop. It may not freeze Core while the audio callback continues consuming indefinitely.
-- Destruction is idempotent and must tolerate failure during `Starting` without deadlock.
-
-### 6.9 Unreal procedural-audio mechanism
-
-NC-003C shall use `USynthComponent::CreateSoundGenerator` with an `ISoundGenerator`. The generator's audio-render callback only copies from the external ring and zero-fills. It must not touch UObjects not guaranteed for that thread, call Core, allocate, lock a blocking mutex, log, or access files.
+NC-003C shall use `USynthComponent::CreateSoundGenerator` and `ISoundGenerator`. The audio-render callback only copies from the SPSC ring and zero-fills. It does not call Core, allocate, wait on a blocking mutex, log, access files, or touch unsafe UObjects.
 
 ## 7. Audio format and buffering contract
 
-### 7.1 Verified native behavior
+### 7.1 Native and public formats
 
-At the pinned commit:
+- native upstream output: signed int16 mono, 44,100 Hz;
+- Core queue: normalized float32 mono, 44,100 Hz;
+- Runtime ring: normalized float32 mono, 44,100 Hz;
+- Unreal source: float32 mono with source sample rate 44,100 Hz;
+- conversion: `sample / 32768.0f` or documented equivalent preserving `INT16_MIN -> -1.0`;
+- conversion: Core owner thread only;
+- custom resampling: out of scope.
 
-- output sample type: signed `int16_t`;
-- output rate: 44,100 Hz;
-- output channels: one mixed mono stream;
-- input channels: exhaust-system count;
-- native audio-ring capacity: 44,100 samples;
-- upstream single render-pass target/cap: 2,000 samples;
-- fixture simulation frequency: 20,000 Hz;
-- `readAudioOutput(N, target)` writes N scalar values, zero-fills shortage, and returns only the count consumed from the native ring.
+Only the prefix identified by native returned count is converted.
 
-The initialization loop that writes exactly 44,100 zeros does **not** make 44,100 frames available. With the pinned `RingBuffer`, the full wrap makes `writeIndex == start`, and `size()` reports zero. Version 1.1 requires the misleading loop to be removed. The native output ring must test as empty immediately after initialization.
+### 7.2 Production bounds
 
-### 7.2 Core and Unreal formats
+Each `Advance()` performs no more than one 2,000-frame synchronous synthesis pass and one 2,000-frame native read. Zero production is a valid cycle if simulation remains valid. Partial output converts only the returned prefix.
 
-- native upstream format: int16 mono, 44,100 Hz;
-- Core converted queue: normalized float32 mono, 44,100 Hz;
-- Runtime SPSC ring: normalized float32 mono, 44,100 Hz;
-- Unreal source format: float32 mono, source rate 44,100 Hz;
-- conversion: `sample / 32768.0f` or an exactly documented equivalent preserving `INT16_MIN -> -1.0` and finite output;
-- conversion location: Core owner thread only;
-- custom resampling: out of scope; Unreal source conversion handles a device mixer running at another rate.
+### 7.3 Frozen Runtime buffer values
 
-Only the first `returned_native_count` values from native scratch are converted. The native zero-filled tail is ignored. Core `produced_frames`, PCM peak/RMS, clipping, hashes, readiness, and benchmark production counts all use actual produced values only.
-
-### 7.3 Synchronous production and partial output
-
-Each `Advance()` performs no more than one 2,000-frame synchronous synthesis pass and one 2,000-frame native read. Results may be:
-
-- `produced_frames > 0`: convert and queue exactly that prefix;
-- `produced_frames == 0`: successful no-PCM cycle if simulation remains valid; do not fabricate production;
-- partial `< requested`: convert only returned frames; record shortage separately;
-- non-finite conversion or internal ring invariant failure: `AudioProductionFailed`, cleanup, `Failed`.
-
-A run is not considered audibly started merely because calls return `Ok`. It must satisfy section 6.6.
-
-### 7.4 External buffer parameters and tuning
-
-| Parameter | Frozen initial value |
+| Parameter | Value |
 |---|---:|
 | Runtime ring capacity | 8,192 mono frames |
-| Startup prefill | 4,410 actually produced frames (100 ms) |
+| Startup prefill | 4,410 actually produced frames |
 | Low-water target | 4,096 frames |
 | High-water target | 6,144 frames |
 | Maximum Core/native production block | 2,000 frames |
-| Maximum default `PullPcm` request | 2,048 frames |
+| Default maximum `PullPcm` request | 2,048 frames |
 
-NC-003D may recommend changes only from callback-size, scheduling, CPU, fill-distribution, and underrun/overrun evidence. No tuning may redefine actual-produced semantics, introduce a native thread, or count shortage zeros as production.
+NC-003D may recommend measured tuning, but may not redefine actual-produced semantics, introduce a native thread, or count shortage zeros.
 
 ## 8. Fixed first engine configuration
 
-### 8.1 Selected mechanical fixture
+### 8.1 Mechanical fixture
 
-The selected mechanical fixture remains the pinned repository default:
+The mechanical fixture remains unchanged:
 
 - name: **Subaru EJ25**;
 - selector: `assets/main.mr`;
 - script: `assets/engines/atg-video-2/01_subaru_ej25_eh.mr`;
-- fixture ID: `SubaruEJ25AtgVideo2` / `subaru_ej25_atg_video_2_01`.
+- fixture ID: `SubaruEJ25AtgVideo2` / `subaru_ej25_atg_video_2_01`;
+- four opposed cylinders;
+- 99.5 mm bore / 79 mm stroke;
+- 5.142 in connecting rod;
+- starter 70 lb-ft / 500 RPM;
+- redline 6,500 RPM;
+- ignition limiter 6,800 RPM / 0.16 s;
+- direct throttle linkage, gamma 2.0;
+- simulation frequency 20,000 Hz;
+- one exhaust system;
+- existing mechanical intake, exhaust, cam, timing, ignition, vehicle, and transmission values.
 
-This choice is the pinned application's default, not a declaration of the final Nextcar vehicle identity.
+The C++ builder is a deterministic transcription of the pinned script. Runtime Piranha parsing is forbidden. This contract changes only the test impulse response, not the mechanical configuration.
 
-### 8.2 Verified principal parameters
+### 8.2 Frozen identity impulse response
 
-| Parameter | Pinned script value |
-|---|---|
-| Layout | four cylinders, two opposed banks at +90/-90 degrees |
-| Bore / stroke | 99.5 mm / 79 mm |
-| Connecting rod length | 5.142 in |
-| Starter torque / speed | 70 lb-ft / 500 RPM |
-| Engine redline | 6,500 RPM |
-| Ignition limiter | 6,800 RPM, 0.16 s |
-| Throttle | direct linkage, gamma 2.0 |
-| Simulation frequency | 20,000 Hz |
-| Exhaust systems | one |
-| Audio tuning | high-frequency gain 0.01, noise 1.0, jitter 0.5 |
-| Vehicle | 2,700 lb, drag 0.3, diff 3.9, tire radius 10 in |
-| Transmission | 3.636, 2.375, 1.761, 1.346, 0.971, 0.756 |
+`minimal_muffling_02.wav` is excluded. It must not be copied, decoded, transformed, or used to create a derived fixture.
 
-### 8.3 Headless representation
+The first integration spike uses this Nextcar-owned identity impulse response:
 
-NC-003B, once authorized, shall transcribe the mechanical fixture into a deterministic C++ builder that constructs all engine, cam, timing, ignition, intake/exhaust, internal vehicle/transmission, and simulator objects directly. Runtime `.mr` parsing and the Piranha interpreter are forbidden.
+```text
+format: signed int16
+sample count: 1
+sample value: 32767
+sample-rate metadata: 44100 Hz
+convolution volume: 1.0
+raw little-endian PCM bytes: FF 7F
+raw PCM SHA-256:
+8f96c15501bef61baf5bd943201979595736b66b6a7e3b35c353729ab8d9a561
+```
 
-The builder shall initialize ignition and starter to their upstream defaults and then let `Core::Start()` perform the automatic sequence in section 5.7. It shall not bake guessed startup thresholds into the fixture.
+Meaning:
 
-### 8.4 Impulse-response blocker
+- it is a unit impulse;
+- convolution behaves as pass-through;
+- it does not emulate a final exhaust system;
+- it exists only to validate simulation, synthesis, convolution plumbing, PCM production, and deterministic hashes;
+- it contains no external recording and no unknown third-party recording rights.
 
-The script references `es/sound-library/new/minimal_muffling_02.wav` through `es/sound-library/impulse_responses.mr`. No separate author/source/redistribution evidence was found for that recording. It is **not an approved mandatory input** for NC-003B and must not be copied, decoded, or converted while section 13.3 remains blocked.
+Frozen locations:
 
-A deterministic synthetic impulse response generated entirely by a documented Nextcar tool is a technically viable fallback because it avoids runtime file I/O and third-party recording provenance. It is **proposed only**; this contract does not adopt it without explicit manager approval because it changes the audio fixture.
+```text
+Tools/EngineSimVendor/generate_identity_impulse_response.py
 
-### 8.5 Determinism boundary
+Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/
+  IdentityImpulseResponse.generated.h
+```
 
-- runtime scripting: forbidden;
-- runtime WAV/file I/O: forbidden;
-- process-global `rand()`/`srand()`: forbidden;
-- seed: `0x4E433033` reset per `Start()`;
-- native synthesis: synchronous owner-thread only;
-- control schedule: deterministic in tests;
-- fixture structural invariants and all local patches: manifest-verified;
-- PCM determinism: identical seed/config/schedule must yield identical produced-frame counts and either an identical hash or explicitly approved deterministic statistics if floating-point toolchain differences prevent bit identity.
+The generator and generated header belong to NC-003B Phase 0.
 
-## 9. Telemetry schema
+The generated header must contain the exact one-sample int16 array and frozen metadata. `SOURCE_MANIFEST.json` must mark it `generated` and include:
 
-### 9.1 Core snapshot
+- generator path;
+- generator SHA-256;
+- generation command;
+- signed int16 format;
+- sample count `1`;
+- sample value `32767`;
+- sample-rate metadata `44100`;
+- convolution volume `1.0`;
+- raw PCM SHA-256;
+- generated-file SHA-256;
+- license `project-owned/generated`;
+- explicit `wav_dependency: false`.
 
-`CoreTelemetry` in section 5 is mandatory. It reports lifecycle, startup, controls, simulation, actual native production, converted PCM, and owner-thread violations. `native_shortage_zero_fill_frames` is diagnostic only and must never be added to `produced_native_frames` or `produced_pcm_frames`.
+### 8.3 Determinism boundary
 
-### 9.2 Machine report
+- runtime scripting and runtime fixture file I/O are forbidden;
+- process-global randomness is forbidden;
+- deterministic seed is `0x4E433033`;
+- native synthesis is synchronous and owner-thread-only;
+- test controls and Phase 0 schedules are deterministic;
+- fixture, generated asset, profile, and local patches are manifest-verified;
+- identical seed/configuration/schedule must reproduce produced-frame counts and deterministic trace/hash evidence.
 
-NC-003D shall emit UTF-8 JSON with schema:
+## 9. Telemetry and report schema
+
+### 9.1 Core telemetry
+
+The `CoreTelemetry` snapshot is mandatory. Actual produced native and PCM counts are distinct from shortage zeros. Startup telemetry records ignition, starter, elapsed simulation time, disengagement RPM, failure reason, and lifecycle.
+
+### 9.2 Benchmark report
+
+NC-003D shall emit UTF-8 JSON using:
 
 ```text
 nextcar.engine_sim.benchmark.v1
 ```
 
-Required aggregate fields:
+Required aggregates include:
 
-| Field | Type | Unit/meaning |
-|---|---|---|
-| `schema` | string | exact schema identifier |
-| `run_id` | string | unique run identifier |
-| `core.repository` | string | `Dziuras98/engine-sim` |
-| `core.pinned_commit` | string | exact 40-hex source pin |
-| `core.source_manifest_sha256` | string | canonical manifest hash |
-| `fixture.id` | string | `subaru_ej25_atg_video_2_01` |
-| `lifecycle.state` | string | `Stopped/Starting/Running/Stopping/Failed` |
-| `lifecycle.started` / `shutdown_clean` | boolean | lifecycle outcome |
-| `lifecycle.start_status` / `shutdown_status` | string | stable status names |
-| `startup.failure_reason` | string | stable `StartupFailureReason` name |
-| `startup.ignition_enabled` / `starter_enabled` | boolean | final/current state |
-| `startup.elapsed_simulation_seconds` | number | simulated startup duration |
-| `startup.elapsed_wall_seconds` | number | monotonic startup duration |
-| `startup.starter_disengagement_rpm` | number | observed RPM at starter removal |
-| `elapsed_wall_seconds` | number | total monotonic run duration |
-| `simulation_seconds` | number | total simulated duration |
-| `real_time_factor` | number | simulation/wall duration |
-| `simulation_frequency_hz` | integer | configured physics frequency |
-| `simulation_iteration_us.mean/p95/max` | number | per-step wall time |
-| `audio_production_us.mean/p95/max` | number | synchronous production wall time |
-| `native.requested_frames` | integer | requested native frames |
-| `native.produced_frames` | integer | actual native return-count sum |
-| `native.shortage_zero_fill_frames` | integer | caller-tail shortage only |
-| `pcm.requested_frames` / `produced_frames` | integer | Core float pull totals |
-| `sample_rate_hz` / `channel_count` | integer | public PCM format |
-| `ring.capacity_frames` | integer | external Runtime capacity |
-| `ring.fill_frames.min/mean/max` | number | external fill observations |
-| `ring.underrun_events/frames` | integer | external consumer deficits |
-| `ring.overrun_events/frames` | integer | rejected external producer blocks/frames |
-| `rpm.current/mean/min/max` | number | RPM observations |
-| `controls.throttle_target_ratio` | number | final target |
-| `controls.load_target_newton_metres` | number | final target |
-| `pcm.peak_absolute` | number | actual produced normalized samples only |
-| `pcm.rms` | number | actual produced normalized samples only |
-| `pcm.clipped_samples` / `clipping_ratio` | integer/number | actual produced samples only |
-| `determinism.seed` | integer/string | `0x4E433033` |
-| `determinism.pcm_hash` | string | hash over produced frames and counts |
-| `threads.created_by_core` | integer | must be zero child threads |
-| `threads.owner_violation_count` | integer | must be zero |
-| `errors` | array | timestamped status/failure records |
+- exact engine-sim and solver commits;
+- source-manifest and cold-start-profile hashes;
+- fixture ID and deterministic seed;
+- lifecycle/startup result;
+- elapsed wall and simulation time;
+- real-time factor;
+- per-step and audio-production mean/p95/max;
+- requested/produced native frames and shortage frames;
+- requested/produced Core PCM frames;
+- sample rate and channels;
+- external ring fill and underrun/overrun counters;
+- RPM statistics and controls;
+- PCM peak, RMS, clipping, and deterministic hash;
+- Core child-thread count and owner-thread violations;
+- structured errors.
 
-Nearest-rank p95 is used. Optional CSV contains one row per sample/cycle with wall time, simulation time, lifecycle, RPM, ignition, starter, controls, requested/produced native frames, shortage zeros, produced PCM, external fill/counters, peak/RMS, and timing.
+Nearest-rank p95 is used. Per-cycle CSV or JSON trace may be attached as a CI/PR artifact.
 
 ### 9.3 Publication rules
 
-- Core owner thread updates the mutable source telemetry.
-- Runtime publishes immutable snapshots to game/HUD consumers.
-- Audio render thread increments only lock-free external underrun counters and never formats JSON or logs.
-- Startup traces preserve every cycle needed to reproduce disengagement and stability decisions.
-- Benchmark and Runtime must use actual produced-frame counts as the sole PCM-availability source.
+- Core owner thread updates mutable telemetry.
+- Runtime publishes immutable snapshots.
+- Audio thread updates only lock-free external underrun counters.
+- Startup traces retain every cycle needed to reproduce profile decisions.
+- Actual produced counts are the sole PCM-availability source.
 
-## 10. Non-overlapping ownership for NC-003B/C/D
+## 10. Parallel work ownership and NC-003B phases
 
-### 10.1 NC-003B — Core
+Parallel implementation is authorized only after:
 
-NC-003B exclusively owns:
+1. NC-003A v1.2 is merged;
+2. the manager creates the shared plugin scaffold.
 
-- `Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/**`;
-- `Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/**`;
-- `Tools/EngineSimVendor/**`;
-- `Tests/EngineSimCore/**`;
-- `ThirdPartyNotices/**`;
-- pinned source/dependency provenance;
-- minimal UBT and standalone Core build definitions within its owned paths;
-- deterministic Subaru EJ25 C++ mechanical fixture and only manager-approved impulse-response data;
-- Core interface implementation;
-- synchronous owner-thread synthesizer processing and proof that Core creates no child thread;
-- standalone Core tests.
+Write scopes remain non-overlapping.
 
-NC-003B must not edit Runtime, benchmark, gameplay, project, shared plugin descriptor, workflows, or existing tests.
+### 10.1 NC-003B Phase 0 — Fixture calibration
 
-### 10.2 NC-003C — Runtime Audio
+Phase 0 may implement only the minimum needed to produce reliable calibration evidence:
 
-NC-003C exclusively owns:
+- exact vendored engine-sim source closure;
+- simple solver at `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3`;
+- deterministic C++ Subaru EJ25 fixture;
+- generated identity impulse response;
+- synchronous synthesizer patch;
+- minimal headless calibration executable;
+- RPM/PCM trace collection;
+- profile/header generation and validation.
 
-- `Plugins/NextcarEngineSim/Source/NextcarEngineSimRuntime/**`;
-- the dedicated Nextcar worker implementation;
-- control atomics and lifecycle handoff;
-- bounded SPSC float PCM ring;
-- `USynthComponent` and `ISoundGenerator` implementation;
-- fake Core/test double implementing the section 5 interface;
-- Runtime Unreal Automation Tests.
+Phase 0 must produce and commit:
 
-NC-003C must compile and test against the public interface contract, not include upstream engine-sim headers. It must not edit Core, vendored source, benchmark, gameplay, project, shared plugin descriptor, workflows, or existing tests.
+```text
+Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json
 
-### 10.3 NC-003D — Measurement
+Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/
+  SubaruEJ25ColdStartProfile.generated.h
+```
 
-NC-003D exclusively owns:
+The JSON must contain at least:
 
-- `Tools/EngineSimBenchmark/**`;
-- benchmark CLI and profiles;
-- stress/soak harness;
-- JSON schema and optional CSV schema under its owned tool path;
-- measurement aggregation and percentile implementation;
-- ring/fake-source stress tests that do not duplicate Runtime production code;
-- the new `.github/workflows/engine-sim-benchmark.yml` workflow only;
-- JSON/CSV/log artifact publication.
+- schema version;
+- engine-sim commit;
+- solver commit;
+- fixture identifier;
+- deterministic seed;
+- simulation frequency;
+- calibration executable commit;
+- startup throttle;
+- starter-disengagement criterion;
+- post-starter minimum RPM;
+- stability-window duration;
+- maximum startup simulation time;
+- trial count;
+- success count;
+- startup-time distribution;
+- starter-disengagement RPM distribution;
+- applied margins;
+- trace-data hash;
+- exact command line.
 
-NC-003D has exclusive ownership of the new `.github/workflows/engine-sim-benchmark.yml` path. It must not edit `repository-validation.yml`, `unreal-ci.yml`, `unreal-full-ci.yml`, or `delete-merged-branch.yml`. This exact new-file assignment is non-overlapping with NC-003B and NC-003C.
+The profile summary and generated header are repository inputs. Full per-cycle traces may be stored as CI/PR artifacts, but the committed profile must preserve their hash and the distributions/margins needed for review.
 
-### 10.4 Manager/integration reservation
+Phase 0 procedure remains frozen:
 
-The manager exclusively owns or sequences:
+- ignition before the first starter step;
+- synchronous model;
+- `1/120`-second steps;
+- candidate throttle and disengagement sweep;
+- at least ten trials for the selected candidate;
+- timeout negative case;
+- stall-after-disengagement negative case;
+- RPM and actual PCM traces;
+- no guessed values.
+
+### 10.2 NC-003B Phase 1 — Production Core
+
+Phase 1 begins only after manager review and acceptance of the Phase 0 profile and trace evidence.
+
+Phase 1 implements:
+
+- `IEngineSimCore`;
+- `Start()` consuming `SubaruEJ25ColdStartProfile.generated.h`;
+- complete lifecycle and cleanup;
+- automatic cold start;
+- PCM conversion and queue;
+- telemetry;
+- standalone and UBT tests;
+- provenance and generated-input verification.
+
+Missing profile, missing generated header, mismatched profile/header hash, mismatched source/solver pin, or values unsupported by trace evidence must fail compilation or deterministic tests and block merge of NC-003B.
+
+### 10.3 NC-003C — Runtime Audio
+
+After the scaffold, NC-003C may work in parallel against a fake Core and owns only:
+
+```text
+Plugins/NextcarEngineSim/Source/NextcarEngineSimRuntime/**
+```
+
+It implements worker lifecycle, coherent controls, SPSC PCM ring, `USynthComponent`, `ISoundGenerator`, fake Core, and Runtime tests. It does not wait for numeric cold-start values and does not edit Core, vendored source, benchmark, project, shared plugin descriptor, workflows, or gameplay.
+
+### 10.4 NC-003D — Measurement
+
+After the scaffold, NC-003D may work in parallel against a contract-compatible stub/fake and owns:
+
+```text
+Tools/EngineSimBenchmark/**
+.github/workflows/engine-sim-benchmark.yml
+```
+
+It implements benchmark CLI, report schema, stress/soak harness, percentile logic, fake/stub tests, and artifacts. Real-Core measurements run after NC-003B integration. It does not wait for numeric cold-start values before implementing the schema and harness.
+
+### 10.5 Manager-owned integration surfaces
+
+The manager owns:
 
 - `Nextcar.uproject`;
 - `Source/Nextcar/**`;
 - `Plugins/NextcarEngineSim/NextcarEngineSim.uplugin`;
-- any shared module list or plugin-level manifest;
-- all existing `.github/workflows/**` files; NC-003D owns only the new `engine-sim-benchmark.yml`;
-- connection of real Core to Runtime in place of the fake;
-- `docs/manager-history.md`;
-- final integration order, conflict resolution, and merge decisions.
-
-No workstream may make a temporary gameplay dependency “just to demonstrate” its code. The benchmark consumes Core directly; Runtime consumes the fake until integration; Core has no knowledge of either consumer.
+- shared plugin-level declarations;
+- existing workflows;
+- connection of real Core to Runtime;
+- integration order and merge decisions;
+- `docs/manager-history.md`.
 
 ## 11. Test matrix and gates
 
-### 11.1 NC-003B Core tests required by this contract
+### 11.1 NC-003A validation
+
+NC-003A is documentation-only and does not run the fixture probe. It must run:
+
+- `python scripts/validate_repository.py`;
+- `git diff --check`;
+- `git status --short`;
+- GitHub Actions `Repository validation`.
+
+No NC-003B/C/D test is claimed by NC-003A.
+
+### 11.2 NC-003B Phase 0 tests
+
+Phase 0 must execute:
 
 | Test | Required assertion |
 |---|---|
-| native-ring initialization | native output availability is zero immediately after initialization; no 44,100-frame drain exists |
-| native shortage semantics | `readAudioOutput` returned count is zero/partial as appropriate; caller zero tail is not counted or hashed as produced |
-| synchronous synthesizer | pending input is processed synchronously after `endFrame`; no native renderer thread is started |
-| owner-thread enforcement | every upstream operation executes on the recorded owner thread; violation count remains zero |
-| no child thread | Core creates zero additional threads during start, run, stop, and failure paths |
-| automatic cold start | ignition precedes first cranking step; starter engages; measured criterion disengages it |
-| post-starter stability | engine remains above the measured running criterion for the measured window without starter |
-| startup PCM readiness | actual produced count > 0, all samples finite, post-start RMS > 0 |
-| startup timeout | blocked/starter-only case returns `InitializationFailed` with `Timeout` and full cleanup |
-| stall after disengagement | returns `InitializationFailed` with `StallAfterStarterDisengagement` and full cleanup |
-| clean stop while starting | cancellation disables starter/ignition, does not deadlock, ends `Stopped` |
-| start failure cleanup | no live fixture/simulator/synthesizer allocations; `Failed -> Stop -> Stopped` works |
-| repeated lifecycle | at least 100 consecutive start/stop/restart cycles with no deadlock, crash, or detectable leak |
-| deterministic schedule | fixed control schedule and seed repeat produced counts and PCM hash/statistics |
-| throttle/load response | measurable RPM response without exposing gearbox/gameplay coupling |
-| non-empty PCM | only actually produced post-start frames satisfy the assertion |
-| patch manifest | every locally modified upstream file is marked `patched` with old/new hashes and reason |
-| license/provenance verifier | every copied file has exact repository, commit, hash, license status, and notice mapping |
-| sanitizer profile | ASan/UBSan/TSan where supported by the standalone toolchain; unsupported sanitizer is documented, not reported as passed |
+| fixture construction smoke | deterministic Subaru fixture constructs with the exact pins |
+| synchronous synthesizer smoke | one bounded owner-thread pass works and creates no child thread |
+| identity impulse generation | generated sample and metadata match the frozen specification and hashes |
+| throttle/disengagement sweep | candidates and outcomes are captured without guessed selection |
+| selected-profile repetitions | at least ten deterministic trials for the selected candidate |
+| starter disengagement traces | per-cycle RPM/starter evidence supports the criterion |
+| post-starter stability traces | per-cycle RPM evidence supports the minimum and window |
+| timeout negative case | deterministic timeout trace and failure result |
+| stall negative case | deterministic post-disengagement stall trace and failure result |
+| produced PCM count | uses actual native returned counts only |
+| finite PCM | all produced converted samples are finite |
+| RMS | actual produced post-start PCM has measured non-zero RMS |
+| deterministic verification | repeated trace/profile hashes are verified |
+| profile generation | JSON contains all mandatory fields and source hashes |
+| header generation | generated header is derived from and consistent with JSON |
+| profile validation | pins, command, margins, counts, distributions, trace hash, and generated hash validate |
 
-### 11.2 Runtime Audio tests (NC-003C, after authorization)
+### 11.3 NC-003B Phase 1 tests
+
+Phase 1 must execute:
+
+| Test | Required assertion |
+|---|---|
+| profile/header consistency | exact field and hash consistency; absence/mismatch fails |
+| automatic cold start | ignition precedes starter step and profile values drive startup |
+| starter disengagement | generated criterion is applied and observed |
+| post-starter stability | generated minimum/window is satisfied without starter |
+| timeout cleanup | timeout disables starter/ignition and releases all native state |
+| cancellation during `Starting` | clean cancellation with no deadlock and final `Stopped` |
+| 100 lifecycle cycles | start/stop/restart repeats without crash, deadlock, or detectable leak |
+| deterministic PCM | fixed seed/config/schedule reproduce counts and hash/statistics |
+| owner-thread enforcement | zero owner-thread violations |
+| no child thread | Core creates zero child threads |
+| native-ring initialization | native availability is zero and there is no 44,100-frame drain |
+| shortage semantics | zero tail is not produced, hashed, measured, or used for readiness |
+| provenance verification | source, solver, patches, notices, generated IR, and profile validate |
+| non-empty PCM | actual post-start produced frames satisfy readiness |
+| throttle/load response | measurable response without gameplay coupling |
+| sanitizer profile | ASan/UBSan/TSan where supported; unsupported configurations documented |
+
+### 11.4 NC-003C Runtime tests
 
 - fake-Core startup success/failure and state propagation;
-- external SPSC producer/consumer ordering;
-- 4,410-frame actual-produced prefill requirement;
+- SPSC producer/consumer ordering;
+- 4,410-frame actual-produced prefill;
 - shortage zeros do not satisfy prefill;
-- underrun copy/zero-fill/counters;
-- overrun reject-newest/counters;
-- callback performs no Core call, allocation, blocking lock, file I/O, or logging;
-- worker stop during Core `Starting` and clean join;
-- 100 Runtime lifecycle cycles with fake Core;
+- underrun and overrun handling/counters;
+- callback performs no Core call, allocation, blocking wait, file I/O, or logging;
+- worker cancellation during fake Core `Starting`;
+- 100 Runtime lifecycle cycles;
 - restart resets ring and counters;
-- all `Nextcar.*` Unreal Automation Tests.
+- all relevant `Nextcar.*` Automation Tests.
 
-### 11.3 Measurement tests (NC-003D, after authorization)
+### 11.5 NC-003D measurement tests
 
-- JSON schema validation with all fields in section 9;
-- benchmark smoke including automatic cold start and clean shutdown;
-- actual/native production versus shortage accounting;
-- deterministic hash/statistics comparison;
-- startup trace artifact with disengagement/stability evidence;
-- buffer stress and controlled underrun/overrun cases;
-- sustained soak with zero unintended underruns/overruns;
-- provenance verifier invocation and report attachment.
+- schema validation;
+- benchmark smoke against stub/fake before Core integration;
+- real-Core smoke after NC-003B integration;
+- actual production versus shortage accounting;
+- deterministic hash/statistics;
+- startup trace artifact;
+- buffer stress;
+- controlled underrun/overrun;
+- provenance verifier invocation;
+- sustained soak after full integration.
 
-### 11.4 Cold-start calibration gate
+### 11.6 NC-003B merge gate
 
-Before NC-003B implementation is authorized, the temporary probe in section 5.7 must produce:
+NC-003B cannot merge when any of the following is true:
 
-- source/dependency exact commits and build command;
-- probe source or complete generation command;
-- per-cycle schedule;
-- at least ten successful traces per chosen candidate;
-- RPM trajectory through ignition, starter engagement, starter removal, and stability window;
-- produced native counts and post-start RMS;
-- negative timeout and post-disengagement stall traces;
-- selected four constants and explicit margins tied to measured distributions.
+- the cold-start JSON profile is absent;
+- the generated profile header is absent;
+- profile and header hashes disagree;
+- engine-sim or solver pin differs;
+- values are present without trace hash and reviewable evidence;
+- fewer than ten selected-candidate trials were executed;
+- negative timeout or stall evidence is missing;
+- deterministic verification fails;
+- a copied, patched, or generated input is not manifested;
+- required notices are incomplete.
 
-Current result: **BLOCKED — no executable checkout, no RPM trace, no constants selected**.
+## 12. Required integration order
 
-### 11.5 Short PR/CI profile
+1. Finalize and merge NC-003A contract version 1.2.
+2. Manager creates the shared plugin scaffold.
+3. Start NC-003B, NC-003C, and NC-003D in parallel within their frozen write scopes.
+4. NC-003B executes Phase 0 fixture calibration.
+5. Manager reviews the cold-start profile and trace evidence.
+6. NC-003B executes Phase 1 Production Core.
+7. Integrate Core.
+8. Integrate benchmark and run real-Core measurement smoke.
+9. Integrate Runtime with fake Core.
+10. Connect real Core to Runtime.
+11. Run full CI, sustained soak, and manual audio smoke.
 
-When later implementation exists, every relevant PR runs:
+Gate details:
 
-1. repository validator;
-2. vendored source/license/provenance verifier;
-3. standalone Core compile/tests;
-4. deterministic fixture/cold-start/PCM tests;
-5. synchronous/no-thread/owner-thread tests;
-6. 100 lifecycle cycles;
-7. sanitizer configuration where supported;
-8. benchmark smoke and JSON schema validation;
-9. `NextcarEditor Win64 Development` for Unreal-affecting changes;
-10. all `Nextcar.*` Automation Tests for Runtime-affecting changes.
+- NC-003A merge requires only the frozen contract, resolved provenance decisions, documentation-only diff, and passing repository validation.
+- Manager scaffold must establish shared module names without assigning overlapping files.
+- Phase 0 must pass section 11.2 and produce the committed profile/header.
+- Manager acceptance must confirm values are trace-derived and margins are justified.
+- Phase 1 must pass section 11.3.
+- Core integration must preserve no-child-thread and actual-produced PCM semantics.
+- Benchmark integration records CPU, real-time factor, and initial buffer evidence.
+- Runtime fake-Core integration must pass callback-safety and SPSC tests independently.
+- Real-Core connection is manager-owned.
+- Full integration requires repository validation, provenance verification, standalone tests, benchmark smoke, Unreal build/tests, soak, and manual audio smoke.
 
-### 11.6 Sustained and manual gates
-
-The Windows self-hosted soak records all section 9 fields and requires zero unintended external underruns, zero overruns, clean startup/shutdown, no crash/deadlock/detectable leak, stable finite RPM/PCM, and real-time-factor evidence. Duration remains 30 minutes for the first sustained integration gate unless the manager changes it from measured runtime cost.
-
-Manual audio smoke occurs only after automated gates and verifies audible continuity, throttle/load response, start/stop/restart, and no startup artifact. It does not replace automated PCM or lifecycle evidence.
-
-### 11.7 Current NC-003A validation scope
-
-This revision is documentation-only. Repository validation and diff hygiene apply now. None of the future NC-003B/C/D tests is claimed as executed by NC-003A.
-
-## 12. Required integration order and blocking gates
-
-1. **Resolve NC-003A blockers without implementation work.**
-   Gate: obtain the exact solver gitlink/license blob; resolve the impulse-response rights or obtain explicit approval for a deterministic synthetic replacement; run the section 5.7 probe and record its command/source, schedule, RPM traces, four selected constants, and margin rationale.
-
-2. **Update and re-review this contract on PR #11.**
-   Gate: sections 5.7 and 13.3 contain resolved evidence rather than `BLOCKED`; repository validation passes; the diff still contains only this document.
-
-3. **Merge NC-003A.**
-   Gate: manager approval and no material open decision concerning startup, PCM production, native synchronization, dependency pinning, or mandatory assets.
-
-4. **Create the manager-owned plugin scaffold, then branch NC-003B/C/D from the same integration baseline.**
-   Gate: shared `.uplugin` module names match section 4; no workstream owns overlapping files.
-
-5. **Execute NC-003B, NC-003C, and NC-003D in parallel.**
-   - B implements real Core, synchronous upstream synthesis, measured cold start, fixture, provenance, and tests.
-   - C implements Runtime against fake Core.
-   - D implements benchmark/reporting against a contract-compatible fake or stub, then real Core after integration.
-
-6. **Integrate Core first.**
-   Gate: source/patch/license manifest verification, standalone compile/tests, zero child threads, owner-thread proof, deterministic fixture, automatic start/stop/restart, 100 lifecycle cycles, control response, and actual non-empty PCM pass.
-
-7. **Integrate benchmark and measurements.**
-   Gate: benchmark builds against real Core, emits valid complete JSON and startup trace, and short smoke passes. Initial CPU/buffer evidence is recorded.
-
-8. **Integrate Runtime Audio with fake Core.**
-   Gate: external ring, actual-produced prefill, underrun/overrun, worker lifecycle, generator, and Automation Tests pass; audio callback safety review passes.
-
-9. **Connect real Core to Runtime adapter.**
-   Manager-owned change removes fake binding from production while retaining fake tests. No gameplay coupling is added.
-
-10. **Run full CI and sustained test.**
-    Gate: repository validation, provenance verifier, standalone tests, benchmark smoke, `NextcarEditor Win64 Development`, all `Nextcar.*` Automation Tests, complete artifacts, and 30-minute zero-underrun/zero-overrun soak pass.
-
-11. **Run manual audio smoke.**
-    Gate: audible continuity, automatic start, stop/restart, and responsive behavior are confirmed and recorded against the same build/report.
-
-12. **Only then design and implement engine/clutch/gearbox/driveline coupling.**
-    The later model may provide physical load and RPM coupling but must consume a versioned successor of the narrow interface, not upstream types.
-
-A failed gate blocks the next stage. Buffer enlargement cannot waive a real-time production failure. A fixture, asset, source-pin, boot-profile, or thread-model change requires an explicit contract/provenance update and manager review.
+A failed gate blocks the next dependent stage. Buffer enlargement cannot waive a real-time production failure. Any change to fixture source pin, generated profile, identity impulse, boot ownership, thread model, or PCM semantics requires explicit review.
 
 ## 13. Licensing and distribution
 
 ### 13.1 License/provenance decision table
 
-| Component/asset | Repository | Pinned commit | Copyright holder | License | Evidence path | Redistribution allowed | Notice required | Status |
-|---|---|---|---|---|---|---|---|---|
-| engine-sim selected source and scripts | `Dziuras98/engine-sim` / upstream `ange-yaghi/engine-sim` | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | AngeTheGreat / Ange Yaghi, as stated in root license | MIT | root `LICENSE`; selected source/script paths in manifest | yes, under MIT conditions | full MIT copyright, permission, disclaimer | **Resolved** |
-| Subaru EJ25 `.mr` source used for C++ transcription | same | same | covered by inspected repository root notice; no separate contrary notice found | MIT repository license | `assets/engines/atg-video-2/01_subaru_ej25_eh.mr`, root `LICENSE` | yes, with repository MIT notice | yes | **Resolved for transcription** |
-| generated deterministic C++ mechanical fixture | Nextcar derivative of above | generated from same pin | Nextcar modifications plus upstream rights/notice | project terms plus upstream MIT notice | generator command and `SOURCE_MANIFEST.json` | yes after generator provenance passes | upstream MIT notice plus project notice | **Conditionally resolved; generator not yet implemented** |
-| `minimal_muffling_02.wav` | engine-sim tree | same | **not established** | **not established for the recording** | `es/sound-library/impulse_responses.mr`; WAV path; no separate author/source/license metadata found | **no approval to copy or create derivative** | unknown | **BLOCKED — mandatory asset rejected pending rights evidence or approved fallback** |
-| simple 2D constraint solver source | `ange-yaghi/simple-2d-constraint-solver` | **exact engine-sim gitlink unavailable in current environment** | Ange Yaghi in inspected repository license | MIT in inspected repository `LICENSE` | engine-sim `.gitmodules`, `include/scs.h`, solver `LICENSE` | only after exact gitlink and license blob are recorded | full solver MIT notice | **BLOCKED — license family known, exact pin/provenance unresolved** |
-| `delta-studio` / `delta-basic` | `ange-yaghi/delta-studio` | not copied | n/a | n/a | only unused `src/synthesizer.cpp` include and upstream CMake link | n/a | n/a | **Excluded by required local patch/source closure** |
-| `csv-io` | `ange-yaghi/csv-io` | not copied | n/a | n/a | upstream CMake link; no selected Core source reference | n/a | n/a | **Excluded from intended minimal Core closure** |
-| Piranha, Discord, direct-to-video, UI/rendering, upstream GoogleTest fetch | respective sources | not copied | n/a | n/a | separate upstream targets/options | n/a | n/a | **Explicitly excluded** |
-| proposed deterministic synthetic impulse response | would be generated by Nextcar | not selected | Nextcar | project license to be assigned | future generator/source | potentially yes | project notice | **Proposal only — requires manager approval; not part of v1.1 fixture** |
+| Component/asset | Pin/source | License and notice | Status |
+|---|---|---|---|
+| engine-sim selected source | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | MIT; preserve complete engine-sim notice | **Resolved** |
+| Subaru script transcription | pinned engine-sim repository MIT source | preserve upstream MIT notice and manifest source path/hash | **Resolved** |
+| simple 2D constraint solver | `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` | MIT, copyright 2022 Ange Yaghi; complete solver notice required | **Resolved** |
+| identity impulse response | generated by Nextcar from scalar specification | project-owned/generated; generator and output manifested | **Resolved** |
+| `minimal_muffling_02.wav` | excluded | not copied, decoded, transformed, or distributed | **Excluded** |
+| `delta-studio` / `delta-basic` | excluded | no copied source or notice dependency | **Excluded** |
+| `csv-io` | excluded | no copied source or notice dependency | **Excluded** |
+| Piranha/UI/Discord/direct-to-video | excluded | no copied source or notice dependency | **Excluded** |
 
-### 13.2 engine-sim MIT obligations
+### 13.2 Required notices
 
-Every copied or distributed substantial portion shall preserve:
-
-- `Copyright 2022 AngeTheGreat (Ange Yaghi)`;
-- the full MIT permission notice;
-- the MIT warranty disclaimer.
-
-NC-003B shall create `ThirdPartyNotices/engine-sim.txt`, preserve notices in copied source, and include applicable notices in packaged distributions.
-
-### 13.3 Blocking provenance findings
-
-Two mandatory inputs are unresolved and block implementation:
-
-1. **Impulse response:** no evidence establishes the author/source/redistribution right for `minimal_muffling_02.wav` or a generated sample-array derivative. The file must not be copied.
-2. **Constraint solver pin:** the exact gitlink SHA at the engine-sim pin could not be obtained from the available connector/checkout, so the solver source cannot yet be pinned and manifested reproducibly even though an MIT license is visible in the repository inspected.
-
-These are not permitted residual risks. The manager must resolve them by obtaining primary provenance evidence and the exact gitlink, or explicitly approve a contract change such as a deterministic synthetic impulse response. No agent may silently substitute current dependency HEADs or infer a recording license from repository placement alone.
-
-### 13.4 Required provenance files and verifier
+NC-003B must create:
 
 ```text
-Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/provenance/ENGINE_SIM_COMMIT
-Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/provenance/SOURCE_MANIFEST.json
-Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/provenance/UPSTREAM_LICENSE
 ThirdPartyNotices/engine-sim.txt
 ThirdPartyNotices/simple-2d-constraint-solver.txt
 ```
 
-For every copied/generated file, the manifest records repository, exact commit, upstream path, destination, upstream SHA-256, destination SHA-256, `copied/patched/generated`, patch identifier/reason, license identifier/evidence path, and notice mapping. Verification fails on missing/extra files, hash drift, unlisted patches, unresolved required status, or network/developer-local dependencies.
+Each file must contain the complete applicable MIT text. Source headers must be preserved where present. Packaged distributions must include the applicable notices.
 
-### 13.5 Packaging rule
+### 13.3 Manifest and verification rules
 
-The game build shall package source-compiled plugin code and approved generated fixture data only. It shall not require runtime scripting, runtime WAV paths, sibling checkouts, build-time network access, external CMake, or untracked prebuilt libraries.
+For every copied, patched, or generated file, `SOURCE_MANIFEST.json` records:
+
+- origin repository and exact commit, or project-owned generator;
+- upstream/source path;
+- destination path;
+- source/upstream SHA-256 where applicable;
+- destination/generated SHA-256;
+- status `copied`, `patched`, or `generated`;
+- patch identifier/reason where applicable;
+- license identifier and evidence;
+- notice mapping;
+- generator command and generator hash for generated files.
+
+Verification fails on missing or extra files, hash drift, unlisted patches, wrong solver pin, missing notices, WAV dependency, missing profile/header, or developer-local/network dependencies.
+
+### 13.4 Packaging
+
+The game packages source-compiled plugin code and approved generated data only. It does not require runtime scripting, runtime WAVs, sibling checkouts, build-time network, external CMake, or untracked prebuilts.
 
 ## 14. Frozen decisions and residual risks
 
 ### 14.1 Decision register
 
-| Decision | Selected option | Rejected options | Evidence/consequence | Owner |
-|---|---|---|---|---|
-| Native initial audio state | logically empty; remove full-capacity zero-prefill | readable 44,100-zero prefix; fixed drain | ring indices wrap equal and `size()==0`; shortage zeros are not production | NC-003B |
-| PCM availability authority | native return count / `produced_frames` only | buffer-content inspection; requested count; shortage tail | exact partial semantics in sections 5.6 and 7 | NC-003B/C/D |
-| Cold start ownership | automatic synchronous `Core::Start()` | Runtime/manual ignition/starter controls; throttle-only start | ignition/starter default off and app controls them separately | NC-003B |
-| Cold-start constants | must be measured by section 5.7 probe | guessed RPM, throttle, window, timeout | currently blocks approval | manager after probe; NC-003B consumes |
-| Upstream synthesis | synchronous bounded pass on Core owner thread | native renderer thread; audio-thread physics; hidden tasks | removes concurrent native ring/state access | NC-003B |
-| Native synthesizer thread | absent | retain/start/join upstream thread | no `startAudioRenderingThread()` call; zero Core child threads | NC-003B |
-| `Advance()` | targets -> startFrame -> simulate -> endFrame -> synchronous synth -> actual read -> convert -> telemetry | alternative order; Pull-driven simulation | one deterministic bounded cycle | NC-003B |
-| `PullPcm()` | drains already-produced float queue and zero-fills shortage | trigger synthesis/physics; count zeros as produced | audio consumer remains decoupled and bounded | NC-003B/C |
-| Source import | minimal vendored snapshot with exact manifest | submodule in game repo; build-time CMake; prebuilt binary | offline UBT packaging/debugging and drift verification | NC-003B |
-| Public boundary | portable exception-free `IEngineSimCore` | upstream/Unreal types in gameplay API | parallel fake/benchmark/runtime seam | NC-003B; manager versions |
-| Fixture | pinned default Subaru mechanical fixture as C++ builder | runtime Piranha; arbitrary different engine | exact default identity; startup constants not guessed | NC-003B after unblock |
-| Impulse response | no unproven asset may be copied | assume root MIT proves recording rights | `minimal_muffling_02.wav` remains blocked; synthetic fallback needs approval | manager |
-| Randomness | instance `std::minstd_rand`, seed `0x4E433033` | process-global `rand()`/`srand()` | repeatable isolated lifecycle and PCM | NC-003B |
-| Runtime PCM | 44.1 kHz mono float32 external SPSC ring | public int16, mutex/unbounded queue | UE render callback only copies/zero-fills | NC-003B/C |
-| Runtime prefill | 4,410 actually produced frames | native fixed drain; shortage zeros | readiness uses actual production | NC-003C |
-| Unreal source | `USynthComponent::CreateSoundGenerator` + `ISoundGenerator` | original audio device; deprecated direct path | official UE 5.8 model | NC-003C |
-| Underrun/overrun | zero-fill deficit; reject newest excess; count both | block, resize, overwrite unread | real-time-safe bounded behavior | NC-003C/D |
-| Gameplay | unchanged until isolated gate | B/C/D powertrain coupling | preserves current prototype | manager/later |
+| Decision | Frozen selection | Consequence |
+|---|---|---|
+| NC-003A status | architecture/provenance decisions complete | numeric calibration is not an NC-003A blocker |
+| Solver pin | `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` | exact source and MIT notice are mandatory |
+| Impulse response | one-sample generated identity impulse | pass-through integration fixture; no WAV dependency |
+| Mechanical fixture | pinned Subaru EJ25 transcription | no mechanical change in version 1.2 |
+| Cold-start ownership | automatic synchronous `Core::Start()` | no public ignition/starter controls |
+| Cold-start numbers | generated by NC-003B Phase 0 | never guessed; mandatory build input and B merge gate |
+| Profile absence | compile/test failure | no production `CalibrationUnavailable` mode |
+| Native initial audio state | logically empty | no 44,100-frame prefix or drain |
+| PCM availability | native returned count / actual `produced_frames` | shortage zeros excluded everywhere |
+| Synthesis | bounded synchronous owner-thread pass | no native renderer thread or Core child thread |
+| `Advance()` | targets -> physics -> endFrame -> synth -> actual read -> convert -> telemetry | one deterministic bounded cycle |
+| `PullPcm()` | drains already-produced float PCM | never triggers physics/synthesis |
+| Source import | minimal vendored source with manifest | offline deterministic UBT/standalone build |
+| Randomness | per-instance `std::minstd_rand`, seed `0x4E433033` | repeatable lifecycle and PCM |
+| Runtime buffer | 44.1 kHz mono float SPSC | audio callback only copies/zero-fills |
+| Runtime work | may proceed against fake Core after scaffold | independent of numeric calibration |
+| Measurement work | schema/harness may proceed against stub/fake after scaffold | real-Core measurements follow B integration |
+| Gameplay | unchanged | later versioned powertrain integration only |
 
-### 14.2 Blocking items that are not acceptable residual risks
+### 14.2 NC-003A blockers
 
-- four cold-start constants and their RPM-trace/margin evidence;
-- exact simple-solver gitlink/provenance;
-- redistribution/derivative rights for the selected impulse response, or explicit manager approval of a replacement.
+There are no remaining NC-003A architecture, solver-pin, license, or mandatory-asset blockers after this version 1.2 documentation correction and passing repository validation.
 
-Until all three are closed, the contract is not ready for parallel implementation.
+Cold-start numeric values are intentionally absent from this contract. They are a mandatory measured output and merge gate of NC-003B.
 
-### 14.3 Residual risks permitted only after blockers close
+### 14.3 Permitted residual risks
 
-After sections 5.7 and 13.3 are resolved, remaining risks may concern only:
+Residual risks after version 1.2 may concern:
 
-- mean/p95/max CPU cost and real-time factor;
-- audible quality and source-rate conversion;
-- optimal external ring capacity, watermarks, prefill, and callback scheduling;
-- UBT/MSVC portability of the minimal pinned source set;
-- long-duration numerical/audio stability measured by soak;
-- self-hosted runner performance variability and final CPU/latency budgets.
+- measured cold-start parameters until Phase 0 completes;
+- mean/p95/max CPU cost;
+- achieved real-time factor;
+- UBT/MSVC portability;
+- audible quality and device source-rate conversion;
+- external Runtime buffer capacity, watermarks, and scheduling;
+- long-duration numerical/audio stability and soak results;
+- self-hosted runner variability.
 
-They may tune measured constants through manager review. They may not reopen boot semantics, native synchronization, initial-buffer meaning, produced-frame accounting, fixture source pinning, or thread ownership.
+These risks may change measured/tuned values through manager review. They may not reopen automatic boot ownership, synchronous synthesis, no-child-thread ownership, native initial-buffer meaning, actual-produced PCM accounting, exact source pins, or the exclusion of the WAV.
 
 ## 15. Completion and authorization rule
 
-Version 1.1 resolves the manager's native-buffer, boot-ownership, synthesizer-threading, `Advance()`/`PullPcm()`, lifecycle, telemetry, patch-inventory, and test-matrix concerns at the architectural level. It intentionally does not fabricate unavailable cold-start measurements or third-party provenance.
+Version 1.2 completes NC-003A's documentation scope:
 
-NC-003B, NC-003C, and NC-003D remain blocked until a manager-reviewed update to this same contract records:
+- architectural decisions are frozen;
+- solver pin and MIT notice requirements are resolved;
+- the unapproved WAV is excluded;
+- the project-generated identity impulse response is frozen;
+- cold-start calibration is assigned to NC-003B Phase 0;
+- missing or unsupported calibration blocks NC-003B, not NC-003A;
+- NC-003C and NC-003D may begin in parallel after merge and manager scaffold;
+- no code, test, workflow, manifest, project, gameplay, `AGENTS.md`, or manager-history change is authorized by this PR.
 
-1. the exact solver gitlink and resolved notice/provenance row;
-2. an approved impulse-response source with redistribution rights, or an explicitly approved deterministic synthetic replacement;
-3. the cold-start probe command/source, schedule, RPM traces, selected throttle/disengagement/stability/timeout constants, and margin rationale.
-
-Only after those facts are inserted, repository validation passes, and the corrected contract is merged may the manager-owned plugin scaffold and parallel workstreams begin. No implementation, plugin, audio runtime, benchmark, workflow, or gameplay change is authorized by this documentation revision.
+PR #11 may be reviewed and merged after the documentation-only diff and `Repository validation` pass. The PR must not be self-merged by the NC-003A agent.
