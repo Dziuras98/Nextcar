@@ -29,20 +29,23 @@ jobs:
       TEST_REPORT_DIR: ${{ github.workspace }}\Saved\AutomationReports
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          clean: true
-
-      - name: Verify Unreal Engine runner
+      - name: Resolve Unreal Engine installation
         shell: pwsh
         run: |
-          $ueRoot = $env:UE_ROOT
+          $processRoot = $env:UE_ROOT
+          $machineRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "Machine")
+          $userRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "User")
+
+          Write-Host "Process UE_ROOT='$processRoot'"
+          Write-Host "Machine UE_ROOT='$machineRoot'"
+          Write-Host "User UE_ROOT='$userRoot'"
+
+          $ueRoot = $processRoot
           if ([string]::IsNullOrWhiteSpace($ueRoot)) {
-            $ueRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "Machine")
+            $ueRoot = $machineRoot
           }
           if ([string]::IsNullOrWhiteSpace($ueRoot)) {
-            $ueRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "User")
+            $ueRoot = $userRoot
           }
           if ([string]::IsNullOrWhiteSpace($ueRoot)) {
             throw "UE_ROOT is unavailable in the process, machine, and user environments."
@@ -52,10 +55,9 @@ jobs:
           $buildTool = Join-Path $ueRoot "Engine\Build\BatchFiles\Build.bat"
           $editorCmd = Join-Path $ueRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 
-          Write-Host "Resolved UE_ROOT=$ueRoot"
-          Write-Host "Checking build tool: $buildTool"
-          Write-Host "Checking editor command: $editorCmd"
-          Write-Host "Checking project file: $env:PROJECT_FILE"
+          Write-Host "Resolved UE_ROOT='$ueRoot'"
+          Write-Host "Build tool exists: $(Test-Path -LiteralPath $buildTool -PathType Leaf) — $buildTool"
+          Write-Host "Editor command exists: $(Test-Path -LiteralPath $editorCmd -PathType Leaf) — $editorCmd"
 
           if (-not (Test-Path -LiteralPath $buildTool -PathType Leaf)) {
             throw "Unreal Build Tool was not found at $buildTool"
@@ -63,13 +65,23 @@ jobs:
           if (-not (Test-Path -LiteralPath $editorCmd -PathType Leaf)) {
             throw "UnrealEditor-Cmd.exe was not found at $editorCmd"
           }
-          if (-not (Test-Path -LiteralPath $env:PROJECT_FILE -PathType Leaf)) {
-            throw "Project file was not found at $env:PROJECT_FILE"
-          }
 
           "UE_ROOT=$ueRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "BUILD_TOOL=$buildTool" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "EDITOR_CMD=$editorCmd" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Verify project checkout
+        shell: pwsh
+        run: |
+          Write-Host "Checking project file: $env:PROJECT_FILE"
+          if (-not (Test-Path -LiteralPath $env:PROJECT_FILE -PathType Leaf)) {
+            throw "Project file was not found at $env:PROJECT_FILE"
+          }
 
       - name: Build NextcarEditor
         shell: pwsh
