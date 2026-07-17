@@ -38,7 +38,7 @@ bool FNextcarClassConstructionTest::RunTest(const FString& Parameters)
     {
         TestEqual(
             TEXT("Game mode uses the arcade car as its default pawn"),
-            GameModeDefaults->DefaultPawnClass,
+            GameModeDefaults->DefaultPawnClass.Get(),
             AArcadeCarPawn::StaticClass());
     }
 
