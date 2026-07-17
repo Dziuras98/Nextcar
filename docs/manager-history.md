@@ -125,7 +125,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Re-read the complete current `AGENTS.md`, `docs/manager-history.md`, and `docs/windows-self-hosted-runner.md`.
   - Re-checked current GitHub documentation for adding a Windows self-hosted runner, installing it as a service, managing the service with PowerShell, and security limitations that still apply to private repositories.
 - Repository state found:
-  - GitHub repository metadata now reports `Dziuras98/Nextcar` visibility as `private`.
+  - GitHub repository metadata now reports `visibility: private`.
   - The existing runbook still described the repository as public, required interactive `run.cmd` operation, and treated Windows service installation as optional future work.
   - GitHub installs the Windows service during `config.cmd`; a runner already configured without the service must be removed and configured again.
   - Private visibility removes public-fork exposure but does not isolate self-hosted jobs from trusted collaborators or workflow code with repository access.
@@ -273,3 +273,44 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Integration gate: connect the real core to the runtime adapter; require repository validation, standalone core tests, benchmark report, `NextcarEditor` build, all `Nextcar.*` automation tests, and a sustained manual audio smoke test with zero underruns.
   - Only after that gate, implement explicit engine/clutch/gearbox/driveline state and couple RPM/load to vehicle controls.
   - Finish the first vertical slice with one car, one engine, one test map, throttle/brake/gears, responsive procedural audio, telemetry HUD, documented performance budgets, and repeatable acceptance tests.
+
+## 2026-07-17 — Finalize NC-003A engine-sim integration contract
+
+- Timestamp: 2026-07-17 22:26 (Europe/Warsaw)
+- User request: Review the completed NC-003A corrections, accept the confirmed author-owned engine-sim WAV instead of excluding it, determine whether the contract is ready, and prepare the NC-003B implementation instruction.
+- Baseline branch and commit: `agent/nc-003a-engine-integration-contract` at `0ac9cce5ceceb223b898f73933dc2a280029536b`; `main` at `3ce2579f45b568e2c5fd43ee26249b561a055f1c`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md` and every prior entry in this manager history.
+  - Reviewed the complete reachable `main` history and the full current PR #11 state, including all contract revisions, manager comments, the final diff, changed-file set, PR description, and CI evidence.
+  - Re-inspected the pinned `Dziuras98/engine-sim` commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`, the WAV introduction commit `4f7e06b211d0b51914aed0539b397ac27f70d0f3`, Git blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72`, the root engine-sim MIT license, and the exact simple-solver pin `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3`.
+- Repository state found:
+  - PR #11 is open, non-draft, mergeable, synchronized with `main`, and before this manager entry changed only `docs/engine-sim-integration-contract.md`.
+  - Contract version 1.3 freezes the minimal vendored source strategy, exact solver and WAV provenance, deterministic offline WAV-to-C++ conversion, NC-003B Phase 0 calibration and Phase 1 Production Core, synchronous owner-thread synthesis, no native renderer thread, actual-produced PCM semantics, lifecycle, telemetry, ownership, tests, and integration gates.
+  - The exact original `minimal_muffling_02.wav` is accepted as the mandatory MIT-licensed Subaru fixture based on its author-owned introduction commit, repository license, absence of a conflicting notice, and the user's authorship confirmation.
+  - Repository validation run 56 on contract commit `0ac9cce5ceceb223b898f73933dc2a280029536b` completed successfully.
+- Workstream decomposition and programmer-agent assignments:
+  - NC-003A review and merge remain sequential because the contract and manager history are integration surfaces.
+  - After merge, the manager must create the shared plugin scaffold. NC-003B, NC-003C, and NC-003D can then proceed in parallel with non-overlapping ownership.
+  - NC-003B is assigned the vendored Core, WAV/header provenance, Phase 0 calibration, Phase 1 Production Core, notices, and standalone/UBT tests. NC-003C owns Runtime Audio against a fake Core. NC-003D owns the benchmark/schema/workflow against a stub/fake until real-Core integration.
+- Files and behavior changed:
+  - Accepted the final contract without changing its technical content.
+  - Appended this manager-history entry to the same PR. No gameplay, engine-simulation implementation, project file, build workflow, or Unreal behavior changed.
+- Evidence and exact tests:
+  - PR changed-file inspection before the manager entry: only `docs/engine-sim-integration-contract.md`.
+  - Contract review confirmed version 1.3, exact WAV blob/provenance, solver pin, lossless generation contract, Phase 0/Phase 1 gates, non-overlapping ownership, complete test matrix, and no unresolved NC-003A blocker.
+  - `Repository validation` run 56 on `0ac9cce5ceceb223b898f73933dc2a280029536b` — completed, conclusion `success`.
+  - Local clone and local validator execution remain unavailable because the execution environment cannot resolve `github.com`; final Repository validation on the manager-history commit is required before merge.
+  - No Unreal build or Automation Test is required because the final PR diff remains documentation-only.
+- Decisions and integration notes:
+  - NC-003A version 1.3 is approved subject only to final Repository validation after this manager-history append.
+  - The original pinned WAV remains mandatory; the one-sample identity impulse is optional only for isolated filter tests.
+  - Numeric cold-start constants and measured WAV metadata are implementation-derived NC-003B Phase 0 deliverables and merge gates, not NC-003A blockers.
+  - PR #11 must be squash-merged immediately after the final validation succeeds, then its same-repository source branch must be deleted by automation or manually if safe.
+- Unresolved risks or blockers:
+  - Final Repository validation must pass on the manager-history commit before merge.
+  - NC-003B must still prove the exact transitive source closure, UBT/MSVC portability, lossless WAV conversion, cold-start calibration, deterministic PCM, lifecycle safety, and CPU/real-time behavior.
+- Next steps:
+  - Confirm final Repository validation on the updated PR head.
+  - Squash-merge PR #11 and confirm source-branch deletion.
+  - Create the manager-owned plugin scaffold.
+  - Dispatch NC-003B, NC-003C, and NC-003D in parallel under the frozen version 1.3 ownership and integration contract.
