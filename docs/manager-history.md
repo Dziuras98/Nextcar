@@ -114,3 +114,41 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Complete the runbook on the Windows 11 machine through the local Unreal preflight.
   - Register `NEXTCAR-UE58` with the custom `unreal-5.8` label, start it interactively, enable `ENABLE_UNREAL_CI`, and run Full Unreal Engine CI for PR #1.
   - Preserve the automation report and logs, set `ENABLE_UNREAL_CI=false`, stop the runner, then use the build/test evidence to decide whether PR #1 can be updated and merged.
+
+## 2026-07-17 — Private Windows runner service default
+
+- Timestamp: 2026-07-17 15:29 (Europe/Warsaw)
+- User request: The repository was changed to private; immediately update the Windows 11 runner instructions so the GitHub Actions runner is installed and operated as a Windows service.
+- Baseline branch and commit: `main` at `48bcb7ed1f380ef67a60603f6e0c4d9d031d6d60`.
+- Repository history reviewed:
+  - Reviewed the complete eight-commit `main` history available through the GitHub connector, including the original runner runbook change and all earlier policy/history changes.
+  - Re-read the complete current `AGENTS.md`, `docs/manager-history.md`, and `docs/windows-self-hosted-runner.md`.
+  - Re-checked current GitHub documentation for adding a Windows self-hosted runner, installing it as a service, managing the service with PowerShell, and security limitations that still apply to private repositories.
+- Repository state found:
+  - GitHub repository metadata now reports `Dziuras98/Nextcar` visibility as `private`.
+  - The existing runbook still described the repository as public, required interactive `run.cmd` operation, and treated Windows service installation as optional future work.
+  - GitHub installs the Windows service during `config.cmd`; a runner already configured without the service must be removed and configured again.
+  - Private visibility removes public-fork exposure but does not isolate self-hosted jobs from trusted collaborators or workflow code with repository access.
+- Workstream decomposition and programmer-agent assignments:
+  - The change was decomposed into security posture, machine-level environment, dedicated service identity, registration/reconfiguration, service verification, persistent operation, and service-specific troubleshooting.
+  - No programmer agent was dispatched because the change is one cohesive operational procedure and both writable files are shared documentation/history files requiring sequential integration.
+- Files and behavior changed:
+  - Updated `docs/windows-self-hosted-runner.md` to make a persistent automatically started Windows service the default.
+  - Added creation and permission setup for a dedicated non-administrator `NextcarRunner` account, service installation prompts, migration from an interactive runner, reboot verification, machine-level environment requirements, normal service operation, and service-specific diagnostics.
+  - Appended this manager-history entry. No workflow, gameplay, build, or simulation code changed.
+- Evidence and exact tests:
+  - GitHub repository metadata confirmed `visibility: private` before editing.
+  - The service procedure was checked against current official GitHub documentation: Windows service setup occurs during runner configuration; an existing non-service runner must be removed and reconfigured; service state can be managed through PowerShell.
+  - The local environment does not have the GitHub CLI installed (`gh: command not found`), so exact repository validation will be executed by the branch's GitHub Actions `Repository validation` workflow before merge.
+  - No Unreal build or Unreal Automation Test is required because the diff affects Markdown documentation only.
+- Decisions and integration notes:
+  - The runner service uses a dedicated unprivileged local account rather than `LocalSystem` or an administrator account.
+  - `UE_ROOT` and command-line dependencies must be machine-level because Windows services do not reliably inherit an interactive user's environment.
+  - The service remains installed and running after CI; `ENABLE_UNREAL_CI` remains the control for whether full Unreal jobs execute.
+- Unresolved risks or blockers:
+  - The procedure has not yet been exercised on the user's Windows 11 machine, so the exact service-account permissions required by the installed Unreal and Visual Studio locations remain to be verified.
+  - Private collaborators with sufficient repository access can still submit workflow or build code that executes on the host; repository access and workflow changes must remain trusted and reviewed.
+- Next steps:
+  - Validate this documentation branch with `python scripts/validate_repository.py` through GitHub Actions and merge after a successful result.
+  - On the Windows computer, complete the local preflight, create `NextcarRunner`, configure `NEXTCAR-UE58` as a service, reboot, and confirm the service returns to Running and GitHub reports the runner as Idle.
+  - Set `ENABLE_UNREAL_CI=true` and run Full Unreal Engine CI for PR #1; preserve the automation report and logs.
