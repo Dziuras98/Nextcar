@@ -27,9 +27,9 @@ These instructions apply to every task and every file in this repository.
 
 ## 4. Merge policy
 
-- `master` is the sole integration branch.
-- Work on a short-lived branch. Do not commit feature or fix work directly to `master`.
-- Open a pull request targeting `master`.
+- `main` is the sole integration branch.
+- Work on a short-lived branch. Do not commit feature or fix work directly to `main`.
+- Open a pull request targeting `main`.
 - Merge the pull request immediately after all required tests pass and the factual basis has been verified.
 - Do not leave a tested, approved change waiting without a concrete blocker.
 - Prefer squash merge unless preserving separate commits is technically necessary.
@@ -43,7 +43,7 @@ These instructions apply to every task and every file in this repository.
 4. Implement the smallest change that satisfies the confirmed requirement.
 5. Run `python scripts/validate_repository.py` and all area-specific tests.
 6. Review the final diff for unrelated changes and unsupported claims.
-7. Open a pull request to `master` with completed **Evidence** and **Tests** sections.
+7. Open a pull request to `main` with completed **Evidence** and **Tests** sections.
 8. Merge immediately after all checks pass.
 
 ## 6. Prohibited practices
