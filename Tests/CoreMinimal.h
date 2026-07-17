@@ -12,6 +12,12 @@ struct FMath
     }
 
     template <typename T>
+    static constexpr T Min(const T A, const T B)
+    {
+        return A < B ? A : B;
+    }
+
+    template <typename T>
     static constexpr T Abs(const T Value)
     {
         return Value < static_cast<T>(0) ? -Value : Value;
@@ -26,6 +32,11 @@ struct FMath
     static bool IsNearlyZero(const float Value, const float Tolerance)
     {
         return std::fabs(Value) <= Tolerance;
+    }
+
+    static float Fmod(const float Dividend, const float Divisor)
+    {
+        return std::fmod(Dividend, Divisor);
     }
 
     static float FInterpConstantTo(
