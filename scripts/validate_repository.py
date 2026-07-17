@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = (
     ROOT / "AGENTS.md",
+    ROOT / "docs" / "manager-history.md",
     ROOT / ".github" / "pull_request_template.md",
     ROOT / ".github" / "workflows" / "repository-validation.yml",
     ROOT / ".github" / "workflows" / "delete-merged-branch.yml",
@@ -21,9 +22,29 @@ REQUIRED_POLICY_PHRASES = (
     "Base every change on verified facts",
     "If any material requirement",
     "Every change must have an appropriate validation plan",
+    "When an agent is explicitly instructed to act as the manager",
+    "read and analyze the entire `AGENTS.md`",
+    "dispatch as many programmer agents as can safely work in parallel",
+    "`docs/manager-history.md` is the canonical, append-only record",
+    "A manager must not claim the task is complete",
     "`main` is the sole integration branch",
     "Merge the pull request immediately after all required tests pass",
     "automatically delete its source branch",
+)
+
+REQUIRED_MANAGER_HISTORY_PHRASES = (
+    "# Manager history",
+    "## Required entry format",
+    "Repository history reviewed:",
+    "Workstream decomposition and programmer-agent assignments:",
+    "Evidence and exact tests:",
+    "Unresolved risks or blockers:",
+)
+
+REQUIRED_PR_TEMPLATE_PHRASES = (
+    "## Manager record",
+    "complete repository history and all previous notes",
+    "`docs/manager-history.md` contains a final append-only entry",
 )
 
 TEXT_SUFFIXES = {".cpp", ".h", ".hpp", ".cs", ".ini", ".md", ".py", ".yml", ".yaml"}
@@ -46,6 +67,20 @@ def check_policy_content() -> None:
     for phrase in REQUIRED_POLICY_PHRASES:
         if phrase not in policy:
             fail(f"AGENTS.md is missing required policy text: {phrase!r}")
+
+
+def check_manager_history_content() -> None:
+    history = (ROOT / "docs" / "manager-history.md").read_text(encoding="utf-8")
+    for phrase in REQUIRED_MANAGER_HISTORY_PHRASES:
+        if phrase not in history:
+            fail(f"Manager history is missing required text: {phrase!r}")
+
+
+def check_pull_request_template_content() -> None:
+    template = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    for phrase in REQUIRED_PR_TEMPLATE_PHRASES:
+        if phrase not in template:
+            fail(f"Pull request template is missing required text: {phrase!r}")
 
 
 def check_json_files() -> None:
@@ -153,6 +188,8 @@ def main() -> int:
     checks = (
         check_required_files,
         check_policy_content,
+        check_manager_history_content,
+        check_pull_request_template_content,
         check_json_files,
         check_balanced_delimiters,
         check_unreal_generated_header_order,
