@@ -27,6 +27,7 @@ jobs:
     env:
       PROJECT_FILE: ${{ github.workspace }}\Nextcar.uproject
       TEST_REPORT_DIR: ${{ github.workspace }}\Saved\AutomationReports
+      BUILD_LOG_DIR: ${{ github.workspace }}\Saved\BuildLogs
 
     steps:
       - name: Resolve Unreal Engine installation
@@ -86,9 +87,16 @@ jobs:
       - name: Build NextcarEditor
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          & $env:BUILD_TOOL NextcarEditor Win64 Development $env:PROJECT_FILE -WaitMutex -NoHotReloadFromIDE
-          if ($LASTEXITCODE -ne 0) {
-            throw "NextcarEditor build failed with exit code $LASTEXITCODE"
+          New-Item -ItemType Directory -Path $env:BUILD_LOG_DIR -Force | Out-Null
+          $buildLog = Join-Path $env:BUILD_LOG_DIR "NextcarEditor.log"
+
+          & $env:BUILD_TOOL NextcarEditor Win64 Development $env:PROJECT_FILE -WaitMutex -NoHotReloadFromIDE 2>&1 |
+            Tee-Object -FilePath $buildLog
+          $buildExitCode = $LASTEXITCODE
+
+          Write-Host "Unreal build log: $buildLog"
+          if ($buildExitCode -ne 0) {
+            throw "NextcarEditor build failed with exit code $buildExitCode"
           }
 
       - name: Run Unreal Automation Tests
@@ -133,5 +141,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
+            Saved/BuildLogs/**
             Saved/AutomationReports/**
             Saved/Logs/**
