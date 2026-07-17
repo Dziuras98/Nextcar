@@ -1,6 +1,7 @@
 #include "ArcadeCarPawn.h"
 
 #include "ArcadeVehicleMath.h"
+#include "ArcadeVehicleSimulation.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
@@ -97,34 +98,40 @@ void AArcadeCarPawn::Tick(float DeltaSeconds)
         return;
     }
 
-    Nextcar::ArcadeVehicleMath::FSpeedStepParameters SpeedParameters;
-    SpeedParameters.MaxForwardSpeed = MaxForwardSpeed;
-    SpeedParameters.MaxReverseSpeed = MaxReverseSpeed;
-    SpeedParameters.ForwardAcceleration = ForwardAcceleration;
-    SpeedParameters.ReverseAcceleration = ReverseAcceleration;
-    SpeedParameters.BrakeDeceleration = BrakeDeceleration;
-    SpeedParameters.HandbrakeDeceleration = HandbrakeDeceleration;
-    SpeedParameters.CoastDeceleration = CoastDeceleration;
+    Nextcar::ArcadeVehicleSimulation::FVehicleTuning Tuning;
+    Tuning.Speed.MaxForwardSpeed = MaxForwardSpeed;
+    Tuning.Speed.MaxReverseSpeed = MaxReverseSpeed;
+    Tuning.Speed.ForwardAcceleration = ForwardAcceleration;
+    Tuning.Speed.ReverseAcceleration = ReverseAcceleration;
+    Tuning.Speed.BrakeDeceleration = BrakeDeceleration;
+    Tuning.Speed.HandbrakeDeceleration = HandbrakeDeceleration;
+    Tuning.Speed.CoastDeceleration = CoastDeceleration;
+    Tuning.LowSpeedSteeringRate = LowSpeedSteeringRate;
+    Tuning.HighSpeedSteeringRate = HighSpeedSteeringRate;
+    Tuning.MaxSteeringAngleDegrees = MaxSteeringAngleDegrees;
+    Tuning.WheelRadiusCm = WheelRadiusCm;
+    Tuning.SimulationSubstepSeconds = SimulationSubstepSeconds;
 
-    SpeedCmPerSecond = Nextcar::ArcadeVehicleMath::StepSpeed(
+    const Nextcar::ArcadeVehicleSimulation::FVehicleState CurrentState{
         SpeedCmPerSecond,
+        WheelRotationDegrees};
+    const Nextcar::ArcadeVehicleSimulation::FVehicleInput Input{
         ThrottleInput,
-        bHandbrakeHeld,
-        DeltaSeconds,
-        SpeedParameters);
-
-    const float SteeringAngle = FMath::Clamp(SteeringInput, -1.0f, 1.0f) * 28.0f;
-    const float YawDelta = Nextcar::ArcadeVehicleMath::CalculateYawDelta(
-        SpeedCmPerSecond,
         SteeringInput,
-        DeltaSeconds,
-        MaxForwardSpeed,
-        LowSpeedSteeringRate,
-        HighSpeedSteeringRate);
+        bHandbrakeHeld};
+    const Nextcar::ArcadeVehicleSimulation::FVehicleStepResult StepResult =
+        Nextcar::ArcadeVehicleSimulation::StepVehicle(
+            CurrentState,
+            Input,
+            DeltaSeconds,
+            Tuning);
 
-    AddActorWorldRotation(FRotator(0.0f, YawDelta, 0.0f));
+    SpeedCmPerSecond = StepResult.State.SpeedCmPerSecond;
+    WheelRotationDegrees = StepResult.State.WheelRotationDegrees;
 
-    const FVector Translation = GetActorForwardVector() * SpeedCmPerSecond * DeltaSeconds;
+    AddActorWorldRotation(FRotator(0.0f, StepResult.YawDeltaDegrees, 0.0f));
+
+    const FVector Translation = GetActorForwardVector() * StepResult.TravelDistanceCm;
     FHitResult Hit;
     AddActorWorldOffset(Translation, true, &Hit);
 
@@ -133,7 +140,7 @@ void AArcadeCarPawn::Tick(float DeltaSeconds)
         SpeedCmPerSecond = 0.0f;
     }
 
-    UpdateWheelVisuals(DeltaSeconds, SteeringAngle);
+    UpdateWheelVisuals(StepResult.SteeringAngleDegrees);
 }
 
 void AArcadeCarPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -178,6 +185,7 @@ void AArcadeCarPawn::ResetCar()
     SpeedCmPerSecond = 0.0f;
     ThrottleInput = 0.0f;
     SteeringInput = 0.0f;
+    WheelRotationDegrees = 0.0f;
     bHandbrakeHeld = false;
     SetActorLocationAndRotation(
         ResetLocation,
@@ -185,6 +193,7 @@ void AArcadeCarPawn::ResetCar()
         false,
         nullptr,
         ETeleportType::TeleportPhysics);
+    UpdateWheelVisuals(0.0f);
 }
 
 void AArcadeCarPawn::ConfigureWheel(UStaticMeshComponent* Wheel, const FVector& RelativeLocation)
@@ -197,14 +206,8 @@ void AArcadeCarPawn::ConfigureWheel(UStaticMeshComponent* Wheel, const FVector& 
     Wheel->SetRelativeScale3D(FVector(0.34f, 0.34f, 0.18f));
 }
 
-void AArcadeCarPawn::UpdateWheelVisuals(float DeltaSeconds, float SteeringAngleDegrees)
+void AArcadeCarPawn::UpdateWheelVisuals(float SteeringAngleDegrees)
 {
-    constexpr float WheelRadiusCm = 34.0f;
-    const float Circumference = 2.0f * UE_PI * WheelRadiusCm;
-    WheelRotationDegrees = FMath::Fmod(
-        WheelRotationDegrees + (SpeedCmPerSecond * DeltaSeconds / Circumference) * 360.0f,
-        360.0f);
-
     const FRotator FrontWheelRotation(90.0f, SteeringAngleDegrees, WheelRotationDegrees);
     const FRotator RearWheelRotation(90.0f, 0.0f, WheelRotationDegrees);
 
