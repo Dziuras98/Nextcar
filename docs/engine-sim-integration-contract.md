@@ -1,7 +1,9 @@
 # Engine-sim integration contract
 
-Status: **Frozen for NC-003B, NC-003C, and NC-003D**  
-Contract version: **1.0**  
+Status: **Frozen for NC-003B, NC-003C, and NC-003D**
+
+Contract version: **1.0**
+
 Target: **nEXTcAR first engine-audio vertical slice**
 
 This document is the implementation contract for the first `engine-sim` integration spike. It freezes the source pin, module boundaries, public API, fixed fixture, threading, buffering, telemetry, ownership, tests, and integration order. NC-003B, NC-003C, and NC-003D may tune only values explicitly identified as measurement-driven. They must not independently change the frozen decisions.
