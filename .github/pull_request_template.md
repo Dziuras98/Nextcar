@@ -27,6 +27,6 @@ python scripts/validate_repository.py
 
 ## Merge readiness
 
-- [ ] The PR targets `master`.
+- [ ] The PR targets `main`.
 - [ ] The diff contains no unrelated changes.
 - [ ] The change is ready to be merged immediately after checks pass.
