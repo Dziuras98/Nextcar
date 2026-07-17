@@ -1,6 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "ArcadeVehicleMath.h"
+#include "../ArcadeVehicleMath.h"
 #include "Misc/AutomationTest.h"
 
 using namespace Nextcar::ArcadeVehicleMath;
