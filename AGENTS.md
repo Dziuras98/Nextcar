@@ -25,7 +25,7 @@ These instructions apply to every task and every file in this repository.
 - Do not merge code with failing tests, unexecuted required tests, unresolved warnings that indicate a defect, or unverifiable behavior.
 - Include exact commands and results in the pull request under **Tests**.
 
-## 4. Merge policy
+## 4. Merge and branch lifecycle policy
 
 - `main` is the sole integration branch.
 - Work on a short-lived branch. Do not commit feature or fix work directly to `main`.
@@ -33,7 +33,8 @@ These instructions apply to every task and every file in this repository.
 - Merge the pull request immediately after all required tests pass and the factual basis has been verified.
 - Do not leave a tested, approved change waiting without a concrete blocker.
 - Prefer squash merge unless preserving separate commits is technically necessary.
-- Delete the work branch after a successful merge when possible.
+- After a pull request is successfully merged, automatically delete its source branch when the branch belongs to this repository.
+- Never automatically delete `main`, `master`, a protected branch, an unmerged branch, or a branch from a fork.
 
 ## 5. Required task sequence
 
@@ -45,6 +46,7 @@ These instructions apply to every task and every file in this repository.
 6. Review the final diff for unrelated changes and unsupported claims.
 7. Open a pull request to `main` with completed **Evidence** and **Tests** sections.
 8. Merge immediately after all checks pass.
+9. Confirm that the merged pull request source branch was deleted automatically; delete it manually only when the automation cannot do so and the branch is safe to remove.
 
 ## 6. Prohibited practices
 
@@ -53,6 +55,6 @@ These instructions apply to every task and every file in this repository.
 - No replacing required testing with static inspection unless the affected behavior is purely static and the validation demonstrably covers it.
 - No speculative compatibility claims.
 - No unrelated refactors bundled with a requested change.
-- No destructive repository operation without explicit user authorization.
+- No destructive repository operation without explicit user authorization, except automatic deletion of a successfully merged same-repository work branch under the policy above.
 
 If a required test environment is unavailable, report the blocker accurately and do not merge the affected change.

@@ -14,6 +14,7 @@ REQUIRED_FILES = (
     ROOT / "AGENTS.md",
     ROOT / ".github" / "pull_request_template.md",
     ROOT / ".github" / "workflows" / "repository-validation.yml",
+    ROOT / ".github" / "workflows" / "delete-merged-branch.yml",
 )
 
 REQUIRED_POLICY_PHRASES = (
@@ -22,6 +23,7 @@ REQUIRED_POLICY_PHRASES = (
     "Every change must have an appropriate validation plan",
     "`main` is the sole integration branch",
     "Merge the pull request immediately after all required tests pass",
+    "automatically delete its source branch",
 )
 
 TEXT_SUFFIXES = {".cpp", ".h", ".hpp", ".cs", ".ini", ".md", ".py", ".yml", ".yaml"}
@@ -124,16 +126,27 @@ def check_utf8_text_files() -> None:
 
 
 def check_workflow_scope() -> None:
-    workflow_path = ROOT / ".github" / "workflows" / "repository-validation.yml"
-    workflow = workflow_path.read_text(encoding="utf-8")
-    required_fragments = (
-        "pull_request:",
-        "main",
-        "python scripts/validate_repository.py",
-    )
-    for fragment in required_fragments:
-        if fragment not in workflow:
+    validation_path = ROOT / ".github" / "workflows" / "repository-validation.yml"
+    validation = validation_path.read_text(encoding="utf-8")
+    for fragment in ("pull_request:", "main", "python scripts/validate_repository.py"):
+        if fragment not in validation:
             fail(f"Validation workflow is missing: {fragment!r}")
+
+    cleanup_path = ROOT / ".github" / "workflows" / "delete-merged-branch.yml"
+    cleanup = cleanup_path.read_text(encoding="utf-8")
+    required_cleanup_fragments = (
+        "types:",
+        "closed",
+        "merged == true",
+        "head.repo.full_name == github.repository",
+        "head.ref != 'main'",
+        "head.ref != 'master'",
+        "contents: write",
+        "git.deleteRef",
+    )
+    for fragment in required_cleanup_fragments:
+        if fragment not in cleanup:
+            fail(f"Branch cleanup workflow is missing: {fragment!r}")
 
 
 def main() -> int:
