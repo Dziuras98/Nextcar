@@ -80,7 +80,7 @@ void AArcadeCarPawn::BeginPlay()
     Super::BeginPlay();
 
     FVector StartLocation = GetActorLocation();
-    StartLocation.Z = FMath::Max(StartLocation.Z, 45.0f);
+    StartLocation.Z = 45.0f;
     SetActorLocation(StartLocation, false, nullptr, ETeleportType::TeleportPhysics);
 
     ResetLocation = GetActorLocation();
