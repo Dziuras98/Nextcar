@@ -101,7 +101,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Evidence and exact tests:
   - Verified the runbook against the current PR #1 workflow and official GitHub and Epic documentation.
   - Attempted `git clone --branch agent/nc-002-windows-runner-runbook --single-branch https://github.com/Dziuras98/Nextcar.git /tmp/nextcar-runner-runbook && python scripts/validate_repository.py`; the command stopped before checkout because the tool container could not resolve `github.com`. This is an environment/network blocker, not a repository validation result.
-  - The exact repository branch must pass the `Repository validation` GitHub Actions workflow before merge; the final result will be recorded in this entry before completion.
+  - GitHub Actions `Repository validation` run 30 on commit `c20625feacd2d90ffcaaa28a05dea8aafd225ac8` completed successfully and executed the repository validator against the actual branch contents.
   - No Unreal build is required because this change affects Markdown documentation only.
 - Decisions and integration notes:
   - For the current public repository, interactive `run.cmd` operation is the default; permanent Windows-service operation is documented only as an option after making the repository private or restricting workflow access to trusted code.
