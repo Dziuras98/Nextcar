@@ -59,7 +59,7 @@ void ANextcarGameMode::StartPlay()
     else
     {
         FVector CarLocation = Car->GetActorLocation();
-        CarLocation.Z = FMath::Max(CarLocation.Z, 45.0f);
+        CarLocation.Z = 45.0f;
         Car->SetActorLocation(CarLocation, false, nullptr, ETeleportType::TeleportPhysics);
     }
 }
