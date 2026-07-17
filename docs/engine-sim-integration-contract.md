@@ -2,15 +2,15 @@
 
 Status: **Architecture frozen; NC-003A is ready for review and merge after repository validation**
 
-Contract version: **1.2**
+Contract version: **1.3**
 
 Target project: **nEXTcAR vertical slice**
 
 This document is the architecture, ownership, provenance, calibration, and acceptance contract for the first `engine-sim` integration spike.
 
-Version 1.2 preserves the accepted version 1.1 decisions for automatic Core-managed cold start, synchronous owner-thread simulation and synthesis, lifecycle behavior, native-ring initialization, `Advance()`/`PullPcm()` ordering, and actual-produced PCM accounting. It resolves the exact simple-solver pin and license, replaces the unapproved WAV dependency with a project-generated identity impulse response, and moves numeric cold-start calibration into NC-003B Phase 0.
+Version 1.3 preserves the accepted version 1.1 and 1.2 decisions for automatic Core-managed cold start, synchronous owner-thread simulation and synthesis, lifecycle behavior, native-ring initialization, `Advance()`/`PullPcm()` ordering, actual-produced PCM accounting, the exact simple-solver pin, and NC-003B Phase 0/Phase 1. It restores the pinned Subaru EJ25 impulse response as the mandatory production fixture, freezes its complete provenance, and requires deterministic offline conversion to a generated C++ header without runtime WAV I/O.
 
-The architectural decisions are frozen. After PR #11 is merged and the manager creates the shared plugin scaffold, NC-003B, NC-003C, and NC-003D may begin in parallel within the non-overlapping write scopes in section 10. The four cold-start values remain mandatory and may not be guessed. Their absence or unsupported calibration blocks acceptance and merge of NC-003B, not NC-003A.
+The architectural decisions are frozen. After PR #11 is merged and the manager creates the shared plugin scaffold, NC-003B, NC-003C, and NC-003D may begin in parallel within the non-overlapping write scopes in section 10. The cold-start values remain mandatory and may not be guessed. Their absence or unsupported calibration blocks acceptance and merge of NC-003B, not NC-003A.
 
 ## 1. Baseline and primary evidence
 
@@ -19,7 +19,8 @@ The architectural decisions are frozen. After PR #11 is merged and the manager c
 | Repository | Branch | Pinned commit | Use in this contract |
 |---|---|---|---|
 | `Dziuras98/Nextcar` | `main` | `3ce2579f45b568e2c5fd43ee26249b561a055f1c` | Project structure, gameplay boundary, tests, workflows, Unreal version, and integration policy. |
-| `Dziuras98/engine-sim` | `master` | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | Core source graph, simulator and synthesizer behavior, fixed mechanical fixture, dependency graph, and root license. |
+| `Dziuras98/engine-sim` | `master` | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | Core source graph, simulator and synthesizer behavior, fixed mechanical/audio fixture, dependency graph, and root license. |
+| `ange-yaghi/engine-sim` | upstream repository | introduction commit `4f7e06b211d0b51914aed0539b397ac27f70d0f3` | Original provenance for the mandatory Subaru EJ25 impulse-response WAV. |
 | `ange-yaghi/simple-2d-constraint-solver` | gitlink dependency | `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` | Required solver source used by `PistonEngineSimulator`. |
 
 The target engine version is **Unreal Engine 5.8**. `Nextcar.uproject` at the pinned Nextcar commit declares `EngineAssociation: "5.8"`.
@@ -37,7 +38,8 @@ The contract is based on the complete project policy and integration boundary, i
 - repository and Unreal workflows;
 - standalone and Unreal Automation Tests;
 - `scripts/validate_repository.py`;
-- PR #11 and manager comments, including `#issuecomment-5006829488`.
+- PR #11 and manager comments, including `#issuecomment-5006829488`;
+- the final user-approved NC-003A version 1.3 provenance decision.
 
 Verified project facts:
 
@@ -51,11 +53,12 @@ Verified project facts:
 The selected closure was reviewed at engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`, including:
 
 - root `LICENSE`, `.gitmodules`, and CMake dependency declarations;
-- simulator, piston-engine simulator, synthesizer, ring buffer, engine, ignition, starter, throttle, dynamometer, transmission, and vehicle sources;
+- simulator, piston-engine simulator, synthesizer, convolution/filter, ring buffer, engine, ignition, starter, throttle, dynamometer, transmission, and vehicle sources;
 - `src/engine_sim_application.cpp`;
 - `assets/main.mr`;
 - `assets/engines/atg-video-2/01_subaru_ej25_eh.mr`;
-- sound-library references;
+- `es/sound-library/new/minimal_muffling_02.wav`;
+- the introduction commit `4f7e06b211d0b51914aed0539b397ac27f70d0f3` and its added engine configurations and impulse-response files;
 - wrapper headers for the simple solver, delta, and csv-io.
 
 Frozen facts:
@@ -71,6 +74,7 @@ Frozen facts:
 9. `PistonEngineSimulator` requires the simple 2D constraint solver.
 10. `delta-studio`/`delta-basic` and `csv-io` are not part of the intended minimal source closure.
 11. The mechanical Subaru EJ25 fixture requests 20,000 Hz simulation and specifies a 70 lb-ft, 500 RPM starter, but those mechanical values do not determine safe cold-start thresholds.
+12. The Subaru EJ25 fixture's mandatory production impulse response is the exact WAV blob described in section 1.5; it is not replaceable by the identity unit-test fixture.
 
 ### 1.4 Exact solver provenance
 
@@ -96,22 +100,57 @@ ThirdPartyNotices/simple-2d-constraint-solver.txt
 
 containing the solver's complete MIT license text, including copyright, permission notice, and warranty disclaimer.
 
-### 1.5 License and reproducibility baseline
+### 1.5 Mandatory WAV provenance and license evidence
+
+The complete provenance record is:
+
+```text
+Repository:
+ange-yaghi/engine-sim
+Pinned fork:
+Dziuras98/engine-sim
+Pinned engine-sim commit:
+85f7c3b959a908ed5232ede4f1a4ac7eafe6b630
+Introduction commit:
+4f7e06b211d0b51914aed0539b397ac27f70d0f3
+Upstream path:
+es/sound-library/new/minimal_muffling_02.wav
+Git blob SHA:
+6d3f8688e170cb6e5f4bfec42f580f3900514d72
+Author/copyright holder:
+Ange Yaghi / AngeTheGreat
+License:
+MIT under the engine-sim repository license
+Required notice:
+complete engine-sim MIT notice
+```
+
+The provenance decision is supported by the complete evidence chain, not merely by the file's location in the repository:
+
+1. The commit introducing the WAV was authored by `ange-yaghi`.
+2. The same introduction commit adds a set of impulse-response files together with authored engine configurations.
+3. The repository's root `LICENSE` is the MIT license of Ange Yaghi / AngeTheGreat.
+4. No separate, conflicting license was found for the sound-library directory or the WAV.
+5. The user confirmed that the files were created by the engine-sim author.
+6. GitHub's **Contributions Under Repository License** rule states that content added to a repository containing a license notice is licensed under the same terms unless a separate agreement supersedes it.
+
+The resulting contract decision is that the exact WAV blob is a resolved mandatory MIT-licensed fixture. NC-003B must preserve the complete engine-sim MIT notice in `ThirdPartyNotices/engine-sim.txt`.
 
 Resolved inputs:
 
-- engine-sim selected source and Subaru script: repository MIT terms;
+- engine-sim selected source, Subaru script, and mandatory WAV: repository MIT terms;
 - simple solver at the exact gitlink above: MIT;
-- identity impulse response: project-owned generated data.
+- generated C++ impulse-response header: deterministic transformation of the pinned MIT WAV, with both source and output manifested.
 
-Excluded inputs:
+Excluded inputs remain:
 
-- `minimal_muffling_02.wav`: not copied, decoded, converted, or used to create a derivative;
 - `delta-studio`/`delta-basic`;
 - `csv-io`;
 - Piranha, UI/rendering, Discord, direct-to-video, and original application code.
 
 NC-003A does not execute the cold-start probe and does not publish numeric cold-start values. The required measurements are an explicit deliverable of NC-003B Phase 0. No implementation agent may infer or guess them from starter specifications, source constants, recordings, or visual inspection.
+
+NC-003A also does not publish the WAV SHA-256 or decoded audio metadata. NC-003B must calculate those values from the exact pinned blob and record them in `SOURCE_MANIFEST.json`; they must not be guessed or copied from an unverified file.
 
 ## 2. Goals and non-goals
 
@@ -129,7 +168,8 @@ The first integration stage shall:
 - be testable without a pawn, map, game mode, or gameplay tick;
 - build through UBT and a standalone headless harness;
 - expose no engine-sim implementation type across the public adapter boundary;
-- use a versioned, measured cold-start profile as a required build input.
+- use a versioned, measured cold-start profile as a required build input;
+- use the exact pinned Subaru EJ25 impulse-response samples through a generated compile-time C++ header.
 
 ### 2.2 Explicit non-goals
 
@@ -165,7 +205,8 @@ e009f4ff1c9c4c5874e865e893cdb62e208fb2b3
 
 The snapshot shall:
 
-- contain only the source and headers required by the headless simulator, synchronous synthesizer, fixed fixture, solver, and proven transitive closure;
+- contain only the source and headers required by the headless simulator, synchronous synthesizer, fixed fixture, convolution/filter path, solver, and proven transitive closure;
+- include the exact bytes of `es/sound-library/new/minimal_muffling_02.wav` only as a vendor-generation input and provenance artifact;
 - compile through UBT as source;
 - compile through the standalone Core harness;
 - preserve source copyright notices;
@@ -180,7 +221,7 @@ Git submodules in the game repository, build-time external CMake, and checked-in
 
 `delta-studio`/`delta-basic` and `csv-io` remain excluded. The unused `delta.h` include in the selected synthesizer source shall be removed as a recorded local patch. The manifest verifier and standalone/UBT compilation must fail rather than silently expand the source closure.
 
-### 3.3 Required provenance files
+### 3.3 Required provenance files and source-manifest contract
 
 NC-003B owns:
 
@@ -220,16 +261,39 @@ ThirdPartyNotices/
 - every copied, patched, or generated fixture path and hash;
 - generation-tool version.
 
-For generated data, the manifest must additionally record:
+For the impulse-response chain, the manifest must record two linked entries.
+
+The upstream WAV entry must include:
+
+- status `copied`;
+- repository `ange-yaghi/engine-sim` and pinned fork `Dziuras98/engine-sim`;
+- engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`;
+- introduction commit `4f7e06b211d0b51914aed0539b397ac27f70d0f3`;
+- upstream path `es/sound-library/new/minimal_muffling_02.wav`;
+- Git blob SHA `6d3f8688e170cb6e5f4bfec42f580f3900514d72`;
+- locally calculated WAV SHA-256;
+- detected WAV format, sample rate, channel count, bit depth, and sample count;
+- license `MIT`;
+- notice mapping to `ThirdPartyNotices/engine-sim.txt`;
+- byte-for-byte copy verification.
+
+The generated-header entry must include:
 
 - status `generated`;
-- generator path;
+- destination path `Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h`;
+- generator path `Tools/EngineSimVendor/generate_impulse_response_header.py`;
 - generator SHA-256;
-- exact generation command;
-- generation inputs and scalar metadata;
-- generated-file SHA-256;
-- license `project-owned/generated`;
-- explicit absence of a WAV dependency.
+- exact full generation command;
+- source WAV manifest reference;
+- source Git blob SHA;
+- source WAV SHA-256;
+- generated-header SHA-256;
+- detected WAV parameters;
+- decoded PCM hash used by the integrity test;
+- license `MIT`;
+- notice mapping to `ThirdPartyNotices/engine-sim.txt`.
+
+The WAV SHA-256 and audio metadata must be measured by NC-003B from the exact pinned file. NC-003A intentionally does not freeze unmeasured values.
 
 ### 3.4 Required update procedure
 
@@ -241,13 +305,16 @@ NC-003B shall add `Tools/EngineSimVendor/` and use this sequence for the initial
 3. Checkout that commit in detached-HEAD state.
 4. Run: git submodule update --init --recursive
 5. Verify the simple-solver gitlink is the contract pin.
-6. Verify the license blob for every selected source or generated input.
-7. Run the allowlisted vendor generator.
-8. Generate the identity impulse response with the frozen command.
-9. Generate provenance files and notices.
-10. Review PATCHES.md and the complete generated diff.
-11. Run the vendor verifier.
-12. Run Phase 0 or Phase 1 standalone compilation and tests, as applicable.
+6. Verify the engine-sim root MIT license and complete WAV provenance chain.
+7. Copy the exact WAV bytes from the pinned upstream path and verify Git blob SHA.
+8. Calculate and record the WAV SHA-256 and decoded WAV parameters.
+9. Run the allowlisted vendor generator.
+10. Generate MinimalMuffling02ImpulseResponse.generated.h with the frozen command.
+11. Verify lossless PCM equivalence and deterministic generated-header output.
+12. Generate provenance files and notices.
+13. Review PATCHES.md and the complete generated diff.
+14. Run the vendor verifier.
+15. Run Phase 0 or Phase 1 standalone compilation and tests, as applicable.
 ```
 
 A hand-edited vendored or generated file without a matching manifest entry must fail validation.
@@ -258,6 +325,10 @@ The pin is considered changed when any of the following occurs:
 
 - `ENGINE_SIM_COMMIT` changes;
 - the simple-solver commit differs from `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3`;
+- the WAV Git blob differs from `6d3f8688e170cb6e5f4bfec42f580f3900514d72`;
+- the copied WAV SHA-256 differs from the manifest;
+- decoded WAV parameters or PCM hash differ from the manifest;
+- the generator path, generator hash, command, or generated-header hash differs from the manifest;
 - any vendored source hash differs from the manifest;
 - an included license or notice entry changes;
 - a fixture/profile/generated-data hash changes;
@@ -278,7 +349,7 @@ Plugins/NextcarEngineSim/
       Private/
         Fixtures/
         Generated/
-          IdentityImpulseResponse.generated.h
+          MinimalMuffling02ImpulseResponse.generated.h
           SubaruEJ25ColdStartProfile.generated.h
     NextcarEngineSimRuntime/                       # NC-003C
       Public/
@@ -287,7 +358,7 @@ Plugins/NextcarEngineSim/
 
 Tools/
   EngineSimVendor/                                 # NC-003B
-    generate_identity_impulse_response.py
+    generate_impulse_response_header.py
   EngineSimBenchmark/                              # NC-003D
 
 Tests/
@@ -307,10 +378,10 @@ The manager shall create the shared `NextcarEngineSim.uplugin` and common module
 
 | Module/path | Responsibility | Allowed dependencies | Forbidden dependencies | Owner |
 |---|---|---|---|---|
-| `ThirdParty/EngineSim` | Exact minimal upstream and solver source, build rules, patches, provenance. | C++ standard library and verified vendored closure. | Gameplay, UObjects, SDL, Piranha, Discord, UI/rendering. | NC-003B |
-| `NextcarEngineSimCore` | Portable fixture, lifecycle, synchronous simulation/synthesis, PCM conversion, telemetry, profile consumption. | ThirdParty source and C++ standard library. | Gameplay, AudioMixer, UObjects, Slate, runtime scripting. | NC-003B |
+| `ThirdParty/EngineSim` | Exact minimal upstream and solver source, pinned WAV input, build rules, patches, provenance. | C++ standard library and verified vendored closure. | Gameplay, UObjects, SDL, Piranha, Discord, UI/rendering. | NC-003B |
+| `NextcarEngineSimCore` | Portable fixture, generated IR header, lifecycle, synchronous simulation/synthesis, PCM conversion, telemetry, profile consumption. | ThirdParty source and C++ standard library. | Gameplay, AudioMixer, UObjects, Slate, runtime scripting or file I/O. | NC-003B |
 | `NextcarEngineSimRuntime` | Unreal worker, controls, SPSC ring, `USynthComponent`, `ISoundGenerator`, fake Core. | Core public interface and Unreal runtime/audio modules. | Direct upstream headers or gameplay dependency. | NC-003C |
-| `Tools/EngineSimVendor` | Deterministic import, patching, generation, manifest, hash and license verification. | Python standard library and local git for explicit update operations. | Network during ordinary build/test; silent rewrites. | NC-003B |
+| `Tools/EngineSimVendor` | Deterministic import, patching, WAV parsing, header generation, manifest, hash and license verification. | Python standard library and local git for explicit update operations. | Network during ordinary build/test; silent rewrites. | NC-003B |
 | `Tests/EngineSimCore` | Phase 0 calibration harness and Phase 1 standalone tests. | Portable Core/fixture and selected source closure. | Unreal, gameplay, audio device. | NC-003B |
 | `Tools/EngineSimBenchmark` | Benchmark, schema, stress/soak harness, report aggregation. | Public Core interface or contract-compatible stub/fake. | Upstream types, Core internals, gameplay. | NC-003D |
 | `ThirdPartyNotices` | Distribution-ready complete notices. | Verified license texts. | License assumptions. | NC-003B |
@@ -480,7 +551,7 @@ There is no production `CalibrationUnavailable` behavior. The cold-start profile
 
 - `CreateEngineSimCore()` returns the sole owning `std::unique_ptr`.
 - The creating/starting owner thread is the only thread allowed to call Core methods except lock-free `RequestStop()`.
-- Core owns fixture, simulator, synthesizer state, scratch buffers, converted PCM queue, profile data, and cold-start state.
+- Core owns fixture, simulator, synthesizer state, scratch buffers, converted PCM queue, generated impulse-response data, profile data, and cold-start state.
 - Runtime owns Core through its dedicated worker.
 - Gameplay and the Unreal audio render thread never hold upstream pointers.
 - Destruction invokes `Stop()` if required; no upstream object outlives Core.
@@ -559,7 +630,7 @@ Running --fatal simulation/audio error---------------> Failed
 
 `Start()` runs synchronously on the Core owner thread:
 
-1. validate configuration and mandatory generated cold-start profile;
+1. validate configuration, mandatory generated impulse-response header, and mandatory generated cold-start profile;
 2. enter `Starting`;
 3. construct the deterministic fixture, simulator, synchronous synthesizer, scratch buffers, and empty PCM queue;
 4. verify the native output ring is empty;
@@ -610,7 +681,7 @@ The vendored patch shall:
 4. cap output by the supplied maximum;
 5. return the actual number appended to the native ring;
 6. remove or compile out the Core path's private renderer thread, waits, condition variables, and cross-thread `m_processed` protocol;
-7. keep native rings, filter state, reads, writes, and destruction owner-thread-only;
+7. keep native rings, convolution/filter state, reads, writes, and destruction owner-thread-only;
 8. remove the full-capacity zero-prefill loop;
 9. replace process-global `rand()` with instance-owned `std::minstd_rand`;
 10. seed each successful start attempt with `0x4E433033`;
@@ -724,68 +795,99 @@ The mechanical fixture remains unchanged:
 - one exhaust system;
 - existing mechanical intake, exhaust, cam, timing, ignition, vehicle, and transmission values.
 
-The C++ builder is a deterministic transcription of the pinned script. Runtime Piranha parsing is forbidden. This contract changes only the test impulse response, not the mechanical configuration.
+The C++ builder is a deterministic transcription of the pinned script. Runtime Piranha parsing is forbidden. Version 1.3 restores the script's production impulse-response fixture from the exact pinned WAV while leaving the mechanical configuration unchanged.
 
-### 8.2 Frozen identity impulse response
+### 8.2 Mandatory Subaru EJ25 impulse response
 
-`minimal_muffling_02.wav` is excluded. It must not be copied, decoded, transformed, or used to create a derived fixture.
-
-The first integration spike uses this Nextcar-owned identity impulse response:
+The mandatory production fixture is:
 
 ```text
-format: signed int16
-sample count: 1
-sample value: 32767
-sample-rate metadata: 44100 Hz
-convolution volume: 1.0
-raw little-endian PCM bytes: FF 7F
-raw PCM SHA-256:
-8f96c15501bef61baf5bd943201979595736b66b6a7e3b35c353729ab8d9a561
+es/sound-library/new/minimal_muffling_02.wav
 ```
 
-Meaning:
-
-- it is a unit impulse;
-- convolution behaves as pass-through;
-- it does not emulate a final exhaust system;
-- it exists only to validate simulation, synthesis, convolution plumbing, PCM production, and deterministic hashes;
-- it contains no external recording and no unknown third-party recording rights.
-
-Frozen locations:
+NC-003B must copy the exact bytes from engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` and verify the expected Git blob SHA:
 
 ```text
-Tools/EngineSimVendor/generate_identity_impulse_response.py
+6d3f8688e170cb6e5f4bfec42f580f3900514d72
+```
 
+NC-003B must calculate, from that exact copied file:
+
+- WAV SHA-256;
+- WAV format;
+- sample rate;
+- channel count;
+- bit depth;
+- sample count.
+
+Those measured values must be written to `SOURCE_MANIFEST.json`. They are intentionally not frozen in NC-003A without measurement.
+
+The copied WAV is a vendor-generation and provenance input. Runtime file I/O remains forbidden. NC-003B must deterministically convert the WAV during vendor generation to:
+
+```text
 Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/
-  IdentityImpulseResponse.generated.h
+  MinimalMuffling02ImpulseResponse.generated.h
 ```
 
-The generator and generated header belong to NC-003B Phase 0.
+The frozen generator path is:
 
-The generated header must contain the exact one-sample int16 array and frozen metadata. `SOURCE_MANIFEST.json` must mark it `generated` and include:
+```text
+Tools/EngineSimVendor/generate_impulse_response_header.py
+```
 
-- generator path;
-- generator SHA-256;
-- generation command;
-- signed int16 format;
-- sample count `1`;
-- sample value `32767`;
-- sample-rate metadata `44100`;
-- convolution volume `1.0`;
-- raw PCM SHA-256;
-- generated-file SHA-256;
-- license `project-owned/generated`;
-- explicit `wav_dependency: false`.
+The exact full generator command must be frozen by NC-003B in `SOURCE_MANIFEST.json` and `UPDATE.md`. It must identify the pinned WAV input, generated-header output, and any explicit deterministic options. Ordinary build, test, packaging, and runtime execution must consume only the generated header and must not open the WAV.
 
-### 8.3 Determinism boundary
+### 8.3 Lossless generated-header contract
+
+`MinimalMuffling02ImpulseResponse.generated.h` must preserve the exact decoded PCM sample sequence from the pinned WAV.
+
+The generator must not:
+
+- normalize the material;
+- trim it;
+- change sample rate;
+- change channel count;
+- add gain;
+- change sample ordering;
+- silently downmix, upmix, resample, dither, compress, or otherwise alter sample values.
+
+A necessary endian conversion or WAV-container-to-`int16_t` array conversion is permitted only when it is lossless. If the pinned WAV cannot be represented exactly as the required `int16_t` sequence, NC-003B must fail and request contract review rather than quantize or otherwise alter it. The generated sample array must be tested against PCM decoded independently from the copied WAV. The generated header must also contain the measured metadata needed to construct the engine-sim impulse response without runtime file access.
+
+The manifest must cover:
+
+- upstream WAV as `copied`;
+- generated header as `generated`;
+- generator path and SHA-256;
+- exact full generation command;
+- expected Git blob SHA;
+- measured WAV SHA-256;
+- generated-header SHA-256;
+- detected WAV format, sample rate, channel count, bit depth, and sample count;
+- decoded PCM hash;
+- license `MIT`;
+- notice mapping to `ThirdPartyNotices/engine-sim.txt`.
+
+### 8.4 Optional identity impulse for filter unit tests
+
+A project-owned one-sample identity impulse response may exist only as an optional unit-test fixture for isolated convolution-filter tests.
+
+It may use one signed 16-bit sample with value `32767` to verify pass-through behavior, but it:
+
+- is not the Subaru EJ25 production impulse response;
+- is not a required part of the Subaru fixture configuration;
+- must not replace `minimal_muffling_02.wav` or its generated header;
+- must not satisfy production-fixture provenance, integrity, or convolution acceptance tests;
+- must be separately named and manifested if checked into the repository.
+
+### 8.5 Determinism boundary
 
 - runtime scripting and runtime fixture file I/O are forbidden;
 - process-global randomness is forbidden;
 - deterministic seed is `0x4E433033`;
 - native synthesis is synchronous and owner-thread-only;
 - test controls and Phase 0 schedules are deterministic;
-- fixture, generated asset, profile, and local patches are manifest-verified;
-- identical seed/configuration/schedule must reproduce produced-frame counts and deterministic trace/hash evidence.
+- fixture, copied WAV, generated header, profile, and local patches are manifest-verified;
+- identical pinned inputs, generator, seed, configuration, and schedule must reproduce generated-header and produced-PCM hashes.
 
 ## 9. Telemetry and report schema
 
@@ -833,7 +935,7 @@ Nearest-rank p95 is used. Per-cycle CSV or JSON trace may be attached as a CI/PR
 
 Parallel implementation is authorized only after:
 
-1. NC-003A v1.2 is merged;
+1. NC-003A v1.3 is merged;
 2. the manager creates the shared plugin scaffold.
 
 Write scopes remain non-overlapping.
@@ -845,7 +947,9 @@ Phase 0 may implement only the minimum needed to produce reliable calibration ev
 - exact vendored engine-sim source closure;
 - simple solver at `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3`;
 - deterministic C++ Subaru EJ25 fixture;
-- generated identity impulse response;
+- exact copied `minimal_muffling_02.wav` at Git blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72`;
+- deterministic `generate_impulse_response_header.py` and generated `MinimalMuffling02ImpulseResponse.generated.h`;
+- WAV/blob/manifest/PCM integrity verification;
 - synchronous synthesizer patch;
 - minimal headless calibration executable;
 - RPM/PCM trace collection;
@@ -857,10 +961,11 @@ Phase 0 must produce and commit:
 Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json
 
 Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/
+  MinimalMuffling02ImpulseResponse.generated.h
   SubaruEJ25ColdStartProfile.generated.h
 ```
 
-The JSON must contain at least:
+The JSON cold-start profile must contain at least:
 
 - schema version;
 - engine-sim commit;
@@ -886,6 +991,10 @@ The profile summary and generated header are repository inputs. Full per-cycle t
 
 Phase 0 procedure remains frozen:
 
+- verify WAV Git blob before parsing;
+- calculate WAV SHA-256 and audio metadata from the exact pinned file;
+- generate the compile-time impulse-response header deterministically;
+- verify decoded PCM and generated array equivalence;
 - ignition before the first starter step;
 - synchronous model;
 - `1/120`-second steps;
@@ -903,7 +1012,7 @@ Phase 1 begins only after manager review and acceptance of the Phase 0 profile a
 Phase 1 implements:
 
 - `IEngineSimCore`;
-- `Start()` consuming `SubaruEJ25ColdStartProfile.generated.h`;
+- `Start()` consuming `MinimalMuffling02ImpulseResponse.generated.h` and `SubaruEJ25ColdStartProfile.generated.h`;
 - complete lifecycle and cleanup;
 - automatic cold start;
 - PCM conversion and queue;
@@ -911,7 +1020,7 @@ Phase 1 implements:
 - standalone and UBT tests;
 - provenance and generated-input verification.
 
-Missing profile, missing generated header, mismatched profile/header hash, mismatched source/solver pin, or values unsupported by trace evidence must fail compilation or deterministic tests and block merge of NC-003B.
+Missing profile, missing generated headers, mismatched profile/header hash, mismatched source/solver/WAV pin, or values unsupported by trace evidence must fail compilation or deterministic tests and block merge of NC-003B.
 
 ### 10.3 NC-003C — Runtime Audio
 
@@ -951,7 +1060,7 @@ The manager owns:
 
 ### 11.1 NC-003A validation
 
-NC-003A is documentation-only and does not run the fixture probe. It must run:
+NC-003A is documentation-only and does not run the fixture probe or decode the WAV. It must run:
 
 - `python scripts/validate_repository.py`;
 - `git diff --check`;
@@ -968,7 +1077,18 @@ Phase 0 must execute:
 |---|---|
 | fixture construction smoke | deterministic Subaru fixture constructs with the exact pins |
 | synchronous synthesizer smoke | one bounded owner-thread pass works and creates no child thread |
-| identity impulse generation | generated sample and metadata match the frozen specification and hashes |
+| WAV Git blob verification | source path at the pinned commit has blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72` |
+| WAV byte-copy verification | vendored WAV bytes are identical to the pinned blob with no content change |
+| WAV SHA-256 verification | locally calculated SHA-256 equals the manifest value |
+| WAV parser verification | expected format is parsed without warnings and measured metadata equals the manifest |
+| impulse-response non-empty | decoded impulse response has at least one sample |
+| generated-header determinism | frozen generator command reproduces the exact generated-header SHA-256 |
+| generated sample count | generated array has exactly the same sample count as decoded WAV PCM |
+| PCM losslessness | generated-array PCM hash equals the hash of PCM decoded from the WAV |
+| no IR transformation | no normalization, trimming, resampling, channel change, gain, or sample reordering occurs |
+| real-IR convolution smoke | convolution with the mandatory impulse response generates finite PCM |
+| no runtime WAV access | Core/fixture tests succeed with runtime WAV access blocked or the file absent from runtime location |
+| deterministic output schedule | repeated fixed schedules produce the same output hash |
 | throttle/disengagement sweep | candidates and outcomes are captured without guessed selection |
 | selected-profile repetitions | at least ten deterministic trials for the selected candidate |
 | starter disengagement traces | per-cycle RPM/starter evidence supports the criterion |
@@ -980,8 +1100,23 @@ Phase 0 must execute:
 | RMS | actual produced post-start PCM has measured non-zero RMS |
 | deterministic verification | repeated trace/profile hashes are verified |
 | profile generation | JSON contains all mandatory fields and source hashes |
-| header generation | generated header is derived from and consistent with JSON |
+| profile header generation | generated profile header is derived from and consistent with JSON |
 | profile validation | pins, command, margins, counts, distributions, trace hash, and generated hash validate |
+| manifest completeness | copied WAV, generated IR header, generator, hashes, WAV parameters, licenses, and notice mapping validate |
+
+The mandatory integrity assertions include, without substitution:
+
+- Git blob SHA equals the expected value;
+- WAV SHA-256 equals the manifest;
+- parser reads the expected format without warnings;
+- generated array has the same number of samples as WAV PCM;
+- generated PCM hash equals the PCM hash read from the WAV;
+- impulse response is not empty;
+- convolution with the real impulse response generates finite PCM;
+- deterministic schedule gives a repeatable output hash;
+- no runtime access to the WAV occurs.
+
+The optional one-sample identity fixture may have separate isolated convolution tests, but passing them does not satisfy any mandatory real-WAV or production-fixture assertion above.
 
 ### 11.3 NC-003B Phase 1 tests
 
@@ -990,18 +1125,20 @@ Phase 1 must execute:
 | Test | Required assertion |
 |---|---|
 | profile/header consistency | exact field and hash consistency; absence/mismatch fails |
+| production IR header consistency | exact source blob, WAV hash, metadata, PCM hash, and generated-header consistency; absence/mismatch fails |
 | automatic cold start | ignition precedes starter step and profile values drive startup |
 | starter disengagement | generated criterion is applied and observed |
 | post-starter stability | generated minimum/window is satisfied without starter |
 | timeout cleanup | timeout disables starter/ignition and releases all native state |
 | cancellation during `Starting` | clean cancellation with no deadlock and final `Stopped` |
 | 100 lifecycle cycles | start/stop/restart repeats without crash, deadlock, or detectable leak |
-| deterministic PCM | fixed seed/config/schedule reproduce counts and hash/statistics |
+| deterministic PCM | fixed seed/config/schedule and real IR reproduce counts and hash/statistics |
 | owner-thread enforcement | zero owner-thread violations |
 | no child thread | Core creates zero child threads |
 | native-ring initialization | native availability is zero and there is no 44,100-frame drain |
 | shortage semantics | zero tail is not produced, hashed, measured, or used for readiness |
-| provenance verification | source, solver, patches, notices, generated IR, and profile validate |
+| provenance verification | source, solver, patches, notices, copied WAV, generator, generated IR, and profile validate |
+| no runtime WAV access | production Core uses only the generated header and performs no WAV file I/O |
 | non-empty PCM | actual post-start produced frames satisfy readiness |
 | throttle/load response | measurable response without gameplay coupling |
 | sanitizer profile | ASan/UBSan/TSan where supported; unsupported configurations documented |
@@ -1039,6 +1176,13 @@ NC-003B cannot merge when any of the following is true:
 - the cold-start JSON profile is absent;
 - the generated profile header is absent;
 - profile and header hashes disagree;
+- the copied WAV is absent or differs from the pinned Git blob;
+- WAV SHA-256 or detected metadata is absent or differs from the manifest;
+- the generated impulse-response header is absent;
+- generated sample count or PCM hash differs from the decoded WAV;
+- generated-header SHA-256 differs from the manifest;
+- the generator path, generator hash, or full command is absent or differs from the manifest;
+- runtime code accesses the WAV;
 - engine-sim or solver pin differs;
 - values are present without trace hash and reviewable evidence;
 - fewer than ten selected-candidate trials were executed;
@@ -1049,11 +1193,11 @@ NC-003B cannot merge when any of the following is true:
 
 ## 12. Required integration order
 
-1. Finalize and merge NC-003A contract version 1.2.
+1. Finalize and merge NC-003A contract version 1.3.
 2. Manager creates the shared plugin scaffold.
 3. Start NC-003B, NC-003C, and NC-003D in parallel within their frozen write scopes.
-4. NC-003B executes Phase 0 fixture calibration.
-5. Manager reviews the cold-start profile and trace evidence.
+4. NC-003B executes Phase 0 fixture calibration, including WAV verification and deterministic header generation.
+5. Manager reviews the WAV/PCM integrity evidence, cold-start profile, and trace evidence.
 6. NC-003B executes Phase 1 Production Core.
 7. Integrate Core.
 8. Integrate benchmark and run real-Core measurement smoke.
@@ -1065,16 +1209,16 @@ Gate details:
 
 - NC-003A merge requires only the frozen contract, resolved provenance decisions, documentation-only diff, and passing repository validation.
 - Manager scaffold must establish shared module names without assigning overlapping files.
-- Phase 0 must pass section 11.2 and produce the committed profile/header.
-- Manager acceptance must confirm values are trace-derived and margins are justified.
+- Phase 0 must pass section 11.2 and produce the copied-WAV manifest entry, generated IR header, cold-start profile, and generated profile header.
+- Manager acceptance must confirm exact WAV provenance, lossless PCM generation, trace-derived cold-start values, and justified margins.
 - Phase 1 must pass section 11.3.
-- Core integration must preserve no-child-thread and actual-produced PCM semantics.
+- Core integration must preserve no-child-thread, no-runtime-WAV, and actual-produced PCM semantics.
 - Benchmark integration records CPU, real-time factor, and initial buffer evidence.
 - Runtime fake-Core integration must pass callback-safety and SPSC tests independently.
 - Real-Core connection is manager-owned.
 - Full integration requires repository validation, provenance verification, standalone tests, benchmark smoke, Unreal build/tests, soak, and manual audio smoke.
 
-A failed gate blocks the next dependent stage. Buffer enlargement cannot waive a real-time production failure. Any change to fixture source pin, generated profile, identity impulse, boot ownership, thread model, or PCM semantics requires explicit review.
+A failed gate blocks the next dependent stage. Buffer enlargement cannot waive a real-time production failure. Any change to fixture source pin, WAV blob, generated impulse-response data, generated profile, boot ownership, thread model, or PCM semantics requires explicit review.
 
 ## 13. Licensing and distribution
 
@@ -1084,9 +1228,10 @@ A failed gate blocks the next dependent stage. Buffer enlargement cannot waive a
 |---|---|---|---|
 | engine-sim selected source | `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630` | MIT; preserve complete engine-sim notice | **Resolved** |
 | Subaru script transcription | pinned engine-sim repository MIT source | preserve upstream MIT notice and manifest source path/hash | **Resolved** |
+| Subaru EJ25 impulse-response WAV | `es/sound-library/new/minimal_muffling_02.wav`, blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72` | MIT under the engine-sim repository license; complete engine-sim notice required | **Resolved** |
+| generated impulse-response header | deterministic lossless conversion of the pinned MIT WAV | MIT; source/output/generator hashes and notice mapping required | **Resolved** |
+| optional identity filter-test fixture | project-owned scalar unit-test data, if present | project-owned/generated; separate optional test fixture only | **Optional** |
 | simple 2D constraint solver | `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` | MIT, copyright 2022 Ange Yaghi; complete solver notice required | **Resolved** |
-| identity impulse response | generated by Nextcar from scalar specification | project-owned/generated; generator and output manifested | **Resolved** |
-| `minimal_muffling_02.wav` | excluded | not copied, decoded, transformed, or distributed | **Excluded** |
 | `delta-studio` / `delta-basic` | excluded | no copied source or notice dependency | **Excluded** |
 | `csv-io` | excluded | no copied source or notice dependency | **Excluded** |
 | Piranha/UI/Discord/direct-to-video | excluded | no copied source or notice dependency | **Excluded** |
@@ -1100,7 +1245,7 @@ ThirdPartyNotices/engine-sim.txt
 ThirdPartyNotices/simple-2d-constraint-solver.txt
 ```
 
-Each file must contain the complete applicable MIT text. Source headers must be preserved where present. Packaged distributions must include the applicable notices.
+Each file must contain the complete applicable MIT text. Source headers must be preserved where present. Packaged distributions must include the applicable notices. The engine-sim notice covers the copied WAV and its losslessly generated C++ representation.
 
 ### 13.3 Manifest and verification rules
 
@@ -1109,19 +1254,22 @@ For every copied, patched, or generated file, `SOURCE_MANIFEST.json` records:
 - origin repository and exact commit, or project-owned generator;
 - upstream/source path;
 - destination path;
+- source Git blob SHA where applicable;
 - source/upstream SHA-256 where applicable;
 - destination/generated SHA-256;
 - status `copied`, `patched`, or `generated`;
 - patch identifier/reason where applicable;
+- detected format metadata for binary assets;
+- decoded PCM hash for the WAV/header chain;
 - license identifier and evidence;
 - notice mapping;
 - generator command and generator hash for generated files.
 
-Verification fails on missing or extra files, hash drift, unlisted patches, wrong solver pin, missing notices, WAV dependency, missing profile/header, or developer-local/network dependencies.
+Verification fails on missing or extra files, hash drift, unlisted patches, wrong solver pin, wrong WAV blob, changed WAV bytes, WAV/parser warnings, metadata mismatch, PCM mismatch, generated-header drift, missing notices, runtime WAV access, missing profile/header, or developer-local/network dependencies.
 
 ### 13.4 Packaging
 
-The game packages source-compiled plugin code and approved generated data only. It does not require runtime scripting, runtime WAVs, sibling checkouts, build-time network, external CMake, or untracked prebuilts.
+The game packages source-compiled plugin code and approved generated data only. It does not require runtime scripting, runtime WAVs, sibling checkouts, build-time network, external CMake, or untracked prebuilts. The pinned WAV may remain in the source/provenance vendor area for reproducibility, but packaged runtime content must use only the generated header.
 
 ## 14. Frozen decisions and residual risks
 
@@ -1129,10 +1277,12 @@ The game packages source-compiled plugin code and approved generated data only. 
 
 | Decision | Frozen selection | Consequence |
 |---|---|---|
-| NC-003A status | architecture/provenance decisions complete | numeric calibration is not an NC-003A blocker |
+| NC-003A status | architecture/provenance decisions complete | numeric calibration and measured WAV metadata are NC-003B deliverables, not NC-003A blockers |
 | Solver pin | `e009f4ff1c9c4c5874e865e893cdb62e208fb2b3` | exact source and MIT notice are mandatory |
-| Impulse response | one-sample generated identity impulse | pass-through integration fixture; no WAV dependency |
-| Mechanical fixture | pinned Subaru EJ25 transcription | no mechanical change in version 1.2 |
+| Production impulse response | pinned `minimal_muffling_02.wav`, blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72` | exact bytes and complete provenance are mandatory |
+| Runtime IR representation | losslessly generated `MinimalMuffling02ImpulseResponse.generated.h` | no runtime WAV I/O; generator and hashes are frozen in the manifest |
+| Identity impulse | optional isolated convolution unit-test fixture only | cannot replace or configure the production Subaru fixture |
+| Mechanical fixture | pinned Subaru EJ25 transcription | no mechanical change in version 1.3 |
 | Cold-start ownership | automatic synchronous `Core::Start()` | no public ignition/starter controls |
 | Cold-start numbers | generated by NC-003B Phase 0 | never guessed; mandatory build input and B merge gate |
 | Profile absence | compile/test failure | no production `CalibrationUnavailable` mode |
@@ -1150,15 +1300,16 @@ The game packages source-compiled plugin code and approved generated data only. 
 
 ### 14.2 NC-003A blockers
 
-There are no remaining NC-003A architecture, solver-pin, license, or mandatory-asset blockers after this version 1.2 documentation correction and passing repository validation.
+There are no remaining NC-003A architecture, solver-pin, license, provenance, or mandatory-asset blockers after this version 1.3 documentation correction and passing repository validation.
 
-Cold-start numeric values are intentionally absent from this contract. They are a mandatory measured output and merge gate of NC-003B.
+Cold-start numeric values, WAV SHA-256, and decoded audio metadata are intentionally absent from this contract. They are mandatory measured outputs and merge gates of NC-003B.
 
 ### 14.3 Permitted residual risks
 
-Residual risks after version 1.2 may concern:
+Residual risks after version 1.3 may concern:
 
 - measured cold-start parameters until Phase 0 completes;
+- measured WAV parameters and generated-header size until NC-003B records them;
 - mean/p95/max CPU cost;
 - achieved real-time factor;
 - UBT/MSVC portability;
@@ -1167,17 +1318,22 @@ Residual risks after version 1.2 may concern:
 - long-duration numerical/audio stability and soak results;
 - self-hosted runner variability.
 
-These risks may change measured/tuned values through manager review. They may not reopen automatic boot ownership, synchronous synthesis, no-child-thread ownership, native initial-buffer meaning, actual-produced PCM accounting, exact source pins, or the exclusion of the WAV.
+These risks may change measured/tuned values through manager review. They may not reopen automatic boot ownership, synchronous synthesis, no-child-thread ownership, native initial-buffer meaning, actual-produced PCM accounting, exact source pins, the mandatory WAV blob, lossless generated-header semantics, or the prohibition on runtime WAV I/O.
 
 ## 15. Completion and authorization rule
 
-Version 1.2 completes NC-003A's documentation scope:
+Version 1.3 completes NC-003A's documentation scope:
 
 - architectural decisions are frozen;
 - solver pin and MIT notice requirements are resolved;
-- the unapproved WAV is excluded;
-- the project-generated identity impulse response is frozen;
-- cold-start calibration is assigned to NC-003B Phase 0;
+- the Subaru EJ25 production impulse response is restored from the exact pinned WAV blob;
+- the full WAV provenance and evidence chain is recorded;
+- NC-003B must measure the WAV SHA-256 and audio metadata from the pinned file;
+- deterministic offline conversion to `MinimalMuffling02ImpulseResponse.generated.h` is frozen;
+- generated PCM must remain losslessly equivalent to decoded WAV PCM;
+- runtime WAV file I/O remains forbidden;
+- a one-sample identity IR is optional only for isolated filter unit tests;
+- cold-start calibration remains assigned to NC-003B Phase 0;
 - missing or unsupported calibration blocks NC-003B, not NC-003A;
 - NC-003C and NC-003D may begin in parallel after merge and manager scaffold;
 - no code, test, workflow, manifest, project, gameplay, `AGENTS.md`, or manager-history change is authorized by this PR.
