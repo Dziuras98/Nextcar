@@ -222,3 +222,54 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Next steps:
   - Refresh the runner workspace or local test copy to the latest PR #1 head and verify forward, reverse, steering, and reset wheel animation in Play mode.
   - After manual confirmation, update the PR evidence/checklist and decide whether PR #1 is ready to leave draft and merge.
+
+## 2026-07-17 — Post-prototype engine integration roadmap
+
+- Timestamp: 2026-07-17 19:56 (Europe/Warsaw)
+- User request: Work in the Nextcar repository as manager and propose the next steps.
+- Baseline branch and commit: `main` at `2ae3273be652d0393848266bf0f6854c3a8fb22e`.
+- Repository history reviewed:
+  - Reviewed the complete ten-commit `main` history currently returned by the GitHub connector, from repository initialization through the squash merge of the initial playable driving prototype.
+  - Reviewed all nine pull requests; all are merged or closed, including PR #1 with its final evidence, CI checklist, manual smoke-test confirmation, and merge commit.
+  - Confirmed that there are no open issues or pull requests and re-read the complete current `AGENTS.md` and every previous manager-history entry.
+  - Re-inspected the current prototype architecture and build surface in `README.md`, `Nextcar.Build.cs`, `ArcadeVehicleSimulation.h`, the PR #1 changed-file set, and the current Unreal CI contract.
+  - Re-inspected the related `Dziuras98/engine-sim` fork: README, root CMake target graph, MIT license, `Simulator` PCM interface, and `PistonEngineSimulator` specialization.
+- Repository state found:
+  - The validated Unreal Engine 5.8 driving prototype is now on `main`; PR #1 records successful repository validation, GCC/Clang/UBSan tests, `NextcarEditor` compilation, Unreal Automation Tests, and final manual driving and wheel-animation smoke tests.
+  - The gameplay module still depends only on `Core`, `CoreUObject`, `Engine`, and `InputCore`. There is no engine-simulation third-party target, procedural-audio module, worker-thread wrapper, powertrain state model, or engine performance benchmark.
+  - The current portable vehicle state contains speed and wheel rotation only; throttle still drives temporary arcade speed directly, so it must not be treated as the permanent engine, clutch, gearbox, or driveline contract.
+  - `engine-sim` already builds its simulation sources as a static `engine-sim` library and exposes signed 16-bit PCM through `Simulator::readAudioOutput`. Its complete application build also includes optional scripting, UI, Discord, and Windows-specific executable concerns that should remain outside the Unreal runtime.
+  - The upstream code is MIT licensed, requiring preservation of the copyright and permission notice in distributed copies or substantial portions.
+- Workstream decomposition and programmer-agent assignments:
+  - This run is repository analysis and change control only; no programmer agent is dispatched because the user requested a proposal rather than implementation.
+  - The next implementation begins with one short sequential architecture-contract task reserved for the manager: choose the source-pinning/import method, define module boundaries, freeze the narrow runtime interface, define ownership paths, and record measurable acceptance criteria.
+  - After that contract is merged, dispatch three programmer agents in parallel with non-overlapping writable scopes:
+    - Core agent: minimal headless `engine-sim` source/dependency extraction, Unreal-compatible static build, fixed engine fixture, license notices, and deterministic core tests.
+    - Runtime-audio agent: Unreal worker-thread wrapper, bounded PCM ring buffer, procedural audio producer, lifecycle handling, and a fake-core test double until the real core is integrated.
+    - Measurement agent: standalone benchmark and stress harness, telemetry schema, CI integration, underrun detection, buffer-fill metrics, real-time factor, and repeatable report artifacts.
+  - Integrate those branches sequentially in the order core, measurement, runtime audio; then run full Unreal CI and a manual audio smoke test before starting vehicle coupling.
+- Files and behavior changed: Appended this manager-history entry only. No gameplay, build, workflow, audio, or simulation behavior was changed.
+- Evidence and exact tests:
+  - Repository metadata confirms `main` as the default branch, private visibility, and no open issue backlog.
+  - PR #1 confirms the merged prototype's successful hosted tests, Unreal Engine 5.8 build, Unreal Automation Tests, and final manual smoke tests.
+  - Static inspection confirms that `Nextcar.Build.cs` has no audio or third-party engine dependencies and that `ArcadeVehicleSimulation::FVehicleState` currently contains only speed and wheel rotation.
+  - Static inspection of `engine-sim` confirms a separate static core target, optional application-level dependencies, `Simulator::readAudioOutput(int, int16_t*)`, simulation-frequency and latency controls, and MIT license obligations.
+  - Local clone and `python scripts/validate_repository.py` could not be run because the execution environment cannot resolve `github.com`; GitHub Actions Repository validation is therefore required on this history-only branch before merge.
+  - No Unreal build or Unreal Automation Test is required for this Markdown-only change.
+- Decisions and integration notes:
+  - Priority 1 is a measured headless engine-audio spike, not new vehicle features, art, maps, or replacement physics.
+  - The first proof must use one fixed engine configuration and demonstrate controlled startup/shutdown, throttle/load response, continuous PCM generation, bounded buffering, and telemetry over a sustained run.
+  - Hard CPU and latency budgets will be set from the first benchmark on the actual Windows Unreal runner; before measurement, the non-negotiable acceptance condition is zero underruns and no invalid samples during a repeatable sustained test.
+  - Unreal integration must communicate through a narrow adapter and must not expose original application, SDL, UI, scripting, or Discord types to gameplay code.
+  - Powertrain coupling follows only after the isolated audio path passes. The coupling layer will introduce explicit engine RPM/load, clutch engagement, selected gear, gearbox ratios, and driveline output while preserving the existing deterministic arcade simulation as a temporary fallback.
+- Unresolved risks or blockers:
+  - The minimal transitive source and dependency set required by `engine-sim` has not yet been proven under Unreal Build Tool.
+  - Thread ownership inside `Simulator`, synthesizer buffering behavior, configuration loading without the scripting application, PCM sample-rate/channel assumptions, and sustained CPU cost remain unmeasured.
+  - The source-pinning strategy for the fork, target Windows redistribution layout, and exact first engine configuration are material implementation decisions to freeze in the architecture-contract task.
+  - The documented dedicated Windows runner service account still requires operational verification; the current manager review did not inspect runner host state.
+- Next steps:
+  - NC-003A: write and merge the engine-integration contract covering import strategy, directory/module ownership, runtime C++ interface, engine fixture, test commands, telemetry fields, and acceptance gates.
+  - NC-003B/C/D in parallel: implement the minimal core build, Unreal audio runtime with test double, and benchmark/CI harness in isolated scopes.
+  - Integration gate: connect the real core to the runtime adapter; require repository validation, standalone core tests, benchmark report, `NextcarEditor` build, all `Nextcar.*` automation tests, and a sustained manual audio smoke test with zero underruns.
+  - Only after that gate, implement explicit engine/clutch/gearbox/driveline state and couple RPM/load to vehicle controls.
+  - Finish the first vertical slice with one car, one engine, one test map, throttle/brake/gears, responsive procedural audio, telemetry HUD, documented performance budgets, and repeatable acceptance tests.
