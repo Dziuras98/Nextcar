@@ -153,3 +153,37 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Merge the documentation change after the final repository validation passes on the updated history commit.
   - On the Windows computer, complete the local preflight, create `NextcarRunner`, configure `NEXTCAR-UE58` as a service, reboot, and confirm the service returns to Running and GitHub reports the runner as Idle.
   - Set `ENABLE_UNREAL_CI=true` and run Full Unreal Engine CI for PR #1; preserve the automation report and logs.
+
+## 2026-07-17 — Synchronize initial driving prototype with main
+
+- Timestamp: 2026-07-17 18:31 (Europe/Warsaw)
+- User request: Synchronize the open initial driving prototype branch with the current `main` branch.
+- Baseline branch and commit: `agent/initial-driving-prototype` at `0e72e9fab10267a9130af03a65d818f927764886`; `main` at `8aef9c6c0f59b4f9c70c90c09c9c634e9ee4a189`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md` and all prior entries in `docs/manager-history.md`.
+  - Reviewed the complete visible `main` history through the private-runner-service merge, the complete current PR #1 final state and changed-file set, the current merge base, and the successful pre-synchronization CI evidence.
+  - Reviewed helper PR #9, which targeted `agent/initial-driving-prototype` from `main` and represented the eight commits missing from the feature branch.
+- Repository state found:
+  - Before synchronization, PR #1 was 45 commits ahead and 8 commits behind `main`, with merge base `07664bb53fc0bf999796b924d98e9b6fd3fd0439`.
+  - The prototype had already passed Repository validation run 43, Vehicle Simulation CI run 24, and Full Unreal Engine CI run 9, including a successful `NextcarEditor` build and 5/5 Unreal Automation Tests.
+  - The GitHub connector does not expose a direct update-branch mutation, but permits a normal same-repository pull request whose base is the feature branch.
+- Workstream decomposition and programmer-agent assignments:
+  - The task was decomposed into integration-state verification, conflict-safe synchronization, post-merge comparison, full CI verification, and persistent manager logging.
+  - No programmer agent was dispatched because synchronization is one atomic branch-integration operation and the shared branch/history files require sequential ownership.
+- Files and behavior changed:
+  - Opened helper PR #9 from `main` to `agent/initial-driving-prototype` and merged it with a normal merge commit `10111c14db1f482fb482cc0d158c216f91bfba88`, preserving both histories without rebasing or force-pushing.
+  - The feature branch now contains the current repository policy, manager history, Windows runner runbook, and all prior prototype code and CI fixes.
+  - Appended this manager-history entry. No gameplay behavior was changed by the synchronization itself.
+- Evidence and exact tests:
+  - Post-merge comparison reports the feature branch `ahead_by: 46`, `behind_by: 0`, with `main` commit `8aef9c6c0f59b4f9c70c90c09c9c634e9ee4a189` as the merge base.
+  - GitHub Actions on synchronization commit `10111c14db1f482fb482cc0d158c216f91bfba88`: Repository validation run 44 — success; Vehicle Simulation CI run 25 — success; Full Unreal Engine CI run 10 — success.
+  - Full Unreal Engine CI completed environment resolution, checkout verification, `NextcarEditor` compilation, all `Nextcar.*` Unreal Automation Tests, report validation, and artifact upload successfully.
+- Decisions and integration notes:
+  - Used a two-parent merge commit rather than rebase or force-push to preserve the reviewed prototype history and the current `main` history.
+  - PR #1 remains open and draft; synchronization alone does not authorize merging the feature into `main`.
+- Unresolved risks or blockers:
+  - A manual in-editor driving smoke test has not yet been recorded after synchronization.
+  - The Windows runner is currently being operated interactively as administrator rather than through the documented dedicated service account; service-mode verification remains outstanding.
+- Next steps:
+  - Confirm the final history-only commit passes Repository validation.
+  - Perform and record a short manual driving smoke test before changing PR #1 from draft or merging it.
