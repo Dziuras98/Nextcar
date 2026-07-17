@@ -20,7 +20,7 @@ REQUIRED_POLICY_PHRASES = (
     "Base every change on verified facts",
     "If any material requirement",
     "Every change must have an appropriate validation plan",
-    "`master` is the sole integration branch",
+    "`main` is the sole integration branch",
     "Merge the pull request immediately after all required tests pass",
 )
 
@@ -128,7 +128,7 @@ def check_workflow_scope() -> None:
     workflow = workflow_path.read_text(encoding="utf-8")
     required_fragments = (
         "pull_request:",
-        "master",
+        "main",
         "python scripts/validate_repository.py",
     )
     for fragment in required_fragments:
