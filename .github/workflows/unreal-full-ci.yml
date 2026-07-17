@@ -37,23 +37,37 @@ jobs:
       - name: Verify Unreal Engine runner
         shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:UE_ROOT)) {
-            throw "UE_ROOT must point to the Unreal Engine 5.8 installation on this runner."
+          $ueRoot = $env:UE_ROOT
+          if ([string]::IsNullOrWhiteSpace($ueRoot)) {
+            $ueRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "Machine")
+          }
+          if ([string]::IsNullOrWhiteSpace($ueRoot)) {
+            $ueRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "User")
+          }
+          if ([string]::IsNullOrWhiteSpace($ueRoot)) {
+            throw "UE_ROOT is unavailable in the process, machine, and user environments."
           }
 
-          $buildTool = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\Build.bat"
-          $editorCmd = Join-Path $env:UE_ROOT "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+          $ueRoot = $ueRoot.Trim().TrimEnd('\')
+          $buildTool = Join-Path $ueRoot "Engine\Build\BatchFiles\Build.bat"
+          $editorCmd = Join-Path $ueRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 
-          if (-not (Test-Path $buildTool)) {
+          Write-Host "Resolved UE_ROOT=$ueRoot"
+          Write-Host "Checking build tool: $buildTool"
+          Write-Host "Checking editor command: $editorCmd"
+          Write-Host "Checking project file: $env:PROJECT_FILE"
+
+          if (-not (Test-Path -LiteralPath $buildTool -PathType Leaf)) {
             throw "Unreal Build Tool was not found at $buildTool"
           }
-          if (-not (Test-Path $editorCmd)) {
+          if (-not (Test-Path -LiteralPath $editorCmd -PathType Leaf)) {
             throw "UnrealEditor-Cmd.exe was not found at $editorCmd"
           }
-          if (-not (Test-Path $env:PROJECT_FILE)) {
+          if (-not (Test-Path -LiteralPath $env:PROJECT_FILE -PathType Leaf)) {
             throw "Project file was not found at $env:PROJECT_FILE"
           }
 
+          "UE_ROOT=$ueRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "BUILD_TOOL=$buildTool" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "EDITOR_CMD=$editorCmd" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
