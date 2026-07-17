@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Resolve Unreal Engine installation
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $processRoot = $env:UE_ROOT
           $machineRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "Machine")
@@ -76,7 +76,7 @@ jobs:
           clean: true
 
       - name: Verify project checkout
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           Write-Host "Checking project file: $env:PROJECT_FILE"
           if (-not (Test-Path -LiteralPath $env:PROJECT_FILE -PathType Leaf)) {
@@ -84,7 +84,7 @@ jobs:
           }
 
       - name: Build NextcarEditor
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           & $env:BUILD_TOOL NextcarEditor Win64 Development $env:PROJECT_FILE -WaitMutex -NoHotReloadFromIDE
           if ($LASTEXITCODE -ne 0) {
@@ -92,7 +92,7 @@ jobs:
           }
 
       - name: Run Unreal Automation Tests
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           New-Item -ItemType Directory -Path $env:TEST_REPORT_DIR -Force | Out-Null
 
@@ -113,7 +113,7 @@ jobs:
           }
 
       - name: Require automation report
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $indexFile = Join-Path $env:TEST_REPORT_DIR "index.json"
           if (-not (Test-Path $indexFile)) {
