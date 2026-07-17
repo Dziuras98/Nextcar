@@ -1,27 +1,21 @@
 # Windows 11 self-hosted runner for Nextcar
 
-This runbook configures a Windows 11 x64 computer to execute the `Full Unreal Engine CI` workflow for Nextcar with Unreal Engine 5.8.
+This runbook configures a Windows 11 x64 computer to execute the `Full Unreal Engine CI` workflow for Nextcar with Unreal Engine 5.8. The default configuration installs the GitHub Actions runner as a Windows service that starts automatically with the computer.
 
 ## Security decision for the current repository
 
-`Dziuras98/Nextcar` is public. A persistent self-hosted runner can execute repository workflow code directly on the host and therefore should not be left online for untrusted pull requests.
+`Dziuras98/Nextcar` is private, so the runner may operate persistently as a Windows service. This removes the public-fork exposure that blocked permanent operation in the previous version of this runbook.
 
-For the current Gate 0 validation:
+A private repository does not make self-hosted execution isolated. Workflow code runs directly on the Windows host and may persist changes between jobs. Limit repository access to trusted collaborators, review changes that affect `.github/workflows/**`, build scripts, project files, and executable source code, and keep `ENABLE_UNREAL_CI=false` when full Unreal CI is not needed.
 
-- run the runner interactively with `run.cmd`, not permanently as a Windows service;
-- start it only for a pull request whose complete diff has been reviewed and whose head branch belongs to `Dziuras98/Nextcar`;
-- do not approve workflow runs from external forks;
-- set the repository variable `ENABLE_UNREAL_CI` back to `false` immediately after the required run;
-- stop the runner with `Ctrl+C` after the job finishes.
-
-A permanent Windows service is appropriate only after the repository is private or the workflow has been restricted so that untrusted pull-request code cannot reach the runner.
+The service should run under a dedicated unprivileged local Windows account. Do not use `LocalSystem` or an administrator account unless a verified toolchain requirement makes that necessary.
 
 ## 1. Required software
 
 Install the following on the runner computer:
 
 1. Windows 11 x64 with current updates.
-2. Git for Windows.
+2. Git for Windows, installed for all users and added to the system `PATH`.
 3. Epic Games Launcher and Unreal Engine 5.8.
 4. Visual Studio 2022, current stable release.
 
@@ -49,9 +43,9 @@ Starter Content and editor debugging symbols are optional for this project.
 
 Recommended practical capacity for this runner is 32 GB RAM and at least 100 GB of free SSD space for the engine, checkout, intermediate files, logs, and reports.
 
-## 2. Configure `UE_ROOT`
+## 2. Configure machine-level toolchain settings
 
-Open PowerShell as Administrator. Adjust the path if Unreal Engine 5.8 was installed elsewhere.
+Open PowerShell as Administrator. Adjust the Unreal path if Unreal Engine 5.8 was installed elsewhere.
 
 ```powershell
 $UE = 'C:\Program Files\Epic Games\UE_5.8'
@@ -67,20 +61,21 @@ if (-not (Test-Path "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe")) {
 [Environment]::SetEnvironmentVariable('UE_ROOT', $UE, 'Machine')
 $env:UE_ROOT = $UE
 
-Write-Host "UE_ROOT=$env:UE_ROOT"
-```
-
-Close and reopen PowerShell after setting the machine variable. A runner process or Windows service that was already running must also be restarted.
-
-Optional protection against long Windows paths:
-
-```powershell
 git config --system core.longpaths true
+
+Write-Host "UE_ROOT=$env:UE_ROOT"
+where.exe git
 ```
+
+`UE_ROOT` must be a machine-level variable because the Windows service does not inherit the interactive user's environment. Git and any other command-line dependencies required by jobs must also be available through the system `PATH`, not only the user's `PATH`.
+
+Restart the runner service after changing any machine-level environment variable.
 
 ## 3. Perform a local Unreal preflight
 
-This verifies the toolchain before GitHub Actions is involved.
+Run the build and tests interactively before registering the service. This separates Unreal or Visual Studio configuration failures from runner-service failures.
+
+Sign in to GitHub through Git Credential Manager if the private repository clone requests authentication.
 
 ```powershell
 New-Item -ItemType Directory -Force 'C:\src' | Out-Null
@@ -133,24 +128,57 @@ The expected outputs are:
 - exit code `0` from `UnrealEditor-Cmd.exe`;
 - `C:\src\Nextcar\Saved\AutomationReports\index.json`.
 
-## 4. Register the GitHub runner
+## 4. Create a dedicated Windows service account
 
-1. Open the `Dziuras98/Nextcar` repository on GitHub.
+Open PowerShell as Administrator. Create a local, non-administrator account for the runner service. Retain its password because the runner configuration will request it.
+
+```powershell
+$RunnerUser = 'NextcarRunner'
+$ExistingUser = Get-LocalUser -Name $RunnerUser -ErrorAction SilentlyContinue
+
+if ($null -eq $ExistingUser) {
+    $RunnerPassword = Read-Host `
+        "Enter a strong password for .\$RunnerUser" `
+        -AsSecureString
+
+    New-LocalUser `
+        -Name $RunnerUser `
+        -Password $RunnerPassword `
+        -AccountNeverExpires `
+        -PasswordNeverExpires `
+        -UserMayNotChangePassword `
+        -Description 'GitHub Actions runner for Nextcar Unreal CI'
+}
+else {
+    Write-Host ".\$RunnerUser already exists. Use its current password during runner configuration."
+}
+
+New-Item -ItemType Directory -Force 'C:\actions-runner' | Out-Null
+
+$RunnerIdentity = "$env:COMPUTERNAME\$RunnerUser"
+icacls 'C:\actions-runner' /grant "${RunnerIdentity}:(OI)(CI)M"
+```
+
+Do not add `NextcarRunner` to the local Administrators group. The account needs:
+
+- read and execute access to the Unreal Engine and Visual Studio installations;
+- modify access to `C:\actions-runner` and its `_work` directory;
+- access to machine-level `UE_ROOT` and the system `PATH`;
+- outbound HTTPS access to GitHub.
+
+The runner configuration normally grants the selected account the Windows **Log on as a service** right while installing the service.
+
+## 5. Register and install the runner as a service
+
+On GitHub:
+
+1. Open the `Dziuras98/Nextcar` repository.
 2. Go to **Settings → Actions → Runners**.
 3. Select **New self-hosted runner**.
 4. Select **Windows** and **x64**.
-5. Open PowerShell as Administrator.
-6. Use `C:\actions-runner` as the runner directory.
-7. Copy and execute the download and extraction commands generated by GitHub. Do not reuse commands copied earlier: the registration token expires.
-8. Run the generated configuration command. Use these values:
+5. Copy the generated download, checksum, extraction, and configuration commands. Use the commands generated for the repository instead of hard-coding a runner version. The registration token expires after one hour.
 
-   - repository URL: `https://github.com/Dziuras98/Nextcar`;
-   - runner name: `NEXTCAR-UE58`;
-   - additional label: `unreal-5.8`;
-   - work folder: `_work`;
-   - run as service: `N` for the current public repository.
-
-The equivalent non-interactive configuration shape is:
+On the Windows computer, open PowerShell as Administrator and use `C:\actions-runner` as the runner directory. After downloading and extracting the runner, start configuration with the current token:
 
 ```powershell
 cd C:\actions-runner
@@ -163,34 +191,65 @@ cd C:\actions-runner
     --work '_work'
 ```
 
-Do not store the registration token in a script or commit it to the repository.
+Answer the service prompts as follows:
 
-GitHub automatically adds the default labels `self-hosted`, `Windows`, and `X64`. The custom `unreal-5.8` label is required because the current workflow uses:
+- **Run runner as a service?** — `Y`;
+- **User account to use for the service** — `.\NextcarRunner`;
+- **Password** — the password created in section 4.
+
+Interactive configuration is preferred because it avoids placing the Windows account password in PowerShell command history. Do not store the registration token or service-account password in a script or commit either value to the repository.
+
+GitHub automatically adds the default labels `self-hosted`, `Windows`, and `X64`. The custom `unreal-5.8` label is required because the workflow uses:
 
 ```yaml
 runs-on: [self-hosted, Windows, X64, unreal-5.8]
 ```
 
-## 5. Start the runner interactively
+### Existing runner configured with `run.cmd`
 
-In a normal PowerShell window opened under the Windows account that can access Unreal Engine:
+Windows service installation is part of `config.cmd`. An existing runner configured without a service cannot be converted in place through a separate Windows service installation command.
+
+To migrate it:
+
+1. Stop `run.cmd` with `Ctrl+C`.
+2. On GitHub, open **Settings → Actions → Runners → NEXTCAR-UE58 → Remove**.
+3. Copy and run the removal command and time-limited removal token shown by GitHub.
+4. Run `config.cmd` again using the procedure above and answer `Y` to the service prompt.
+
+## 6. Verify and start the Windows service
+
+The configuration process should install and start the service. Verify the exact service identity, startup type, and status in an elevated PowerShell window:
 
 ```powershell
-cd C:\actions-runner
+$RunnerService = Get-CimInstance Win32_Service |
+    Where-Object {
+        $_.Name -like 'actions.runner.*' -and
+        $_.DisplayName -like '*NEXTCAR-UE58*'
+    } |
+    Select-Object -First 1
 
-$env:UE_ROOT = [Environment]::GetEnvironmentVariable('UE_ROOT', 'Machine')
-if ([string]::IsNullOrWhiteSpace($env:UE_ROOT)) {
-    throw 'Machine-level UE_ROOT is not configured.'
+if ($null -eq $RunnerService) {
+    throw 'The NEXTCAR-UE58 Windows service was not found.'
 }
 
-.\run.cmd
+Set-Service -Name $RunnerService.Name -StartupType Automatic
+Start-Service -Name $RunnerService.Name
+
+Get-CimInstance Win32_Service -Filter "Name='$($RunnerService.Name)'" |
+    Select-Object Name, DisplayName, StartName, StartMode, State
 ```
 
-Leave this window open. The expected terminal state is `Listening for Jobs`. GitHub should show `NEXTCAR-UE58` as **Idle** under **Settings → Actions → Runners**.
+The expected state is:
 
-The computer must remain awake during the job. Disable automatic sleep while connected to AC power.
+- `StartName` identifies the dedicated `NextcarRunner` account;
+- `StartMode` is `Auto`;
+- `State` is `Running`.
 
-## 6. Enable the Nextcar Unreal workflow
+GitHub should show `NEXTCAR-UE58` as **Idle** under **Settings → Actions → Runners**. Reboot Windows once and confirm that the service returns to **Running** and the runner returns to **Idle** without an interactive login.
+
+The computer must remain awake to accept jobs. Disable automatic sleep while connected to AC power. The service may run without an interactive user session, but it cannot execute jobs while the computer is asleep or powered off.
+
+## 7. Enable the Nextcar Unreal workflow
 
 The current pull-request workflow executes its Unreal job only when the repository variable `ENABLE_UNREAL_CI` equals `true`.
 
@@ -203,7 +262,7 @@ The current pull-request workflow executes its Unreal job only when the reposito
 
 4. Open pull request #1.
 5. Re-run the existing **Full Unreal Engine CI** workflow.
-6. If the existing skipped run remains skipped after re-running, trigger a new `pull_request` synchronization by updating the PR branch from current `main`. Do not create a meaningless commit only to trigger CI.
+6. If the existing skipped run remains skipped after re-running, trigger a new pull-request synchronization by updating the PR branch from current `main`. Do not create a meaningless commit only to trigger CI.
 
 The job should be routed to `NEXTCAR-UE58`. The workflow will:
 
@@ -214,7 +273,7 @@ The job should be routed to `NEXTCAR-UE58`. The workflow will:
 5. require `Saved\AutomationReports\index.json`;
 6. upload `Saved\AutomationReports` and `Saved\Logs` as an artifact.
 
-## 7. Verify the result
+## 8. Verify the result
 
 A valid successful run must show all of these steps as successful:
 
@@ -231,40 +290,32 @@ Download the `unreal-ci-results-*` artifact and retain at least:
 
 Do not treat a skipped workflow or a missing report as a passed test.
 
-## 8. Shut the runner down after the run
+## 9. Normal service operation
 
-1. Set `ENABLE_UNREAL_CI` back to `false`.
-2. In the runner PowerShell window press `Ctrl+C`.
-3. Confirm that the runner becomes **Offline** on GitHub.
-4. Keep the runner registered for the next trusted run, or remove it from **Settings → Actions → Runners** if it is no longer needed.
+After a Gate 0 run:
+
+1. Set `ENABLE_UNREAL_CI` back to `false` unless every trusted pull request should run full Unreal CI automatically.
+2. Leave the Windows service installed and running. An idle runner consumes the next matching job but does not require an open terminal or an interactive Windows login.
+3. Confirm that GitHub shows the runner as **Idle**, not **Offline**.
 
 The runner application does not require inbound port forwarding. It initiates outbound HTTPS connections to GitHub; outbound TCP port 443 must be available.
 
-## 9. Optional permanent Windows service
-
-Do this only after the repository is private or after the workflow is redesigned so untrusted pull requests cannot execute on the runner.
-
-On Windows, service installation is selected during `config.cmd`. If the runner was configured interactively without the service option, remove it from GitHub and configure it again, choosing `Y` when asked whether it should run as a service.
-
-A dedicated local Windows account is preferable for a permanent Unreal runner because its permissions, temporary directory, Derived Data Cache, and access to the Unreal installation remain explicit.
-
-After configuration, inspect the service with:
+Service management commands:
 
 ```powershell
 Get-Service 'actions.runner.*'
+Stop-Service 'actions.runner.*'
+Start-Service 'actions.runner.*'
+Restart-Service 'actions.runner.*'
 ```
 
-Restart it after changing `UE_ROOT` or other machine-level environment variables:
-
-```powershell
-Get-Service 'actions.runner.*' | Restart-Service
-```
+Restart the service after changing `UE_ROOT`, the system `PATH`, permissions, the service account, or installed toolchain components.
 
 ## 10. Troubleshooting
 
 ### Job remains queued
 
-- Confirm that the runner is online and idle.
+- Confirm that the service is running and GitHub shows the runner as idle.
 - Confirm that it has all four labels: `self-hosted`, `Windows`, `X64`, and `unreal-5.8`.
 - Confirm that no other job is already using the runner.
 
@@ -275,32 +326,56 @@ Get-Service 'actions.runner.*' | Restart-Service
 
 ### `UE_ROOT` is empty
 
-- Stop the runner.
-- Verify the machine variable:
+Verify the machine variable:
 
 ```powershell
 [Environment]::GetEnvironmentVariable('UE_ROOT', 'Machine')
 ```
 
-- Start the runner again after correcting it.
+Correct the variable and restart the service:
+
+```powershell
+Get-Service 'actions.runner.*' | Restart-Service
+```
 
 ### `Build.bat` or `UnrealEditor-Cmd.exe` is missing
 
 - Correct `UE_ROOT` so it points to the Unreal Engine installation root, for example `C:\Program Files\Epic Games\UE_5.8`.
 - Do not point it at the `Engine` subdirectory itself.
+- Confirm that the service account has read and execute access to the installation.
+
+### Git or another command is not found
+
+A Windows service may not receive tools installed only in a user's `PATH`. Install required tools for all users, add them to the machine-level `PATH`, and restart the runner service.
 
 ### C++ compiler or Windows SDK error
 
 - Open Visual Studio Installer.
 - Modify Visual Studio 2022.
 - Verify the C++ workloads, MSVC v143 toolset, Windows SDK, and .NET 8 components.
+- Confirm that the components were installed for the machine rather than only made available through an interactive user's environment.
 
 ### No automation report
 
 - Inspect `Saved\Logs` for test discovery, module loading, project startup, or command-line parsing failures.
 - The run must remain failed until `Saved\AutomationReports\index.json` is produced.
 
-### Access denied when running as a service
+### Access denied or service logon failure
 
-- Verify that the service account can read the Unreal Engine installation and write to `C:\actions-runner\_work`.
-- Reconfigure the runner under a dedicated local account if the default service account lacks access.
+Inspect the service account and state:
+
+```powershell
+Get-CimInstance Win32_Service |
+    Where-Object { $_.Name -like 'actions.runner.*' } |
+    Select-Object Name, StartName, State, ExitCode
+```
+
+Then verify:
+
+- the stored password for `.\NextcarRunner` is current;
+- the account has **Log on as a service** rights;
+- the account can read the Unreal and Visual Studio installations;
+- the account can modify `C:\actions-runner\_work`;
+- endpoint protection has not blocked `Runner.Listener.exe`, `Runner.Worker.exe`, UBT, or UnrealEditor-Cmd.exe.
+
+If the service identity must change, remove and reconfigure the runner through GitHub rather than manually rewriting the service command line.
