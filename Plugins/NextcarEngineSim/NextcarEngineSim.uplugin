@@ -1,0 +1,24 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Nextcar Engine Sim",
+  "Description": "Headless engine simulation core and procedural audio runtime integration.",
+  "Category": "Audio",
+  "CreatedBy": "nEXTcAR",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "NextcarEngineSimCore",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    },
+    {
+      "Name": "NextcarEngineSimRuntime",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

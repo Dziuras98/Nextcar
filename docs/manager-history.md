@@ -314,3 +314,47 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Squash-merge PR #11 and confirm source-branch deletion.
   - Create the manager-owned plugin scaffold.
   - Dispatch NC-003B, NC-003C, and NC-003D in parallel under the frozen version 1.3 ownership and integration contract.
+
+## 2026-07-17 — Create manager-owned engine-sim plugin scaffold
+
+- Timestamp: 2026-07-17 22:44 (Europe/Warsaw)
+- User request: Merge the manager-owned plugin scaffold required before NC-003B, NC-003C, and NC-003D.
+- Baseline branch and commit: `main` at `ae4a66ac62082ccc38a5ccec4313d1b1250bfeed`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, every prior entry in this manager history, and the complete twelve-commit reachable `main` history through the NC-003A squash merge.
+  - Reviewed all eleven prior pull requests and confirmed there was no open PR before this task.
+  - Re-read contract version 1.3, especially the manager-owned plugin descriptor, shared module scaffold, project-file, workflow, ownership, and integration-gate requirements.
+  - Re-inspected `Nextcar.uproject`, `Source/Nextcar/Nextcar.Build.cs`, the primary game-module entry point, repository validation, Full Unreal Engine CI, and the final PR #11 integration decisions.
+- Repository state found:
+  - `main` had no `Plugins` directory, plugin descriptor, Core module, or Runtime module.
+  - NC-003A is merged, but NC-003B/C/D remain blocked until the manager-owned scaffold is merged.
+  - Full Unreal Engine CI did not include `Plugins/**` in its pull-request path filter, so later plugin-only changes would not automatically receive the required Unreal build and Automation Tests.
+- Workstream decomposition and programmer-agent assignments:
+  - The shared scaffold was handled sequentially as one manager-owned integration change: plugin descriptor, two compile-only module shells, explicit project registration, CI trigger coverage, validation, and history.
+  - No programmer agent was dispatched because the changed files are shared integration surfaces that must be established before the three independent implementation workstreams begin.
+  - NC-003B/C/D remain unstarted and retain the non-overlapping ownership defined by contract version 1.3.
+- Files and behavior changed:
+  - Added `Plugins/NextcarEngineSim/NextcarEngineSim.uplugin` with runtime modules `NextcarEngineSimCore` and `NextcarEngineSimRuntime`.
+  - Added minimal `Build.cs` files and `IMPLEMENT_MODULE` entry points for both modules; Runtime has a private dependency on Core and Core depends only on Unreal `Core` at scaffold stage.
+  - Enabled `NextcarEngineSim` explicitly in `Nextcar.uproject`.
+  - Added `Plugins/**` to the Full Unreal Engine CI pull-request path filter so future Core and Runtime changes trigger compilation and existing Automation Tests.
+  - No engine-sim source, fixture, audio runtime, benchmark, gameplay, content, or powertrain behavior was implemented.
+- Evidence and exact tests:
+  - PR #12, branch `agent/nc-003-plugin-scaffold`, initial implementation head `91c2078f85b0b5ed2699eca2360103de50660cb0`.
+  - Final diff review at that head found seven intended files, 60 additions, no deletions, valid JSON descriptors, and the intended dependency direction `Runtime -> Core`.
+  - `Repository validation` run 59 on `91c2078f85b0b5ed2699eca2360103de50660cb0` completed successfully; the `Validate repository` step passed.
+  - Full Unreal Engine CI run 16, job `Build editor and run Unreal tests`, was triggered but remained `queued`; no matching self-hosted runner accepted the job during this manager run.
+  - Consequently, `NextcarEditor Win64 Development` and the `Nextcar.*` Unreal Automation Tests have not executed for the scaffold. A queued test is not a passed test.
+- Decisions and integration notes:
+  - The plugin is both `EnabledByDefault` and explicitly enabled by the project so UBT must discover and compile the two modules.
+  - The scaffold intentionally contains no public Core contract duplication and no functional implementation; agents will extend their assigned module directories after this gate merges.
+  - Updating the existing Unreal workflow is manager-owned and necessary to enforce build coverage on future plugin-only PRs.
+  - PR #12 is not merged because repository policy prohibits merging compilation-affecting changes without an executed successful Unreal build.
+- Unresolved risks or blockers:
+  - The self-hosted Windows runner required by labels `self-hosted`, `Windows`, `X64`, and `unreal-5.8` is unavailable or not accepting the queued job.
+  - Until Full Unreal Engine CI executes successfully, UBT discovery of the plugin and both module shells remains unverified.
+  - NC-003B, NC-003C, and NC-003D must not start before PR #12 is merged.
+- Next steps:
+  - Bring the `unreal-5.8` Windows runner online and allow Full Unreal Engine CI run 16, or its final-head replacement run, to complete.
+  - If the Unreal build and all `Nextcar.*` tests pass, append a follow-up manager entry recording the final evidence, update PR #12, squash-merge it, and confirm automatic source-branch deletion.
+  - Only after that merge, start NC-003B/C/D in parallel under contract version 1.3.
