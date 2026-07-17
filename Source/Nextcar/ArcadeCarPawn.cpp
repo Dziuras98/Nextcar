@@ -1,5 +1,6 @@
 #include "ArcadeCarPawn.h"
 
+#include "ArcadeVehicleMath.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
@@ -96,57 +97,30 @@ void AArcadeCarPawn::Tick(float DeltaSeconds)
         return;
     }
 
-    const float ClampedThrottle = FMath::Clamp(ThrottleInput, -1.0f, 1.0f);
-    const bool bThrottleOpposesMotion =
-        (ClampedThrottle > 0.0f && SpeedCmPerSecond < -10.0f) ||
-        (ClampedThrottle < 0.0f && SpeedCmPerSecond > 10.0f);
+    Nextcar::ArcadeVehicleMath::FSpeedStepParameters SpeedParameters;
+    SpeedParameters.MaxForwardSpeed = MaxForwardSpeed;
+    SpeedParameters.MaxReverseSpeed = MaxReverseSpeed;
+    SpeedParameters.ForwardAcceleration = ForwardAcceleration;
+    SpeedParameters.ReverseAcceleration = ReverseAcceleration;
+    SpeedParameters.BrakeDeceleration = BrakeDeceleration;
+    SpeedParameters.HandbrakeDeceleration = HandbrakeDeceleration;
+    SpeedParameters.CoastDeceleration = CoastDeceleration;
 
-    if (bHandbrakeHeld)
-    {
-        SpeedCmPerSecond = FMath::FInterpConstantTo(
-            SpeedCmPerSecond,
-            0.0f,
-            DeltaSeconds,
-            HandbrakeDeceleration);
-    }
-    else if (bThrottleOpposesMotion)
-    {
-        SpeedCmPerSecond = FMath::FInterpConstantTo(
-            SpeedCmPerSecond,
-            0.0f,
-            DeltaSeconds,
-            BrakeDeceleration * FMath::Abs(ClampedThrottle));
-    }
-    else if (!FMath::IsNearlyZero(ClampedThrottle, 0.01f))
-    {
-        const float TargetSpeed = ClampedThrottle > 0.0f ? MaxForwardSpeed : -MaxReverseSpeed;
-        const float Acceleration = ClampedThrottle > 0.0f ? ForwardAcceleration : ReverseAcceleration;
-        SpeedCmPerSecond = FMath::FInterpConstantTo(
-            SpeedCmPerSecond,
-            TargetSpeed,
-            DeltaSeconds,
-            Acceleration * FMath::Abs(ClampedThrottle));
-    }
-    else
-    {
-        SpeedCmPerSecond = FMath::FInterpConstantTo(
-            SpeedCmPerSecond,
-            0.0f,
-            DeltaSeconds,
-            CoastDeceleration);
-    }
+    SpeedCmPerSecond = Nextcar::ArcadeVehicleMath::StepSpeed(
+        SpeedCmPerSecond,
+        ThrottleInput,
+        bHandbrakeHeld,
+        DeltaSeconds,
+        SpeedParameters);
 
-    const float SpeedRatio = FMath::Clamp(FMath::Abs(SpeedCmPerSecond) / MaxForwardSpeed, 0.0f, 1.0f);
-    const float SteeringRate = FMath::Lerp(LowSpeedSteeringRate, HighSpeedSteeringRate, SpeedRatio);
-    const float SteeringAuthority = FMath::Clamp(FMath::Abs(SpeedCmPerSecond) / 300.0f, 0.0f, 1.0f);
-    const float TravelDirection = SpeedCmPerSecond < 0.0f ? -1.0f : 1.0f;
     const float SteeringAngle = FMath::Clamp(SteeringInput, -1.0f, 1.0f) * 28.0f;
-    const float YawDelta =
-        FMath::Clamp(SteeringInput, -1.0f, 1.0f) *
-        SteeringRate *
-        SteeringAuthority *
-        TravelDirection *
-        DeltaSeconds;
+    const float YawDelta = Nextcar::ArcadeVehicleMath::CalculateYawDelta(
+        SpeedCmPerSecond,
+        SteeringInput,
+        DeltaSeconds,
+        MaxForwardSpeed,
+        LowSpeedSteeringRate,
+        HighSpeedSteeringRate);
 
     AddActorWorldRotation(FRotator(0.0f, YawDelta, 0.0f));
 
@@ -176,7 +150,7 @@ void AArcadeCarPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 
 float AArcadeCarPawn::GetSpeedKmh() const
 {
-    return FMath::Abs(SpeedCmPerSecond) * 0.036f;
+    return Nextcar::ArcadeVehicleMath::CentimetersPerSecondToKilometersPerHour(SpeedCmPerSecond);
 }
 
 void AArcadeCarPawn::SetThrottleInput(float Value)
