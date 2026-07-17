@@ -139,7 +139,8 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Evidence and exact tests:
   - GitHub repository metadata confirmed `visibility: private` before editing.
   - The service procedure was checked against current official GitHub documentation: Windows service setup occurs during runner configuration; an existing non-service runner must be removed and reconfigured; service state can be managed through PowerShell.
-  - The local environment does not have the GitHub CLI installed (`gh: command not found`), so exact repository validation will be executed by the branch's GitHub Actions `Repository validation` workflow before merge.
+  - The local environment does not have the GitHub CLI installed (`gh: command not found`), so it could not perform an authenticated clone of the private repository.
+  - GitHub Actions `Repository validation` run 33 on commit `f08e7116818da4038cd2fc6e83157de7aae7b674` completed successfully and executed `python scripts/validate_repository.py` against the exact branch contents.
   - No Unreal build or Unreal Automation Test is required because the diff affects Markdown documentation only.
 - Decisions and integration notes:
   - The runner service uses a dedicated unprivileged local account rather than `LocalSystem` or an administrator account.
@@ -149,6 +150,6 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - The procedure has not yet been exercised on the user's Windows 11 machine, so the exact service-account permissions required by the installed Unreal and Visual Studio locations remain to be verified.
   - Private collaborators with sufficient repository access can still submit workflow or build code that executes on the host; repository access and workflow changes must remain trusted and reviewed.
 - Next steps:
-  - Validate this documentation branch with `python scripts/validate_repository.py` through GitHub Actions and merge after a successful result.
+  - Merge the documentation change after the final repository validation passes on the updated history commit.
   - On the Windows computer, complete the local preflight, create `NextcarRunner`, configure `NEXTCAR-UE58` as a service, reboot, and confirm the service returns to Running and GitHub reports the runner as Idle.
   - Set `ENABLE_UNREAL_CI=true` and run Full Unreal Engine CI for PR #1; preserve the automation report and logs.
