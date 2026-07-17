@@ -11,6 +11,12 @@ List the verified repository facts, user requirements, measurements, test output
 - [ ] No material requirement or behavior remains uncertain.
 - [ ] Any material uncertainty was resolved with the user before implementation.
 
+## Manager record
+
+- [ ] This task did not use the manager role, or the manager read the complete repository history and all previous notes before planning.
+- [ ] If the manager role was used, programmer work was split into the maximum number of safe parallel workstreams.
+- [ ] If the manager role was used, `docs/manager-history.md` contains a final append-only entry covering assignments, changes, evidence, tests, risks, and next steps.
+
 ## Tests
 
 List every exact command that was run and its result.
