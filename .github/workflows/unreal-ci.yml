@@ -1,11 +1,14 @@
-name: Vehicle Math CI
+name: Vehicle Simulation CI
 
 on:
   pull_request:
     branches:
       - main
     paths:
+      - "Source/Nextcar/ArcadeCarPawn.cpp"
+      - "Source/Nextcar/ArcadeCarPawn.h"
       - "Source/Nextcar/ArcadeVehicleMath.h"
+      - "Source/Nextcar/ArcadeVehicleSimulation.h"
       - "Source/Nextcar/Tests/ArcadeVehicleMathTests.cpp"
       - "Tests/**"
       - ".github/workflows/unreal-ci.yml"
@@ -13,7 +16,10 @@ on:
     branches:
       - agent/initial-driving-prototype
     paths:
+      - "Source/Nextcar/ArcadeCarPawn.cpp"
+      - "Source/Nextcar/ArcadeCarPawn.h"
       - "Source/Nextcar/ArcadeVehicleMath.h"
+      - "Source/Nextcar/ArcadeVehicleSimulation.h"
       - "Source/Nextcar/Tests/ArcadeVehicleMathTests.cpp"
       - "Tests/**"
       - ".github/workflows/unreal-ci.yml"
@@ -23,32 +29,49 @@ permissions:
   contents: read
 
 concurrency:
-  group: vehicle-math-ci-${{ github.event.pull_request.number || github.ref }}
+  group: vehicle-simulation-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  vehicle-math-tests:
-    name: Compile and run standalone vehicle math tests
+  vehicle-simulation-tests:
+    name: Standalone tests (${{ matrix.compiler.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - name: GCC
+            executable: g++
+            extra_flags: ""
+          - name: Clang
+            executable: clang++
+            extra_flags: ""
+          - name: GCC with UBSan
+            executable: g++
+            extra_flags: "-fsanitize=undefined -fno-omit-frame-pointer"
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Compile tests
+        env:
+          CXX: ${{ matrix.compiler.executable }}
+          EXTRA_FLAGS: ${{ matrix.compiler.extra_flags }}
         run: |
           mkdir -p .ci-build
-          g++ \
+          $CXX \
             -std=c++20 \
             -Wall \
             -Wextra \
             -Wpedantic \
             -Werror \
+            $EXTRA_FLAGS \
             -ITests \
             -ISource/Nextcar \
             Tests/ArcadeVehicleMathStandaloneTests.cpp \
-            -o .ci-build/arcade_vehicle_math_tests
+            -o .ci-build/arcade_vehicle_simulation_tests
 
       - name: Run tests
-        run: ./.ci-build/arcade_vehicle_math_tests
+        run: ./.ci-build/arcade_vehicle_simulation_tests
