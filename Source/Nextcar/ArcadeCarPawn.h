@@ -79,6 +79,15 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Driving|Steering", meta = (ClampMin = "0.0"))
     float HighSpeedSteeringRate = 34.0f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Driving|Steering", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+    float MaxSteeringAngleDegrees = 28.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Driving|Wheels", meta = (ClampMin = "1.0"))
+    float WheelRadiusCm = 34.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Driving|Simulation", meta = (ClampMin = "0.001", ClampMax = "0.05"))
+    float SimulationSubstepSeconds = 1.0f / 120.0f;
+
 private:
     void SetThrottleInput(float Value);
     void SetSteeringInput(float Value);
@@ -86,7 +95,7 @@ private:
     void ReleaseHandbrake();
     void ResetCar();
     void ConfigureWheel(UStaticMeshComponent* Wheel, const FVector& RelativeLocation);
-    void UpdateWheelVisuals(float DeltaSeconds, float SteeringAngleDegrees);
+    void UpdateWheelVisuals(float SteeringAngleDegrees);
 
     float ThrottleInput = 0.0f;
     float SteeringInput = 0.0f;
