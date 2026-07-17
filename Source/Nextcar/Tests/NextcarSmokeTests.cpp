@@ -2,9 +2,9 @@
 
 #include "Misc/AutomationTest.h"
 
-#include "ArcadeCarPawn.h"
-#include "InfiniteGround.h"
-#include "NextcarGameMode.h"
+#include "../ArcadeCarPawn.h"
+#include "../InfiniteGround.h"
+#include "../NextcarGameMode.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/SpringArmComponent.h"
