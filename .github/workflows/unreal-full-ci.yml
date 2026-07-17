@@ -1,0 +1,146 @@
+name: Full Unreal Engine CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Config/**"
+      - "Source/**"
+      - "*.uproject"
+      - ".github/workflows/unreal-full-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-unreal-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ENABLE_UNREAL_CI == 'true' }}
+    name: Build editor and run Unreal tests
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 45
+    env:
+      PROJECT_FILE: ${{ github.workspace }}\Nextcar.uproject
+      TEST_REPORT_DIR: ${{ github.workspace }}\Saved\AutomationReports
+      BUILD_LOG_DIR: ${{ github.workspace }}\Saved\BuildLogs
+
+    steps:
+      - name: Resolve Unreal Engine installation
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $processRoot = $env:UE_ROOT
+          $machineRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "Machine")
+          $userRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "User")
+
+          Write-Host "Process UE_ROOT='$processRoot'"
+          Write-Host "Machine UE_ROOT='$machineRoot'"
+          Write-Host "User UE_ROOT='$userRoot'"
+
+          $ueRoot = $processRoot
+          if ([string]::IsNullOrWhiteSpace($ueRoot)) {
+            $ueRoot = $machineRoot
+          }
+          if ([string]::IsNullOrWhiteSpace($ueRoot)) {
+            $ueRoot = $userRoot
+          }
+          if ([string]::IsNullOrWhiteSpace($ueRoot)) {
+            throw "UE_ROOT is unavailable in the process, machine, and user environments."
+          }
+
+          $ueRoot = $ueRoot.Trim().TrimEnd('\')
+          $buildTool = Join-Path $ueRoot "Engine\Build\BatchFiles\Build.bat"
+          $editorCmd = Join-Path $ueRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+
+          Write-Host "Resolved UE_ROOT='$ueRoot'"
+          Write-Host "Build tool exists: $(Test-Path -LiteralPath $buildTool -PathType Leaf) - $buildTool"
+          Write-Host "Editor command exists: $(Test-Path -LiteralPath $editorCmd -PathType Leaf) - $editorCmd"
+
+          if (-not (Test-Path -LiteralPath $buildTool -PathType Leaf)) {
+            throw "Unreal Build Tool was not found at $buildTool"
+          }
+          if (-not (Test-Path -LiteralPath $editorCmd -PathType Leaf)) {
+            throw "UnrealEditor-Cmd.exe was not found at $editorCmd"
+          }
+
+          "UE_ROOT=$ueRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BUILD_TOOL=$buildTool" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EDITOR_CMD=$editorCmd" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Verify project checkout
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          Write-Host "Checking project file: $env:PROJECT_FILE"
+          if (-not (Test-Path -LiteralPath $env:PROJECT_FILE -PathType Leaf)) {
+            throw "Project file was not found at $env:PROJECT_FILE"
+          }
+
+      - name: Build NextcarEditor
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          New-Item -ItemType Directory -Path $env:BUILD_LOG_DIR -Force | Out-Null
+          $buildLog = Join-Path $env:BUILD_LOG_DIR "NextcarEditor.log"
+
+          & $env:BUILD_TOOL NextcarEditor Win64 Development $env:PROJECT_FILE -WaitMutex -NoHotReloadFromIDE 2>&1 |
+            Tee-Object -FilePath $buildLog
+          $buildExitCode = $LASTEXITCODE
+
+          Write-Host "Unreal build log: $buildLog"
+          if ($buildExitCode -ne 0) {
+            throw "NextcarEditor build failed with exit code $buildExitCode"
+          }
+
+      - name: Run Unreal Automation Tests
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          New-Item -ItemType Directory -Path $env:TEST_REPORT_DIR -Force | Out-Null
+
+          & $env:EDITOR_CMD $env:PROJECT_FILE `
+            -ExecCmds="Automation RunTests Nextcar; Quit" `
+            -TestExit="Automation Test Queue Empty" `
+            -ReportExportPath="$env:TEST_REPORT_DIR" `
+            -unattended `
+            -nop4 `
+            -nosplash `
+            -NullRHI `
+            -stdout `
+            -FullStdOutLogOutput `
+            -UTF8Output
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unreal Automation Tests failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Require automation report
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $indexFile = Join-Path $env:TEST_REPORT_DIR "index.json"
+          if (-not (Test-Path $indexFile)) {
+            throw "Unreal did not produce the expected automation report at $indexFile"
+          }
+
+          $report = Get-Content $indexFile -Raw | ConvertFrom-Json
+          if ($null -eq $report) {
+            throw "The Unreal automation report is empty or invalid."
+          }
+
+      - name: Upload Unreal logs and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unreal-ci-results-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            Saved/BuildLogs/**
+            Saved/AutomationReports/**
+            Saved/Logs/**

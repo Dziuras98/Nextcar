@@ -153,3 +153,72 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Merge the documentation change after the final repository validation passes on the updated history commit.
   - On the Windows computer, complete the local preflight, create `NextcarRunner`, configure `NEXTCAR-UE58` as a service, reboot, and confirm the service returns to Running and GitHub reports the runner as Idle.
   - Set `ENABLE_UNREAL_CI=true` and run Full Unreal Engine CI for PR #1; preserve the automation report and logs.
+
+## 2026-07-17 — Synchronize initial driving prototype with main
+
+- Timestamp: 2026-07-17 18:31 (Europe/Warsaw)
+- User request: Synchronize the open initial driving prototype branch with the current `main` branch.
+- Baseline branch and commit: `agent/initial-driving-prototype` at `0e72e9fab10267a9130af03a65d818f927764886`; `main` at `8aef9c6c0f59b4f9c70c90c09c9c634e9ee4a189`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md` and all prior entries in `docs/manager-history.md`.
+  - Reviewed the complete visible `main` history through the private-runner-service merge, the complete current PR #1 final state and changed-file set, the current merge base, and the successful pre-synchronization CI evidence.
+  - Reviewed helper PR #9, which targeted `agent/initial-driving-prototype` from `main` and represented the eight commits missing from the feature branch.
+- Repository state found:
+  - Before synchronization, PR #1 was 45 commits ahead and 8 commits behind `main`, with merge base `07664bb53fc0bf999796b924d98e9b6fd3fd0439`.
+  - The prototype had already passed Repository validation run 43, Vehicle Simulation CI run 24, and Full Unreal Engine CI run 9, including a successful `NextcarEditor` build and 5/5 Unreal Automation Tests.
+  - The GitHub connector does not expose a direct update-branch mutation, but permits a normal same-repository pull request whose base is the feature branch.
+- Workstream decomposition and programmer-agent assignments:
+  - The task was decomposed into integration-state verification, conflict-safe synchronization, post-merge comparison, full CI verification, and persistent manager logging.
+  - No programmer agent was dispatched because synchronization is one atomic branch-integration operation and the shared branch/history files require sequential ownership.
+- Files and behavior changed:
+  - Opened helper PR #9 from `main` to `agent/initial-driving-prototype` and merged it with a normal merge commit `10111c14db1f482fb482cc0d158c216f91bfba88`, preserving both histories without rebasing or force-pushing.
+  - The feature branch now contains the current repository policy, manager history, Windows runner runbook, and all prior prototype code and CI fixes.
+  - Appended this manager-history entry. No gameplay behavior was changed by the synchronization itself.
+- Evidence and exact tests:
+  - Post-merge comparison reports the feature branch `ahead_by: 46`, `behind_by: 0`, with `main` commit `8aef9c6c0f59b4f9c70c90c09c9c634e9ee4a189` as the merge base.
+  - GitHub Actions on synchronization commit `10111c14db1f482fb482cc0d158c216f91bfba88`: Repository validation run 44 — success; Vehicle Simulation CI run 25 — success; Full Unreal Engine CI run 10 — success.
+  - Full Unreal Engine CI completed environment resolution, checkout verification, `NextcarEditor` compilation, all `Nextcar.*` Unreal Automation Tests, report validation, and artifact upload successfully.
+- Decisions and integration notes:
+  - Used a two-parent merge commit rather than rebase or force-push to preserve the reviewed prototype history and the current `main` history.
+  - PR #1 remains open and draft; synchronization alone does not authorize merging the feature into `main`.
+- Unresolved risks or blockers:
+  - A manual in-editor driving smoke test has not yet been recorded after synchronization.
+  - The Windows runner is currently being operated interactively as administrator rather than through the documented dedicated service account; service-mode verification remains outstanding.
+- Next steps:
+  - Confirm the final history-only commit passes Repository validation.
+  - Perform and record a short manual driving smoke test before changing PR #1 from draft or merging it.
+
+## 2026-07-17 — Correct wheel visual rotation axis
+
+- Timestamp: 2026-07-17 18:49 (Europe/Warsaw)
+- User request: Record the manual smoke-test result that the prototype works except that the wheels rotate around the wrong axis, then correct the defect.
+- Baseline branch and commit: `agent/initial-driving-prototype` at `678b9aec20e66e7ac1454d0c768d55be794e69c7`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md` and all prior entries in `docs/manager-history.md`.
+  - Reviewed the current PR #1 branch state, the synchronized merge base, the wheel construction and visual-update implementation, the portable wheel-rotation state calculation, the existing Unreal smoke tests, and the successful CI evidence from the synchronized head.
+- Repository state found:
+  - The user manually confirmed that the current prototype launches and otherwise behaves correctly in the editor.
+  - The engine cylinder mesh uses local `Z` as its symmetry axis, while `ConfigureWheel` used `Pitch=90` and therefore aligned the wheel axle with the car longitudinal `X` axis; `UpdateWheelVisuals` then applied rolling through `Roll`, preserving the incorrect axle.
+  - PR #1 remained synchronized with `main` and open as a draft.
+- Workstream decomposition and programmer-agent assignments:
+  - The task was decomposed into geometric root-cause verification, a shared wheel-rotation transform, production integration, an Unreal regression test, full CI verification, and manual revalidation.
+  - No programmer agent was dispatched because the correction is one small atomic code-and-test scope with shared transform ownership and required sequential validation on the single self-hosted Unreal runner.
+- Files and behavior changed:
+  - Added `Source/Nextcar/ArcadeWheelVisuals.h` with one canonical wheel transform: `Roll=90` aligns the cylinder axle across the car, `Pitch` applies rolling around that axle, and `Yaw` applies front-wheel steering.
+  - Updated `Source/Nextcar/ArcadeCarPawn.cpp` so initial wheel orientation and every visual update use the shared transform.
+  - Added `Nextcar.Smoke.WheelVisualAxes` in `Source/Nextcar/Tests/NextcarSmokeTests.cpp`; it verifies lateral axle alignment, axle preservation during rolling, radial movement around the axle, and steering around the vertical axis.
+  - Appended this manager-history entry.
+- Evidence and exact tests:
+  - User manual smoke test on the previous synchronized build: launching and general driving behavior passed; wheel visual rotation axis failed.
+  - GitHub Actions on code/test commit `98ad76bc1f36e9a9dc4cc3f6706bf7a692c7c10f`: Repository validation run 48 — success; Vehicle Simulation CI run 30 — success; Full Unreal Engine CI run 14 — success.
+  - Full Unreal Engine CI successfully compiled `NextcarEditor`, ran all `Nextcar.*` tests including `Nextcar.Smoke.WheelVisualAxes`, validated the automation report, and uploaded logs and reports.
+- Decisions and integration notes:
+  - Kept wheel geometry and simulation state unchanged; only the mapping from simulated spin/steering angles to mesh orientation was corrected.
+  - Centralized the transform to prevent constructor and per-frame visual logic from drifting apart.
+  - PR #1 remains draft until the corrected wheel motion is manually confirmed in the editor.
+- Unresolved risks or blockers:
+  - The corrected visual result still requires a short manual editor test on the new head.
+  - The Windows runner is still operated interactively as administrator rather than through the documented dedicated service account.
+- Next steps:
+  - Refresh the runner workspace or local test copy to the latest PR #1 head and verify forward, reverse, steering, and reset wheel animation in Play mode.
+  - After manual confirmation, update the PR evidence/checklist and decide whether PR #1 is ready to leave draft and merge.

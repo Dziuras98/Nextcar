@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Games",
+  "Description": "Code-first arcade racing prototype.",
+  "Modules": [
+    {
+      "Name": "Nextcar",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}
