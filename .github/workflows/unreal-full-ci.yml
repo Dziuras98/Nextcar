@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Resolve Unreal Engine installation
-        shell: pwsh
+        shell: powershell
         run: |
           $processRoot = $env:UE_ROOT
           $machineRoot = [Environment]::GetEnvironmentVariable("UE_ROOT", "Machine")
@@ -56,8 +56,8 @@ jobs:
           $editorCmd = Join-Path $ueRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 
           Write-Host "Resolved UE_ROOT='$ueRoot'"
-          Write-Host "Build tool exists: $(Test-Path -LiteralPath $buildTool -PathType Leaf) — $buildTool"
-          Write-Host "Editor command exists: $(Test-Path -LiteralPath $editorCmd -PathType Leaf) — $editorCmd"
+          Write-Host "Build tool exists: $(Test-Path -LiteralPath $buildTool -PathType Leaf) - $buildTool"
+          Write-Host "Editor command exists: $(Test-Path -LiteralPath $editorCmd -PathType Leaf) - $editorCmd"
 
           if (-not (Test-Path -LiteralPath $buildTool -PathType Leaf)) {
             throw "Unreal Build Tool was not found at $buildTool"
@@ -76,7 +76,7 @@ jobs:
           clean: true
 
       - name: Verify project checkout
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host "Checking project file: $env:PROJECT_FILE"
           if (-not (Test-Path -LiteralPath $env:PROJECT_FILE -PathType Leaf)) {
@@ -84,7 +84,7 @@ jobs:
           }
 
       - name: Build NextcarEditor
-        shell: pwsh
+        shell: powershell
         run: |
           & $env:BUILD_TOOL NextcarEditor Win64 Development $env:PROJECT_FILE -WaitMutex -NoHotReloadFromIDE
           if ($LASTEXITCODE -ne 0) {
@@ -92,7 +92,7 @@ jobs:
           }
 
       - name: Run Unreal Automation Tests
-        shell: pwsh
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Path $env:TEST_REPORT_DIR -Force | Out-Null
 
@@ -113,7 +113,7 @@ jobs:
           }
 
       - name: Require automation report
-        shell: pwsh
+        shell: powershell
         run: |
           $indexFile = Join-Path $env:TEST_REPORT_DIR "index.json"
           if (-not (Test-Path $indexFile)) {
