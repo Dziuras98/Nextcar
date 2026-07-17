@@ -2,6 +2,7 @@
 
 #include "ArcadeVehicleMath.h"
 #include "ArcadeVehicleSimulation.h"
+#include "ArcadeWheelVisuals.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
@@ -202,14 +203,18 @@ void AArcadeCarPawn::ConfigureWheel(UStaticMeshComponent* Wheel, const FVector& 
     Wheel->SetupAttachment(CollisionBody);
     Wheel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Wheel->SetRelativeLocation(RelativeLocation);
-    Wheel->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f));
+    Wheel->SetRelativeRotation(Nextcar::ArcadeWheelVisuals::MakeWheelRotation(0.0f, 0.0f));
     Wheel->SetRelativeScale3D(FVector(0.34f, 0.34f, 0.18f));
 }
 
 void AArcadeCarPawn::UpdateWheelVisuals(float SteeringAngleDegrees)
 {
-    const FRotator FrontWheelRotation(90.0f, SteeringAngleDegrees, WheelRotationDegrees);
-    const FRotator RearWheelRotation(90.0f, 0.0f, WheelRotationDegrees);
+    const FRotator FrontWheelRotation = Nextcar::ArcadeWheelVisuals::MakeWheelRotation(
+        SteeringAngleDegrees,
+        WheelRotationDegrees);
+    const FRotator RearWheelRotation = Nextcar::ArcadeWheelVisuals::MakeWheelRotation(
+        0.0f,
+        WheelRotationDegrees);
 
     FrontLeftWheel->SetRelativeRotation(FrontWheelRotation);
     FrontRightWheel->SetRelativeRotation(FrontWheelRotation);
