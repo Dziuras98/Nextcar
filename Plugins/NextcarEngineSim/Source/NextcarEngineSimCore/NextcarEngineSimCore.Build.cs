@@ -30,10 +30,10 @@ public class NextcarEngineSimCore : ModuleRules
                 string StandardOutput = BootstrapProcess.StandardOutput.ReadToEnd();
                 string StandardError = BootstrapProcess.StandardError.ReadToEnd();
                 BootstrapProcess.WaitForExit();
-                Log.TraceInformation(StandardOutput);
+                Console.WriteLine(StandardOutput);
                 if (!String.IsNullOrWhiteSpace(StandardError))
                 {
-                    Log.TraceWarning(StandardError);
+                    Console.Error.WriteLine(StandardError);
                 }
                 if (BootstrapProcess.ExitCode != 0)
                 {
