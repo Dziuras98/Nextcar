@@ -422,3 +422,45 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Publish one atomic final Phase 0 commit from a normal authenticated checkout, deleting all transport/bootstrap residue.
   - Replace the PR description with exact remote evidence and run the complete final test matrix on that exact head.
   - Submit Phase 0 for manager approval only after all remote evidence is available; do not start Phase 1.
+
+## 2026-07-18 — NC-003B rebuilt candidate persistence gate
+
+- Timestamp: 2026-07-18 (Europe/Warsaw)
+- User request: Review the NC-003B agent report that the lost candidate tree was deterministically rebuilt locally, with exact WAV verification and repeatable calibration, but remained unpublished and incomplete.
+- Baseline branch and commit: `main` at `d91d9e0c9cd90b28dbddeb19c0d993ef49691434`; PR #13 at safe head `c441cf1166ad6091d763c7054351682f36ab7a54`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, the entire manager history, and the complete visible fourteen-commit `main` history through the manager security-intervention merge.
+  - Re-reviewed PR #13 metadata, all changed paths, all manager comments, current PR body, Repository validation run 82, Full Unreal Engine CI run 38 and its job-step outcome, and the agent-reported rebuilt local candidate.
+- Repository state found:
+  - PR #13 remains open, mergeable, draft, and unchanged at `c441cf1166ad6091d763c7054351682f36ab7a54` with 20 changed files.
+  - The remote branch still contains incomplete checkpoint sources, `.transport/**`, `.upload/**`, and `WIP_CHECKPOINT.md`; it does not contain the rebuilt complete Phase 0 candidate.
+  - Repository validation run 82 succeeded. Full Unreal Engine CI run 38 concluded `failure`: `Build NextcarEditor` failed, Unreal Automation Tests and report validation were skipped.
+  - According to the agent report, `/mnt/data/nextcar-nc003b-rebuild` contains a newly reconstructed candidate using the exact engine-sim and solver pins, exact WAV, lossless generated IR, bounded synchronous production, deterministic tests, and a provisional cold-start profile using 600 RPM starter disengagement and a 490 RPM derived minimum.
+  - The current candidate has not finalized `SOURCE_MANIFEST.json`, `PATCHES.md`, or `UPDATE.md`; the vendor verifier, full compiler/sanitizer matrix, Swift Clang ASan diagnostic package, atomic publication, and exact-remote-head Unreal validation remain incomplete.
+- Workstream decomposition and programmer-agent assignments:
+  - This run remained a sequential manager review and persistence-gate decision because no remotely reviewable final tree exists and further parallel implementation would increase loss and integration risk.
+  - The NC-003B programmer agent remains assigned to persist, finalize, publish, and validate the existing candidate without starting Phase 1 or crossing into Runtime Audio, benchmark, gameplay, workflow, project, plugin-descriptor, or manager-history ownership.
+- Files and behavior changed:
+  - Added PR #13 manager comment `#issuecomment-5011414899`, defining a mandatory local Git commit, verified Git bundle, ZIP fallback, final manifest generation, full matrix, atomic publication, and exact-head validation sequence.
+  - Appended this manager-history entry on a separate manager-owned branch. No Core implementation, Runtime Audio, benchmark, gameplay, workflow, project descriptor, or plugin descriptor was changed by the manager.
+- Evidence and exact tests:
+  - Remote PR metadata confirmed head `c441cf1166ad6091d763c7054351682f36ab7a54`, draft state, 19 commits, 20 changed files, and the current safe checkpoint description.
+  - Changed-file inspection confirmed the remaining transport residue and incomplete source checkpoint.
+  - Repository validation run 82 concluded `success` on the safe checkpoint.
+  - Full Unreal Engine CI run 38 concluded `failure`; `Build NextcarEditor` failed, `Run Unreal Automation Tests` and `Require automation report` were skipped, and artifact upload completed.
+  - No local rebuild files, commands, generated artifacts, or hashes were independently accessible to the manager; all such claims remain candidate evidence until committed and reproduced.
+- Decisions and integration notes:
+  - Before any further implementation or test expansion, the rebuilt workspace must be committed locally and preserved as both a verified `git bundle` and ZIP. These fallback artifacts do not constitute Phase 0 evidence but prevent a third loss of the candidate tree.
+  - The reported 600 RPM disengagement threshold and 490 RPM minimum remain provisional until the exact sweep, distribution, profile, and trace artifacts are remotely committed and reproduced.
+  - Negative-case evidence must distinguish an expected simulated startup failure from a successful test-harness exit code `0`.
+  - No more base64 transport commits, build-time publication, credential discovery, or network side effects are allowed.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited.
+- Unresolved risks or blockers:
+  - The rebuilt workspace may still be lost before a local commit and verified bundle are created.
+  - Final manifests, vendor closure/patch counts, Clang Release, Clang UBSan-only, GCC ASan+UBSan, Swift Clang ASan reproducer, atomic remote publication, residue removal, and exact-head Unreal validation are outstanding.
+  - Run 38 is a failed incomplete-checkpoint run and cannot be reused as Phase 0 evidence.
+- Next steps:
+  - Commit the rebuilt candidate locally, verify a Git bundle and ZIP, and expose them as fallback artifacts if remote publication cannot be completed in the same run.
+  - Finalize manifests and patch records for exact bytes; run the vendor verifier and complete standalone compiler/sanitizer coverage.
+  - Publish one atomic fast-forward commit from `c441cf1166ad6091d763c7054351682f36ab7a54`, deleting all transport and stale checkpoint residue.
+  - Verify remote blobs and hashes, replace the PR body with canonical evidence, run exact-head Repository validation, UBT/MSVC, `NextcarEditor`, and all `Nextcar.*` tests, then submit Phase 0 for manager approval without starting Phase 1.
