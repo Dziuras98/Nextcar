@@ -35,7 +35,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Workstream decomposition and programmer-agent assignments: The policy update was divided into manager-role rules, persistent-history format, PR checklist enforcement, and deterministic validation enforcement. These files share repository-policy invariants and were integrated as one coordinated change.
 - Files and behavior changed: Added manager orchestration and parallel-delegation requirements to `AGENTS.md`; created this append-only history; added manager checks to the PR template; extended `scripts/validate_repository.py` to require and validate the policy, history, and PR checklist.
 - Evidence and exact tests: `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed complete policy-file workspace before publication. GitHub Actions validation must also pass on the pull request before merge.
-- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append a final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
+- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append one final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
 - Unresolved risks or blockers: The textual validator can enforce required policy and history structure, but cannot prove that a manager actually read every historical commit or maximized safe parallelism; PR review and manager accountability remain required.
 - Next steps: Future manager agents must load the full reachable Git history and this entire file before planning, then append their own final entry in the same managed change.
 
@@ -464,3 +464,69 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Finalize manifests and patch records for exact bytes; run the vendor verifier and complete standalone compiler/sanitizer coverage.
   - Publish one atomic fast-forward commit from `c441cf1166ad6091d763c7054351682f36ab7a54`, deleting all transport and stale checkpoint residue.
   - Verify remote blobs and hashes, replace the PR body with canonical evidence, run exact-head Repository validation, UBT/MSVC, `NextcarEditor`, and all `Nextcar.*` tests, then submit Phase 0 for manager approval without starting Phase 1.
+
+## 2026-07-18 — NC-003B incremental publication policy
+
+- Timestamp: 2026-07-18 (Europe/Warsaw)
+- User request: Replace the single-commit publication requirement because the agent execution window expires before the complete NC-003B candidate can be published.
+- Baseline branch and commit: `main` at `38ed951bc4206c73b7b6b0ae2c2cbb735a77792f`; PR #13 at `c441cf1166ad6091d763c7054351682f36ab7a54`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, the complete manager history, the complete visible `main` history, contract version 1.3, current PR #13 metadata/body/comments, and the current remote checkpoint contents.
+- Repository state found:
+  - A single atomic final publication repeatedly exceeded the available agent execution window and caused rebuilt local work to remain uncommitted or be lost.
+  - PR #13 remained draft at the safe cleanup baseline with incomplete source and transport residue.
+- Workstream decomposition and programmer-agent assignments:
+  - Publication is now decomposed into sequential durable checkpoint commits, each containing one complete large file or at most five small related complete files.
+  - No parallel publisher is assigned because all batches update the same branch and must preserve strict remote-head ordering.
+- Files and behavior changed:
+  - Added PR #13 manager comment `#issuecomment-5011835866` and updated the PR body to authorize incremental publication.
+  - No implementation, workflow, project, plugin descriptor, Runtime Audio, benchmark, or gameplay file was changed by the manager.
+- Evidence and exact tests:
+  - Verified PR #13 remained open, mergeable and draft at `c441cf1166ad6091d763c7054351682f36ab7a54`, with 20 changed files.
+  - No code test was run because this manager change modifies publication policy only.
+- Decisions and integration notes:
+  - The prohibition on base64/archive fragments, partial source files, bootstrap, credential discovery, build-time publication and network side effects remains unchanged.
+  - Each checkpoint must be pushed immediately, verified by Git blob and SHA-256, and reported with the last confirmed remote head and next unpublished path.
+  - Intermediate heads are expected to be incomplete and are not Phase 0 evidence. Full Unreal CI is reserved for the completed final head.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited.
+- Unresolved risks or blockers:
+  - The rebuilt candidate may still be unavailable in future sessions, requiring deterministic reconstruction directly from the pinned upstream commits and frozen contract.
+  - `WIP_CHECKPOINT.md` remains stale and must be removed or completely replaced before Phase 0 submission.
+- Next steps:
+  - Publish cleanup first, then exact immutable upstream inputs, unmodified closure batches, patched/custom files, generators, tests, generated evidence and final manifests.
+  - Stop each session after a small verified push rather than beginning a batch that cannot be completed.
+
+## 2026-07-18 — NC-003B transport cleanup checkpoint review
+
+- Timestamp: 2026-07-18 (Europe/Warsaw)
+- User request: Review the agent report that the first incremental publication checkpoint removed transport residue and that the rebuilt local workspace was unavailable in the current session.
+- Baseline branch and commit: `main` at `38ed951bc4206c73b7b6b0ae2c2cbb735a77792f`; PR #13 advanced from `c441cf1166ad6091d763c7054351682f36ab7a54` to `591eb21eaff0ab40a83baf34ecc233828119918c`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, complete manager history, visible `main` history, contract version 1.3, PR #13 metadata/body/comments, cleanup commit, parent comparison, and current WIP checkpoint.
+- Repository state found:
+  - Commit `591eb21eaff0ab40a83baf34ecc233828119918c` is exactly one fast-forward commit after `c441cf1166ad6091d763c7054351682f36ab7a54`.
+  - The commit removes exactly nine paths under `Tools/EngineSimVendor/.transport/**` and `.upload/**`; no source, build rule, workflow, project, Runtime Audio, benchmark or gameplay file changed.
+  - PR #13 remains open, mergeable and draft. Its changed-file count fell from 20 to 11.
+  - `WIP_CHECKPOINT.md` remains present and stale, but accurately marks Phase 0 as WIP; the complete rebuilt workspace and bundle were unavailable in the agent session.
+- Workstream decomposition and programmer-agent assignments:
+  - The cleanup checkpoint is accepted as a correct durable WIP increment.
+  - Future sessions must reconstruct and publish one small authoritative batch directly from pinned upstream commits or deterministic generators rather than depending on an ephemeral prior workspace.
+- Files and behavior changed:
+  - The manager reviewed and accepted the cleanup checkpoint only; no NC-003B implementation file was changed.
+- Evidence and exact tests:
+  - Parent comparison confirmed one commit ahead, zero behind, and exactly nine removed paths.
+  - PR metadata confirmed head `591eb21eaff0ab40a83baf34ecc233828119918c`, draft state, 20 commits and 11 changed files.
+  - `WIP_CHECKPOINT.md` at the head still states `Phase 0 WIP — not submitted for approval` and `Phase 1: not started`.
+- Decisions and integration notes:
+  - Checkpoint 01 is accepted as WIP evidence of cleanup only, not Phase 0 evidence.
+  - The next checkpoint should publish the exact pinned WAV as one complete binary file because it is immutable, independently verifiable and does not depend on the lost custom workspace.
+  - After the WAV, publish unmodified upstream closure files in lexicographic batches before reconstructing patched/custom files.
+  - No full Unreal CI is required or useful on intermediate incomplete heads.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited.
+- Unresolved risks or blockers:
+  - The exact destination path and source blob must be verified against contract version 1.3 before writing the WAV.
+  - Custom generators, patches, fixture, profile and trace artifacts still require deterministic reconstruction.
+  - `WIP_CHECKPOINT.md` must be updated after the WAV is published and removed or converted before final submission.
+- Next steps:
+  - Fetch `es/sound-library/new/minimal_muffling_02.wav` from `Dziuras98/engine-sim` commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`, verify Git blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72`, and publish it as one complete file in the contract-defined vendored upstream path.
+  - Verify the destination Git blob and file SHA-256 after push, report the remote head, and stop without starting the next batch.
