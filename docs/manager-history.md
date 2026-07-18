@@ -35,7 +35,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Workstream decomposition and programmer-agent assignments: The policy update was divided into manager-role rules, persistent-history format, PR checklist enforcement, and deterministic validation enforcement. These files share repository-policy invariants and were integrated as one coordinated change.
 - Files and behavior changed: Added manager orchestration and parallel-delegation requirements to `AGENTS.md`; created this append-only history; added manager checks to the PR template; extended `scripts/validate_repository.py` to require and validate the policy, history, and PR checklist.
 - Evidence and exact tests: `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed complete policy-file workspace before publication. GitHub Actions validation must also pass on the pull request before merge.
-- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append one final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
+- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append a final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
 - Unresolved risks or blockers: The textual validator can enforce required policy and history structure, but cannot prove that a manager actually read every historical commit or maximized safe parallelism; PR review and manager accountability remain required.
 - Next steps: Future manager agents must load the full reachable Git history and this entire file before planning, then append their own final entry in the same managed change.
 
@@ -530,3 +530,29 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Next steps:
   - Fetch `es/sound-library/new/minimal_muffling_02.wav` from `Dziuras98/engine-sim` commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`, verify Git blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72`, and publish it as one complete file in the contract-defined vendored upstream path.
   - Verify the destination Git blob and file SHA-256 after push, report the remote head, and stop without starting the next batch.
+
+## 2026-07-18 — Correction: manager-history commit bypassed branch policy
+
+- Timestamp: 2026-07-18 (Europe/Warsaw)
+- User request: Complete the transport-cleanup checkpoint review and persist its manager record.
+- Baseline branch and commit: `main` at `38ed951bc4206c73b7b6b0ae2c2cbb735a77792f`; accidental direct history commit `6f20717fda78045879765eb21117e8855f61226e`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, complete manager history, visible `main` history, PR #13 state and cleanup checkpoint evidence.
+  - This entry corrects the persistence method used for the immediately preceding manager-history entry.
+- Repository state found:
+  - The GitHub contents update was mistakenly targeted directly at `main` instead of a short-lived manager branch and pull request.
+  - The direct commit changed only `docs/manager-history.md`; no implementation, workflow, project, plugin, Runtime Audio, benchmark or gameplay file changed.
+- Workstream decomposition and programmer-agent assignments:
+  - No programmer workstream was affected. The correction is manager-owned documentation and process accounting.
+- Files and behavior changed:
+  - Appended this transparent correction entry through a dedicated manager branch and pull request.
+- Evidence and exact tests:
+  - The accidental commit SHA is `6f20717fda78045879765eb21117e8855f61226e`.
+  - Repository validation is required on the correction PR before merge.
+- Decisions and integration notes:
+  - The history content is retained because it is accurate and append-only; the process violation is recorded rather than hidden or history-rewritten.
+  - Future manager history updates must use a short-lived branch and PR even for Markdown-only changes.
+- Unresolved risks or blockers:
+  - The correction PR must pass Repository validation and be merged.
+- Next steps:
+  - Merge the correction PR after validation, confirm branch deletion, and continue NC-003B incremental publication from remote head `591eb21eaff0ab40a83baf34ecc233828119918c`.
