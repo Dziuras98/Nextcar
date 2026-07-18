@@ -35,7 +35,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Workstream decomposition and programmer-agent assignments: The policy update was divided into manager-role rules, persistent-history format, PR checklist enforcement, and deterministic validation enforcement. These files share repository-policy invariants and were integrated as one coordinated change.
 - Files and behavior changed: Added manager orchestration and parallel-delegation requirements to `AGENTS.md`; created this append-only history; added manager checks to the PR template; extended `scripts/validate_repository.py` to require and validate the policy, history, and PR checklist.
 - Evidence and exact tests: `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed complete policy-file workspace before publication. GitHub Actions validation must also pass on the pull request before merge.
-- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append a final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
+- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append its own final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
 - Unresolved risks or blockers: The textual validator can enforce required policy and history structure, but cannot prove that a manager actually read every historical commit or maximized safe parallelism; PR review and manager accountability remain required.
 - Next steps: Future manager agents must load the full reachable Git history and this entire file before planning, then append their own final entry in the same managed change.
 
@@ -123,7 +123,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Repository history reviewed:
   - Reviewed the complete eight-commit `main` history available through the GitHub connector, including the original runner runbook change and all earlier policy/history changes.
   - Re-read the complete current `AGENTS.md`, `docs/manager-history.md`, and `docs/windows-self-hosted-runner.md`.
-  - Re-checked current GitHub documentation for adding a Windows self-hosted runner, installing it as a service, managing the service with PowerShell, and security limitations that still apply to private repositories.
+  - Re-checked current official GitHub documentation for adding a Windows self-hosted runner, installing it as a service, managing the service with PowerShell, and security limitations that still apply to private repositories.
 - Repository state found:
   - GitHub repository metadata now reports `visibility: private`.
   - The existing runbook still described the repository as public, required interactive `run.cmd` operation, and treated Windows service installation as optional future work.
@@ -556,3 +556,46 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - The correction PR must pass Repository validation and be merged.
 - Next steps:
   - Merge the correction PR after validation, confirm branch deletion, and continue NC-003B incremental publication from remote head `591eb21eaff0ab40a83baf34ecc233828119918c`.
+
+## 2026-07-18 — NC-003B exact WAV and header batch reviews
+
+- Timestamp: 2026-07-18 23:12 (Europe/Warsaw)
+- User request: Review the agent reports for the exact impulse-response WAV checkpoint and the first five-header checkpoint, record that future cross-repository binary transfers require user assistance, and continue incremental Phase 0 publication.
+- Baseline branch and commit: `main` at `11b8676f45bf7316c4991e06d563d25bdbbe8754`; PR #13 at `c267c1c5f3ab4936f05dd80d2231a25981816dd6`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, all prior entries in this manager history, and the complete visible reachable `main` history through the temporary staging-WAV add/delete commits.
+  - Re-reviewed PR #13 metadata, body, current changed-file set, commits `4a2067961df4d2fd220b89a89d42d953b6b148fa` and `c267c1c5f3ab4936f05dd80d2231a25981816dd6`, source and destination blobs, and prior manager comments.
+  - Re-inspected the next five pinned upstream header blobs at engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`.
+- Repository state found:
+  - Checkpoint 02 adds only the exact vendored `minimal_muffling_02.wav`; the source and destination both resolve to Git blob `6d3f8688e170cb6e5f4bfec42f580f3900514d72`.
+  - Checkpoint 03 is one fast-forward commit after checkpoint 02 and adds exactly five unmodified headers: `audio_buffer.h`, `camshaft.h`, `combustion_chamber.h`, `connecting_rod.h`, and `constants.h`.
+  - All five destination blobs equal the pinned upstream blobs. The published `constants.h` is blob `8b39b447376d7b37e5e51a9176ba02fa8602318f` and retains the original `namespace constants` declaration and `namespace Constants` closing comment.
+  - The agent-reported loose object `ed4ba11982c58674b74fab1881f8ce7766443fcd` is not part of any published tree, commit, or ref and has no effect on the branch.
+  - The temporary repository-root staging WAV was removed from `main` by commit `11b8676f45bf7316c4991e06d563d25bdbbe8754` and is absent from the current default-branch tree.
+  - PR #13 remains open, mergeable, draft, and explicitly marked as Phase 0 WIP with Phase 1 not started.
+- Workstream decomposition and programmer-agent assignments:
+  - Publication remains one sequential branch-owned stream because every batch advances the same ref and must be verified before the next batch begins.
+  - The next programmer-agent assignment is limited to five further unmodified UTF-8 headers; no parallel publisher is assigned.
+- Files and behavior changed:
+  - Added manager comments `#issuecomment-5012870991` and `#issuecomment-5012938976` to PR #13 and updated the PR body with the accepted checkpoints, user-assisted binary-transfer boundary, staging cleanup, and next batch.
+  - Appended this manager-history entry on a separate manager-owned branch. No NC-003B source, workflow, project descriptor, plugin descriptor, Runtime Audio, benchmark, or gameplay file was changed by the manager.
+- Evidence and exact tests:
+  - Comparison `5aa3f210856601bffe17f9e1ff54c536df6109dd..4a2067961df4d2fd220b89a89d42d953b6b148fa` showed one commit adding only the WAV.
+  - Comparison `4a2067961df4d2fd220b89a89d42d953b6b148fa..c267c1c5f3ab4936f05dd80d2231a25981816dd6` showed one commit adding only the five declared headers.
+  - Independent GitHub source/destination blob checks matched all six immutable upstream files.
+  - `minimal_muffling_02.wav` at repository root on `main` returned not found after deletion commit `11b8676f45bf7316c4991e06d563d25bdbbe8754`.
+  - No build, standalone test, Unreal Automation Test, or Full Unreal CI was required or useful for these intentionally incomplete immutable-file checkpoints.
+- Decisions and integration notes:
+  - Checkpoints 02 and 03 are accepted only as correct durable WIP increments, not as Phase 0 evidence or approval.
+  - Cross-repository binary or connector-incompatible transfers now require an explicit `USER BINARY TRANSFER REQUIRED` handoff to the user; base64 chunks, archives, bootstrap, credential probes, and build/CI publication remain forbidden.
+  - Ordinary UTF-8 upstream files remain the agent's responsibility and must be published in lexicographic groups of at most five complete files.
+  - The next required commit is `WIP Phase 0 publish 04: engine-sim headers batch 02` containing only `convolution_filter.h`, `crankshaft.h`, `cylinder_bank.h`, `cylinder_head.h`, and `delay_filter.h`.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited and not started.
+- Unresolved risks or blockers:
+  - `Tools/EngineSimVendor/WIP_CHECKPOINT.md` remains stale and must be removed or fully replaced before Phase 0 submission.
+  - Most of the pinned source closure, patched/custom files, deterministic tools, generated IR, fixture corrections, tests, calibration evidence, manifests, sanitizer matrix, UBT/MSVC validation, editor build, and Unreal Automation Tests remain unpublished or unexecuted on a complete remote head.
+  - Future binary inputs will block until the user performs the verified cross-repository transfer.
+- Next steps:
+  - Publish and remotely verify the five headers assigned in checkpoint 04, then stop.
+  - Continue subsequent immutable upstream batches in lexical order before reconstructing patched/custom files.
+  - Preserve the draft/WIP state and do not run or present incomplete-head Unreal CI as Phase 0 evidence.
