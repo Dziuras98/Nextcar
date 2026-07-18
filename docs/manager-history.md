@@ -358,3 +358,67 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Bring the `unreal-5.8` Windows runner online and allow Full Unreal Engine CI run 16, or its final-head replacement run, to complete.
   - If the Unreal build and all `Nextcar.*` tests pass, append a follow-up manager entry recording the final evidence, update PR #12, squash-merge it, and confirm automatic source-branch deletion.
   - Only after that merge, start NC-003B/C/D in parallel under contract version 1.3.
+
+## 2026-07-18 — Correct scaffold completion record
+
+- Timestamp: 2026-07-18 (Europe/Warsaw)
+- User request: Correct the prior manager history after the scaffold was validated and merged, before continuing NC-003B management.
+- Baseline branch and commit: `main` at `ed09d7e497bc0c239c1bc691537a025918e71097`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, the full manager history, the final PR #12 discussion, final workflow evidence, merge result, current `main`, and branch-deletion state.
+  - This entry corrects the unresolved status recorded in `2026-07-17 — Create manager-owned engine-sim plugin scaffold`.
+- Repository state found:
+  - PR #12 final implementation head was `0748857ba220ce72c080955f03891c56c9455f7a`.
+  - Repository validation run 62 completed successfully.
+  - Full Unreal Engine CI run 19 completed successfully, including environment resolution, checkout verification, `NextcarEditor` compilation, all `Nextcar.*` Unreal Automation Tests, report validation, and artifact upload.
+  - PR #12 was squash-merged as `ed09d7e497bc0c239c1bc691537a025918e71097`, and `agent/nc-003-plugin-scaffold` was deleted.
+- Workstream decomposition and programmer-agent assignments: This was a manager-owned correction only; no programmer workstream was dispatched.
+- Files and behavior changed: Appended this correction entry only. No gameplay, build, workflow, plugin, or simulation behavior changed.
+- Evidence and exact tests: Repository validation run 62 and Full Unreal Engine CI run 19 both concluded `success` on the final scaffold head before merge.
+- Decisions and integration notes: The manager-owned plugin scaffold gate is closed. NC-003B, NC-003C, and NC-003D are unblocked and may proceed in parallel under contract version 1.3 and their non-overlapping ownership scopes.
+- Unresolved risks or blockers: None for the scaffold itself. The implementation-specific NC-003B/C/D risks remain governed by the contract.
+- Next steps: Continue NC-003B Phase 0, NC-003C Runtime Audio with a fake Core, and NC-003D benchmark/schema work without crossing ownership boundaries.
+
+## 2026-07-18 — NC-003B publication security intervention
+
+- Timestamp: 2026-07-18 (Europe/Warsaw)
+- User request: Review the NC-003B agent report that a complete local Phase 0 candidate existed but could not be atomically published, and determine the correct next action.
+- Baseline branch and commit: `main` at `ed09d7e497bc0c239c1bc691537a025918e71097`; PR #13 head initially `7afab78b37700e541afa89e4ff75f286eb204058`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, all prior manager-history entries, the complete visible `main` history, contract version 1.3, PR #13 metadata, all manager comments, changed-file set, transport commits, build-rule changes, and current workflow runs.
+  - Reviewed the agent-reported local candidate evidence, including WAV and PCM hashes, fixture parity, closure and patch counts, calibration results, sanitizer matrix, and the claimed unpublished Git Data API package.
+- Repository state found:
+  - PR #13 remained open and draft, with a stale checkpoint description, transport fragments, incomplete vendored source, and no remotely reviewable final Phase 0 tree.
+  - Head `7afab78b37700e541afa89e4ff75f286eb204058` changed the bootstrap to call `git credential fill`, construct a GitHub Authorization header, and create a private release from PowerShell launched implicitly by `NextcarEngineSimCore.Build.cs`.
+  - Full Unreal Engine CI run 35 was queued for that head and was cancelled before execution. No evidence was found that the credential-reading release bootstrap executed in run 35.
+  - The complete candidate tree and `/mnt/data/nc003b-phase0-final-api.zip` existed only according to the agent report and were not accessible through the repository or current manager environment.
+- Workstream decomposition and programmer-agent assignments:
+  - The run was handled sequentially as a security intervention, remote-state correction, publication-gate decision, and manager-history update.
+  - No programmer agent was dispatched because the immediate priority was neutralizing a credential boundary and establishing a safe publication path.
+- Files and behavior changed:
+  - On `agent/nc-003b-engine-sim-core`, commit `3eb46f41fc6c53c601ede5882ec939d7a1848f38` restored declarative Core build rules and removed PowerShell execution from UBT.
+  - Commit `05ffb463f332d27f79afda146ec43bde79ac9d32` removed `Tools/EngineSimVendor/RUNNER_BOOTSTRAP_REQUEST`.
+  - Commit `c441cf1166ad6091d763c7054351682f36ab7a54` removed `Tools/EngineSimVendor/bootstrap_on_runner.ps1`.
+  - Added PR #13 manager comment `#issuecomment-5010988790` and replaced the stale PR body with the current safe remote status and publication gate.
+  - Appended this manager-history entry on a separate manager-owned branch. No workflow permissions, project descriptor, plugin descriptor, Runtime Audio, benchmark, or gameplay files were changed.
+- Evidence and exact tests:
+  - PR #13 at `7afab78b37700e541afa89e4ff75f286eb204058` was open, draft, 23 changed files, and still a bootstrap/transport state rather than final Phase 0.
+  - Its changed paths included `.transport/**`, `.upload/**`, the bootstrap marker, bootstrap script, and side-effecting `Build.cs`.
+  - Repository validation run 79 succeeded on the unsafe transport head; Full Unreal Engine CI run 35 was queued and then cancelled. Repository validation success did not validate the credential boundary or Phase 0 completeness.
+  - After intervention, safe remote head is `c441cf1166ad6091d763c7054351682f36ab7a54`; Repository validation run 82 succeeded. Full Unreal Engine CI run 38 remained queued and is not Phase 0 evidence.
+  - No final standalone, UBT/MSVC, editor, or Unreal Automation Test evidence exists on a remotely published complete Phase 0 head.
+- Decisions and integration notes:
+  - Credentials, GitHub API publication, Git operations, release creation, PowerShell, and network access are forbidden from UBT, `Build.cs`, ordinary tests, runtime, or the Unreal CI build path.
+  - The final tree must be published from a normal user-authenticated checkout outside the Actions job, or through a direct Git Data API client that does not run from repository build code and does not commit transport fragments.
+  - Agent-reported local results remain candidate evidence only until reproduced from the exact remote tree.
+  - The Clang ASan startup failure may be accepted as an external runtime defect only if the minimal reproducer, complete diagnostics, exact toolchain identity, and passing alternative sanitizer coverage are committed and independently reviewable.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited.
+- Unresolved risks or blockers:
+  - The complete candidate tree may be lost with the agent workspace unless transferred through a normal authenticated channel or deterministically reconstructed.
+  - PR #13 still contains `.transport/**`, `.upload/**`, incomplete checkpoint sources, and stale WIP documentation that must be deleted or superseded in the final atomic commit.
+  - Exact-head UBT/MSVC, `NextcarEditor`, Unreal Automation Tests, final standalone matrix, and remote artifact/hash verification remain outstanding.
+- Next steps:
+  - Keep the self-hosted runner from consuming incomplete transport heads; cancel queued incomplete-head runs when practical.
+  - Publish one atomic final Phase 0 commit from a normal authenticated checkout, deleting all transport/bootstrap residue.
+  - Replace the PR description with exact remote evidence and run the complete final test matrix on that exact head.
+  - Submit Phase 0 for manager approval only after all remote evidence is available; do not start Phase 1.
