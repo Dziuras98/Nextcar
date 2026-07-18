@@ -35,7 +35,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Workstream decomposition and programmer-agent assignments: The policy update was divided into manager-role rules, persistent-history format, PR checklist enforcement, and deterministic validation enforcement. These files share repository-policy invariants and were integrated as one coordinated change.
 - Files and behavior changed: Added manager orchestration and parallel-delegation requirements to `AGENTS.md`; created this append-only history; added manager checks to the PR template; extended `scripts/validate_repository.py` to require and validate the policy, history, and PR checklist.
 - Evidence and exact tests: `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed complete policy-file workspace before publication. GitHub Actions validation must also pass on the pull request before merge.
-- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append its own final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
+- Decisions and integration notes: `docs/manager-history.md` is the canonical persistent record. Every manager run must read it in full and append a final entry, including blocked or analysis-only runs. Parallel agents must have non-overlapping ownership unless an explicit integration plan exists.
 - Unresolved risks or blockers: The textual validator can enforce required policy and history structure, but cannot prove that a manager actually read every historical commit or maximized safe parallelism; PR review and manager accountability remain required.
 - Next steps: Future manager agents must load the full reachable Git history and this entire file before planning, then append their own final entry in the same managed change.
 
@@ -123,7 +123,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Repository history reviewed:
   - Reviewed the complete eight-commit `main` history available through the GitHub connector, including the original runner runbook change and all earlier policy/history changes.
   - Re-read the complete current `AGENTS.md`, `docs/manager-history.md`, and `docs/windows-self-hosted-runner.md`.
-  - Re-checked current official GitHub documentation for adding a Windows self-hosted runner, installing it as a service, managing the service with PowerShell, and security limitations that still apply to private repositories.
+  - Re-checked current GitHub documentation for adding a Windows self-hosted runner, installing it as a service, managing the service with PowerShell, and security limitations that still apply to private repositories.
 - Repository state found:
   - GitHub repository metadata now reports `visibility: private`.
   - The existing runbook still described the repository as public, required interactive `run.cmd` operation, and treated Windows service installation as optional future work.
