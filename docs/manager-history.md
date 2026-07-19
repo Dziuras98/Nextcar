@@ -27,7 +27,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Baseline branch and commit: `main` at `02eecc2afbb0e0599692836e25b86d1672181da4`.
 - Repository history reviewed:
   - `07664bb53fc0bf999796b924d98e9b6fd3fd0439` — initialized the Nextcar repository and README.
-  - `bc33ceec837a26dabb136f63a68a6c7d17fc507e6` — established `main`, repository execution policy, PR evidence checklist, validation script, and validation workflow.
+  - `bc33ceec837a26dab136f63a68a6c7d17fc507e6` — established `main`, repository execution policy, PR evidence checklist, validation script, and validation workflow.
   - `ecac2fc9f05336ee2f7c3a7b8e7c0cab7161ceeb` — accidentally added temporary file `tmp`.
   - `f26fad190f9871f36e827e05a8b77a8e8f48f03c` — removed the accidental temporary file.
   - `02eecc2afbb0e0599692836e25b86d1672181da4` — added automatic deletion of successfully merged same-repository work branches and corresponding policy validation.
