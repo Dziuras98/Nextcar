@@ -24,6 +24,7 @@ class CombustionChamber : public atg_scs::ForceGenerator {
             double startingPressure;
             double startingTemperature;
             double crankcasePressure;
+            std::uint32_t randomSeed = 0x4E433033u;
         };
 
         struct FlameEvent {

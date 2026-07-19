@@ -39,9 +39,10 @@ public:
         return true;
     }
 
-    void overwrite(T_Data data, size_t offset) {
-        assert(offset < m_count);
+    bool overwrite(T_Data data, size_t offset) {
+        if (offset >= m_count) return false;
         m_buffer[(m_start + offset) % m_capacity] = data;
+        return true;
     }
 
     size_t index(size_t base, int offset) const {
@@ -52,26 +53,28 @@ public:
     }
 
     T_Data read(size_t offset) const {
-        assert(offset < m_count);
+        if (offset >= m_count) return T_Data{};
         return m_buffer[(m_start + offset) % m_capacity];
     }
 
-    void read(size_t n, T_Data *target) const {
-        assert(n <= m_count);
+    bool read(size_t n, T_Data *target) const {
+        if (n > m_count || (n != 0 && target == nullptr)) return false;
         copyOut(n, target);
+        return true;
     }
 
-    void readAndRemove(size_t n, T_Data *target) {
-        assert(n <= m_count);
+    bool readAndRemove(size_t n, T_Data *target) {
+        if (n > m_count || (n != 0 && target == nullptr)) return false;
         copyOut(n, target);
-        removeBeginning(n);
+        return removeBeginning(n);
     }
 
-    void removeBeginning(size_t n) {
-        assert(n <= m_count);
+    bool removeBeginning(size_t n) {
+        if (n > m_count) return false;
         if (m_capacity != 0) m_start = (m_start + n) % m_capacity;
         m_count -= n;
         if (m_count == 0) m_start = m_writeIndex;
+        return true;
     }
 
     size_t size() const { return m_count; }
