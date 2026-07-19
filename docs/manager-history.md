@@ -47,7 +47,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Repository history reviewed:
   - The complete six-commit `main` history available through the GitHub connector was reviewed: repository initialization; integration-branch policy; accidental temporary file addition and removal; merged-branch cleanup; and manager orchestration/history policy.
   - Open draft PR #1 (`agent/initial-driving-prototype` at `d44d4fdf5955aa0e17f2861470edcf97fb5a9fba`) was reviewed through its complete final diff, changed-file list, PR description, CI state, and comparison against current `main`.
-  - The PR branch is 37 commits ahead and 5 commits behind current `main`, with merge base `07664bb53fc0bf999796b924d98e9b6fd3fd0439`. The available connector does not expose the individual PR commit list, so individual inspection of all 37 commit objects remains an explicit tooling limitation.
+  - The PR branch is 37 commits ahead and 5 commits behind current `main`, with merge base `07664bb53fc0bf999796b92d9e9b6fd3fd0439`. The available connector does not expose the individual PR commit list, so individual inspection of all 37 commit objects remains an explicit tooling limitation.
   - The related `Dziuras98/engine-sim` fork was inspected at its default branch for build structure, core/runtime separation, audio-output API, dependencies, and license.
 - Repository state found:
   - `main` contains repository policy, validation, cleanup automation, README, and manager history, but the playable Unreal prototype is still isolated in draft PR #1.
@@ -61,7 +61,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Evidence and exact tests:
   - Inspected `AGENTS.md`, the complete prior `docs/manager-history.md`, repository metadata, all visible `main` commits, all PRs and issues, PR #1 diff and changed files, CI results, selected vehicle production/test headers, `Nextcar.Build.cs`, and relevant `engine-sim` README, license, CMake, simulator, piston simulator, and synthesizer interfaces.
   - `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed workspace before publication; GitHub Actions validation is required on this history-only pull request.
-  - No Unreal build is required for this history-only Markdown change.
+  - No Unreal build or Unreal Automation Test is required for this history-only Markdown change.
 - Decisions and integration notes:
   - The immediate project gate is to compile and validate PR #1 with Unreal Engine 5.8, update it against `main`, and merge it before starting engine-audio integration.
   - The first `engine-sim` deliverable should be a headless, benchmarked core producing stable PCM for one fixed engine configuration. Direct UE integration should use a narrow wrapper and Unreal procedural audio, not the original SDL/UI application.
@@ -634,5 +634,42 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Future connector-incompatible binary transfers still require explicit user assistance.
 - Next steps:
   - Publish and remotely verify the five headers assigned in checkpoint 05, then stop.
+  - Continue subsequent immutable upstream batches in lexical order before reconstructing patched/custom files.
+  - Preserve the draft/WIP state and do not run or present incomplete-head Unreal CI as Phase 0 evidence.
+
+## 2026-07-19 — NC-003B header batch 03 review
+
+- Timestamp: 2026-07-19 (Europe/Warsaw)
+- User request: Review the agent report for `WIP Phase 0 publish 05: engine-sim headers batch 03` and issue the next incremental publication instruction.
+- Baseline branch and commit: `main` at `1aea801a533c933ca8714d5c1659b22b41660913`; PR #13 at `89281c7c615bca4fbf59b1c86f13d61ec4753cb9`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, the complete current manager history, the visible reachable history through PR #18, PR #13 metadata/body and complete changed-path list, checkpoint commit `89281c7c615bca4fbf59b1c86f13d61ec4753cb9`, and its parent comparison.
+  - Independently compared all five published destination blobs with the corresponding files at pinned engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`.
+  - Inspected the next five pinned upstream header blobs. The connector's broad commit-search action returned no rows, so complete historical enumeration through that action remained unavailable; the canonical history and all relevant current commit/PR objects were reviewed directly.
+- Repository state found:
+  - PR #13 remains open, mergeable, draft, and explicitly marked as Phase 0 WIP with Phase 1 not started.
+  - Commit `89281c7c615bca4fbf59b1c86f13d61ec4753cb9` is exactly one fast-forward commit after checkpoint 04 and adds only `derivative_filter.h`, `direct_throttle_linkage.h`, `dynamometer.h`, `engine.h`, and `exhaust_system.h`.
+  - Every destination Git blob equals its pinned upstream blob. The complete PR changed-path list contains `WIP_CHECKPOINT.md` but no `.transport`, `.upload`, bootstrap marker, bootstrap script, workflow, project descriptor, Runtime Audio, benchmark, or gameplay path introduced by checkpoint 05.
+- Workstream decomposition and programmer-agent assignments:
+  - Publication remains one sequential branch-owned workstream because each checkpoint advances the same PR ref and must be independently verified before the next publication.
+  - The next programmer-agent assignment is limited to five further complete, unmodified UTF-8 headers; no parallel publisher is assigned.
+- Files and behavior changed:
+  - Added PR #13 manager comment `#issuecomment-5014841168` and updated the PR body with checkpoint 05 acceptance, current head, and checkpoint 06 scope.
+  - Appended this manager-history entry on a separate manager-owned branch. No NC-003B implementation, workflow, project descriptor, plugin descriptor, Runtime Audio, benchmark, or gameplay file was changed by the manager.
+- Evidence and exact tests:
+  - Comparison `49e347a14f889d66d150d8a0edf435d11865e064..89281c7c615bca4fbf59b1c86f13d61ec4753cb9` reported one commit, five added paths, and no other changes.
+  - Independent source/destination Git blob checks matched all five files: `derivative_filter.h` `9c425ddd1457bfb2ea6d41226bdbcc389c1abd7b`; `direct_throttle_linkage.h` `555e8247bf9170731b2c4cbea76ef4ef775de1a8`; `dynamometer.h` `4560e56aca8fc6f86c47b841291c538e2d0ef188`; `engine.h` `ef18ac7d5297406829d4febe507b836d5d3bade6`; `exhaust_system.h` `e234bf688d84a2e6faacda3c2efa17b02d498512`.
+  - The next upstream blobs are: `feedback_comb_filter.h` `a3426a7bf4c76c98735b16d854e260ee6d3f4ad3`; `filter.h` `8e3f2da921aa1b72b713ab88686b75fbcaf3d71e`; `fuel.h` `4addf76a9a03367155e220fc80b55b89334994bf`; `function.h` `5a008f1249a36f525c7d8bf628e573b2ab846fa3`; `gas_system.h` `29f674df55302ec10a0123ccfe440f626ea3432b`.
+  - No build, standalone test, Unreal Automation Test, or Full Unreal CI was required or useful for this intentionally incomplete immutable-file checkpoint.
+- Decisions and integration notes:
+  - Checkpoint 05 is accepted only as a correct durable WIP increment, not as Phase 0 evidence or approval.
+  - The next required commit is `WIP Phase 0 publish 06: engine-sim headers batch 04` containing only the five specified complete headers.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited and not started.
+- Unresolved risks or blockers:
+  - `Tools/EngineSimVendor/WIP_CHECKPOINT.md` remains stale and must be removed or fully replaced before Phase 0 submission.
+  - Most of the pinned closure, patched/custom files, deterministic tools, generated IR, tests, calibration evidence, manifests, sanitizer matrix, UBT/MSVC validation, editor build, and Unreal Automation Tests remain incomplete on the remote branch.
+  - Future connector-incompatible binary transfers still require explicit user assistance.
+- Next steps:
+  - Publish and remotely verify the five headers assigned in checkpoint 06, then stop.
   - Continue subsequent immutable upstream batches in lexical order before reconstructing patched/custom files.
   - Preserve the draft/WIP state and do not run or present incomplete-head Unreal CI as Phase 0 evidence.
