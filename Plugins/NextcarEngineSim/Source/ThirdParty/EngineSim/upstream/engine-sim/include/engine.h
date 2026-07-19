@@ -18,8 +18,6 @@
 #include <string>
 
 class Simulator;
-class Vehicle;
-class Transmission;
 class Engine : public Part {
     public:
         struct Parameters {
@@ -61,6 +59,7 @@ class Engine : public Part {
         virtual void setThrottle(double throttle);
         virtual double getThrottle() const;
         virtual double getThrottlePlateAngle() const;
+        Throttle *getThrottleLinkage() const { return m_throttle; }
         virtual void calculateDisplacement();
         double getDisplacement() const { return m_displacement; }
         virtual double getIntakeFlowRate() const;
@@ -107,7 +106,7 @@ class Engine : public Part {
         double getInitialNoise() const { return m_initialNoise; }
         double getInitialJitter() const { return m_initialJitter; }
 
-        virtual Simulator *createSimulator(Vehicle *vehicle, Transmission *transmission);
+        virtual Simulator *createSimulator();
 
     protected:
         std::string m_name;
