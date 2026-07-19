@@ -599,3 +599,40 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
   - Publish and remotely verify the five headers assigned in checkpoint 04, then stop.
   - Continue subsequent immutable upstream batches in lexical order before reconstructing patched/custom files.
   - Preserve the draft/WIP state and do not run or present incomplete-head Unreal CI as Phase 0 evidence.
+
+## 2026-07-19 — NC-003B header batch 02 review
+
+- Timestamp: 2026-07-19 (Europe/Warsaw)
+- User request: Review the agent report for `WIP Phase 0 publish 04: engine-sim headers batch 02` and issue the next incremental publication instruction.
+- Baseline branch and commit: `main` at `5417035e57384dcc72875c990b289fdcdcb7ddba`; PR #13 at `49e347a14f889d66d150d8a0edf435d11865e064`.
+- Repository history reviewed:
+  - Re-read the complete current `AGENTS.md`, all prior entries in this manager history, and the complete visible reachable `main` history through the merge of PR #17.
+  - Re-reviewed PR #13 metadata, current body, complete changed-filename list, commit `49e347a14f889d66d150d8a0edf435d11865e064`, its parent comparison, and the source and destination blobs for all five published headers.
+  - Inspected the next five pinned upstream header blobs at engine-sim commit `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`.
+- Repository state found:
+  - PR #13 remains open, mergeable, draft, and explicitly marked as Phase 0 WIP with Phase 1 not started.
+  - Commit `49e347a14f889d66d150d8a0edf435d11865e064` is exactly one fast-forward commit after checkpoint 03 and adds only `convolution_filter.h`, `crankshaft.h`, `cylinder_bank.h`, `cylinder_head.h`, and `delay_filter.h`.
+  - Every destination Git blob equals the pinned upstream blob. The complete PR changed-path list contains `WIP_CHECKPOINT.md` but no `.transport`, `.upload`, bootstrap, credential, release-helper, workflow, project-descriptor, Runtime Audio, benchmark, or gameplay path introduced by checkpoint 04.
+- Workstream decomposition and programmer-agent assignments:
+  - Publication remains one sequential branch-owned stream because each batch advances the same PR ref and must be independently verified.
+  - The next programmer-agent assignment is limited to five further unmodified UTF-8 headers; no parallel publisher is assigned.
+- Files and behavior changed:
+  - Added PR #13 manager comment `#issuecomment-5014748410` and updated the PR body with checkpoint 04 acceptance, current head, and checkpoint 05 scope.
+  - Appended this manager-history entry on a separate manager-owned branch. No NC-003B implementation, workflow, project descriptor, plugin descriptor, Runtime Audio, benchmark, or gameplay file was changed by the manager.
+- Evidence and exact tests:
+  - Comparison `c267c1c5f3ab4936f05dd80d2231a25981816dd6..49e347a14f889d66d150d8a0edf435d11865e064` reported one commit, five added paths, and no other changes.
+  - Independent source/destination Git blob checks matched all five files.
+  - The next upstream blobs are: `derivative_filter.h` `9c425ddd1457bfb2ea6d41226bdbcc389c1abd7b`; `direct_throttle_linkage.h` `555e8247bf9170731b2c4cbea76ef4ef775de1a8`; `dynamometer.h` `4560e56aca8fc6f86c47b841291c538e2d0ef188`; `engine.h` `ef18ac7d5297406829d4febe507b836d5d3bade6`; `exhaust_system.h` `e234bf688d84a2e6faacda3c2efa17b02d498512`.
+  - No build, standalone test, Unreal Automation Test, or Full Unreal CI was required or useful for this intentionally incomplete immutable-file checkpoint.
+- Decisions and integration notes:
+  - Checkpoint 04 is accepted only as a correct durable WIP increment, not as Phase 0 evidence or approval.
+  - The next required commit is `WIP Phase 0 publish 05: engine-sim headers batch 03` containing only the five specified complete headers.
+  - Phase 0 remains not submitted. Phase 1 remains prohibited and not started.
+- Unresolved risks or blockers:
+  - `Tools/EngineSimVendor/WIP_CHECKPOINT.md` remains stale and must be removed or fully replaced before Phase 0 submission.
+  - Most of the pinned closure, patched/custom files, deterministic tools, generated IR, tests, calibration evidence, manifests, sanitizer matrix, UBT/MSVC validation, editor build, and Unreal Automation Tests remain incomplete on the remote branch.
+  - Future connector-incompatible binary transfers still require explicit user assistance.
+- Next steps:
+  - Publish and remotely verify the five headers assigned in checkpoint 05, then stop.
+  - Continue subsequent immutable upstream batches in lexical order before reconstructing patched/custom files.
+  - Preserve the draft/WIP state and do not run or present incomplete-head Unreal CI as Phase 0 evidence.
