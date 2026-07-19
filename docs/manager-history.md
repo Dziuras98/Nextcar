@@ -27,7 +27,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Baseline branch and commit: `main` at `02eecc2afbb0e0599692836e25b86d1672181da4`.
 - Repository history reviewed:
   - `07664bb53fc0bf999796b924d98e9b6fd3fd0439` — initialized the Nextcar repository and README.
-  - `bc33ceec837a26dab136f63a68a6c7d17fc507e6` — established `main`, repository execution policy, PR evidence checklist, validation script, and validation workflow.
+  - `bc33ceec837a26dabb136f63a68a6c7d17fc507e6` — established `main`, repository execution policy, PR evidence checklist, validation script, and validation workflow.
   - `ecac2fc9f05336ee2f7c3a7b8e7c0cab7161ceeb` — accidentally added temporary file `tmp`.
   - `f26fad190f9871f36e827e05a8b77a8e8f48f03c` — removed the accidental temporary file.
   - `02eecc2afbb0e0599692836e25b86d1672181da4` — added automatic deletion of successfully merged same-repository work branches and corresponding policy validation.
@@ -47,7 +47,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Repository history reviewed:
   - The complete six-commit `main` history available through the GitHub connector was reviewed: repository initialization; integration-branch policy; accidental temporary file addition and removal; merged-branch cleanup; and manager orchestration/history policy.
   - Open draft PR #1 (`agent/initial-driving-prototype` at `d44d4fdf5955aa0e17f2861470edcf97fb5a9fba`) was reviewed through its complete final diff, changed-file list, PR description, CI state, and comparison against current `main`.
-  - The PR branch is 37 commits ahead and 5 commits behind current `main`, with merge base `07664bb53fc0bf999796b92d9e9b6fd3fd0439`. The available connector does not expose the individual PR commit list, so individual inspection of all 37 commit objects remains an explicit tooling limitation.
+  - The PR branch is 37 commits ahead and 5 commits behind current `main`, with merge base `07664bb53fc0bf999796b924d98e9b6fd3fd0439`. The available connector does not expose the individual PR commit list, so individual inspection of all 37 commit objects remains an explicit tooling limitation.
   - The related `Dziuras98/engine-sim` fork was inspected at its default branch for build structure, core/runtime separation, audio-output API, dependencies, and license.
 - Repository state found:
   - `main` contains repository policy, validation, cleanup automation, README, and manager history, but the playable Unreal prototype is still isolated in draft PR #1.
@@ -61,7 +61,7 @@ Do not delete, reorder, or rewrite earlier entries. Append corrections as new en
 - Evidence and exact tests:
   - Inspected `AGENTS.md`, the complete prior `docs/manager-history.md`, repository metadata, all visible `main` commits, all PRs and issues, PR #1 diff and changed files, CI results, selected vehicle production/test headers, `Nextcar.Build.cs`, and relevant `engine-sim` README, license, CMake, simulator, piston simulator, and synthesizer interfaces.
   - `python scripts/validate_repository.py` — passed all 9 checks in a reconstructed workspace before publication; GitHub Actions validation is required on this history-only pull request.
-  - No Unreal build or Unreal Automation Test is required for this history-only Markdown change.
+  - No Unreal build is required for this history-only Markdown change.
 - Decisions and integration notes:
   - The immediate project gate is to compile and validate PR #1 with Unreal Engine 5.8, update it against `main`, and merge it before starting engine-audio integration.
   - The first `engine-sim` deliverable should be a headless, benchmarked core producing stable PCM for one fixed engine configuration. Direct UE integration should use a narrow wrapper and Unreal procedural audio, not the original SDL/UI application.
