@@ -1,6 +1,6 @@
 # Subaru EJ25 fixture-transcription parity
 
-> Status: Phase 0 WIP — fixture parity implementation published, exact-head C++ validation pending, calibration not started. Not submitted for manager approval. Phase 1 not started.
+> Status: Phase 0 WIP — fixture parity Windows exact-head validated, calibration not started. Not submitted for manager approval. Phase 1 not started.
 
 ## Pinned source
 
@@ -47,7 +47,53 @@ Earlier cold-start and profile calibration attempts are non-evidence for this pa
 
 `Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py` retains the original 15 mutation tests and adds rejection tests for a missing shard, modified shard bytes, duplicate records across shards, changed ordering, semantic digest mismatch and path traversal.
 
-Python validation passed locally: `py_compile`, 21/21 unit tests, 118 field records, all shard hashes and semantic digest. Exact-head C++ configure/build/CTest/runtime and sanitizer validation remain pending because a complete local checkout/closure was not available in the execution environment. No C++ PASS is claimed here.
+Python validation passed on the exact Windows checkout: `py_compile`, 21/21 unit tests, all shard hashes, the semantic contract digest and all 118 field records.
+
+## Windows exact-head standalone validation
+
+- Validated source SHA: `542d3261efc3ef48c78f337d990793aea55dd7fb`
+- Workflow commit SHA: `fccf4b83ffa9f73b7bf99c2f45fa87277d9d267a`
+- GitHub Actions run ID: `29756153748`
+- Final run attempt: `2`
+- Runner image: `windows-2022` (`20260714.244.1`)
+- Operating system: Windows Server 2022 x64
+- Visual Studio: `17.14.37411.7`
+- MSVC: `19.44.35228`
+- VCTools: `14.44.35207`
+- MSBuild: `17.14.40.60911`
+- Windows SDK: `10.0.26100.0`
+- Python: `3.12.10`
+- CMake: `3.31.6`
+- Python result: `py_compile` PASS; unit tests 21/21 PASS; shard hashes PASS; semantic digest PASS; records 118/118 PASS.
+- MSVC x64 Release: configure, build, CTest and runtime PASS.
+- MSVC x64 Debug `/RTC1`: configure, build, CTest and runtime PASS.
+- MSVC x64 AddressSanitizer: configure, build, CTest and runtime PASS.
+- Clean reproducibility: Python, Release build, CTest and runtime PASS; stdout byte-for-byte identical.
+- Project warning count: `0`.
+- Overall result: `Windows exact-head standalone validation PASS`.
+- Windows MSVC Release, Debug `/RTC1` and AddressSanitizer did not reproduce the sparse-matrix zero-size UB.
+
+Expected and observed standalone executable stdout:
+
+```text
+PASS ring-buffer
+PASS synchronous-synthesizer
+PASS deterministic-rng
+PASS solver-runtime
+PASS impulse-response-integrity
+PASS fixture-transcription-parity
+PASS fixture-simulator-smoke
+```
+
+Attempt 1 completed the full Windows matrix successfully and intentionally failed only the notification sentinel. Failed-job-only rerun attempt 2 completed the sentinel and retained the matrix PASS.
+
+## Supplementary non-gating Linux result
+
+- GCC Release: PASS.
+- Clang Release: PASS.
+- Linux UBSan found a zero-size `memset(nullptr, ..., 0)` UB in the pinned `simple-2d-constraint-solver` sparse-matrix path.
+- The Linux sanitizer finding is supplementary and is not a Windows acceptance gate.
+- The solver was not changed because Windows MSVC Release, Debug `/RTC1` and AddressSanitizer did not reproduce the failure.
 
 ## Scope boundaries
 
