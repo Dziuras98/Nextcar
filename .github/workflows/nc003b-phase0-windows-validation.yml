@@ -69,8 +69,8 @@ jobs:
             return ,$output
           }
           function Configure([string]$dir,[string[]]$extra=@()) {
-            $args = @("-S","Tools/EngineSimVendor/Standalone","-B",$dir,"-G","Visual Studio 17 2022","-A","x64","-T","v143") + $extra
-            Run "$dir configure" "$dir-configure.log" { cmake @args } | Out-Null
+            $cmakeArgs = @("-S","Tools/EngineSimVendor/Standalone","-B",$dir,"-G","Visual Studio 17 2022","-A","x64","-T","v143") + $extra
+            Run "$dir configure" "$dir-configure.log" { cmake @cmakeArgs } | Out-Null
           }
           function BuildTest([string]$dir,[string]$config,[string]$prefix) {
             Run "$prefix build" "$prefix-build.log" { cmake --build $dir --config $config --verbose } | Out-Null
