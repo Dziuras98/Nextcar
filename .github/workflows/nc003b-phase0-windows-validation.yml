@@ -12,173 +12,109 @@ env:
   EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
 
 jobs:
-  python-parity:
-    name: Python parity 21-21 and 118-118
+  asan-diagnostic:
+    name: MSVC AddressSanitizer focused diagnostic
     runs-on: windows-2022
+    timeout-minutes: 30
+    outputs:
+      diagnostic: ${{ steps.asan.outputs.diagnostic }}
     steps:
       - name: Configure byte-exact Git worktree
         shell: pwsh
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
+
       - name: Checkout exact validated source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
           fetch-depth: 1
           persist-credentials: false
-      - name: Verify exact head and Python parity
+
+      - name: Capture ASan failure
+        id: asan
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Safe([object[]]$lines) {
+            $selected = @(
+              $lines |
+                ForEach-Object { ([string]$_).Trim() } |
+                Where-Object {
+                  $_ -match 'AddressSanitizer|ERROR:|SUMMARY:|runtime error|access.violation|heap-|stack-|use-after|double-free|alloc-dealloc|error C\d+|fatal error|LNK\d+|FAILED|failed|Exception'
+                } |
+                Select-Object -Last 10
+            )
+            if ($selected.Count -eq 0) {
+              $selected = @($lines | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Last 10)
+            }
+            $text = ($selected -join ' / ') -replace '[\r\n]+', ' ' -replace '\|', '/' -replace "'", ''
+            $text = ($text -replace '\s+', ' ').Trim()
+            if ($text.Length -gt 220) { $text = $text.Substring(0, 220) }
+            return $text
+          }
+          function Fail([string]$stage, [int]$code, [object[]]$output) {
+            $message = "$stage exit $code -- $(Safe $output)"
+            "diagnostic=$message" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw $message
+          }
+
           $actual = (git rev-parse HEAD).Trim()
           if ($actual -ne $env:EXPECTED_SOURCE_SHA) { throw "Unexpected checkout: $actual" }
           if (git status --porcelain) { throw 'Checkout is not clean' }
           git submodule status
-          python --version
-          cmake --version
-          git --version
-          python -m py_compile `
-            Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-            Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-          if ($LASTEXITCODE -ne 0) { throw 'py_compile failed' }
-          $unit = @(python -m unittest -v Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1)
-          $unit | Out-Host
-          if ($LASTEXITCODE -ne 0 -or ($unit -join "`n") -notmatch 'Ran 21 tests' -or ($unit -join "`n") -notmatch '(?m)^OK\s*$') {
-            throw 'Python unittest 21/21 failed'
-          }
-          $verify = @(python Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-            --spec Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture.json `
-            --source-root Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim `
-            --fixture-cpp Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp `
-            --fixture-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.h `
-            --ir-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h 2>&1)
-          $verify | Out-Host
-          $text = $verify -join "`n"
-          if ($LASTEXITCODE -ne 0 -or $text -notmatch '(?m)^all shard hashes PASS\s*$' -or $text -notmatch '(?m)^semantic contract digest PASS\s*$' -or $text -notmatch '(?m)^total: 118\s*$') {
-            throw 'Python verifier 118/118 failed'
-          }
-          if (@($verify | Where-Object { ([string]$_) -match '^PASS\s+' }).Count -ne 118) {
-            throw 'Python verifier record count mismatch'
-          }
 
-  msvc-release:
-    name: MSVC x64 Release configure-build-CTest-runtime
-    runs-on: windows-2022
-    steps:
-      - name: Configure byte-exact Git worktree
-        shell: pwsh
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.eol lf
-      - name: Checkout exact validated source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
-          fetch-depth: 1
-          persist-credentials: false
-      - name: MSVC Release
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
-          if (git status --porcelain) { throw 'Checkout is not clean' }
-          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-release -G 'Visual Studio 17 2022' -A x64 -T v143
-          if ($LASTEXITCODE -ne 0) { throw 'Release configure failed' }
-          cmake --build build-nc003b-msvc-release --config Release --verbose
-          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
-          ctest --test-dir build-nc003b-msvc-release -C Release --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Release CTest failed' }
-          $output = @(& .\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe 2>&1)
-          $output | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'Release runtime failed' }
-          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
-          if (($output -join "`n") -ne ($expected -join "`n")) { throw 'Release stdout mismatch' }
+          $configure = @(cmake `
+            -S Tools/EngineSimVendor/Standalone `
+            -B build-nc003b-msvc-asan `
+            -G 'Visual Studio 17 2022' `
+            -A x64 `
+            -T v143 `
+            '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address' `
+            '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO' 2>&1)
+          $configureCode = $LASTEXITCODE
+          $configure | Out-Host
+          if ($configureCode -ne 0) { Fail 'configure' $configureCode $configure }
 
-  msvc-debug:
-    name: MSVC x64 Debug RTC1 configure-build-CTest-runtime
-    runs-on: windows-2022
-    steps:
-      - name: Configure byte-exact Git worktree
-        shell: pwsh
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.eol lf
-      - name: Checkout exact validated source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
-          fetch-depth: 1
-          persist-credentials: false
-      - name: MSVC Debug with RTC1
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
-          if (git status --porcelain) { throw 'Checkout is not clean' }
-          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-debug -G 'Visual Studio 17 2022' -A x64 -T v143
-          if ($LASTEXITCODE -ne 0) { throw 'Debug configure failed' }
-          $flags = Get-Content build-nc003b-msvc-debug/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS_DEBUG:' }
+          $flags = @(Get-Content build-nc003b-msvc-asan/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:' })
           $flags | Out-Host
-          if (($flags -join "`n") -notmatch '/RTC1(?:\s|$)') { throw 'Debug flags missing /RTC1' }
-          cmake --build build-nc003b-msvc-debug --config Debug --verbose
-          if ($LASTEXITCODE -ne 0) { throw 'Debug build failed' }
-          ctest --test-dir build-nc003b-msvc-debug -C Debug --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Debug CTest failed' }
-          $output = @(& .\build-nc003b-msvc-debug\Debug\nc003b_phase0_tests.exe 2>&1)
-          $output | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'Debug runtime failed' }
-          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
-          if (($output -join "`n") -ne ($expected -join "`n")) { throw 'Debug stdout mismatch' }
+          $flagText = $flags -join "`n"
+          if ($flagText -notmatch '/fsanitize=address' -or $flagText -notmatch '/Zi(?:\s|$)' -or $flagText -match '/RTC1(?:\s|$)' -or $flagText -notmatch '/INCREMENTAL:NO') {
+            "diagnostic=ASan flag contract failed -- $(Safe $flags)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw 'ASan flag contract failed'
+          }
 
-  msvc-asan:
-    name: MSVC x64 AddressSanitizer configure-build-CTest-runtime
-    runs-on: windows-2022
-    steps:
-      - name: Configure byte-exact Git worktree
-        shell: pwsh
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.eol lf
-      - name: Checkout exact validated source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
-          fetch-depth: 1
-          persist-credentials: false
-      - name: MSVC AddressSanitizer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
-          if (git status --porcelain) { throw 'Checkout is not clean' }
-          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-asan -G 'Visual Studio 17 2022' -A x64 -T v143 '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address' '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
-          if ($LASTEXITCODE -ne 0) { throw 'ASan configure failed' }
-          $flags = Get-Content build-nc003b-msvc-asan/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:' }
-          $flags | Out-Host
-          $text = $flags -join "`n"
-          if ($text -notmatch '/fsanitize=address' -or $text -notmatch '/Zi(?:\s|$)' -or $text -match '/RTC1(?:\s|$)' -or $text -notmatch '/INCREMENTAL:NO') { throw 'ASan flag contract failed' }
-          cmake --build build-nc003b-msvc-asan --config RelWithDebInfo --verbose
-          if ($LASTEXITCODE -ne 0) { throw 'ASan build failed' }
+          $build = @(cmake --build build-nc003b-msvc-asan --config RelWithDebInfo --verbose 2>&1)
+          $buildCode = $LASTEXITCODE
+          $build | Out-Host
+          if ($buildCode -ne 0) { Fail 'build' $buildCode $build }
+
           $env:ASAN_OPTIONS = 'abort_on_error=true:alloc_dealloc_mismatch=true'
-          ctest --test-dir build-nc003b-msvc-asan -C RelWithDebInfo --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'ASan CTest failed' }
-          $output = @(& .\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe 2>&1)
-          $output | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'ASan runtime failed' }
-          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
-          if (($output -join "`n") -ne ($expected -join "`n")) { throw 'ASan stdout mismatch' }
+          $ctest = @(ctest --test-dir build-nc003b-msvc-asan -C RelWithDebInfo --output-on-failure 2>&1)
+          $ctestCode = $LASTEXITCODE
+          $ctest | Out-Host
+          if ($ctestCode -ne 0) { Fail 'CTest' $ctestCode $ctest }
 
-  notification-sentinel:
-    needs:
-      - python-parity
-      - msvc-release
-      - msvc-debug
-      - msvc-asan
+          $runtime = @(& .\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe 2>&1)
+          $runtimeCode = $LASTEXITCODE
+          $runtime | Out-Host
+          if ($runtimeCode -ne 0) { Fail 'runtime' $runtimeCode $runtime }
+
+          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
+          if (($runtime -join "`n") -ne ($expected -join "`n")) {
+            "diagnostic=runtime stdout mismatch -- $(Safe $runtime)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw 'ASan runtime stdout mismatch'
+          }
+          'diagnostic=ASan configure build CTest runtime PASS' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+  notification:
+    needs: asan-diagnostic
     if: always()
-    name: sentinel -- python=${{ needs.python-parity.result }} release=${{ needs.msvc-release.result }} debug=${{ needs.msvc-debug.result }} asan=${{ needs.msvc-asan.result }}
+    name: diagnostic -- ${{ needs.asan-diagnostic.outputs.diagnostic }}
     runs-on: windows-2022
     steps:
       - name: Force diagnostic notification
         shell: pwsh
-        run: throw 'Intentional diagnostic notification sentinel'
+        run: throw 'Intentional ASan diagnostic notification sentinel'
