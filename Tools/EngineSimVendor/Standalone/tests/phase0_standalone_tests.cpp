@@ -1,4 +1,5 @@
 #include "SubaruEJ25AtgVideo2Fixture.h"
+#include "MinimalMuffling02ImpulseResponse.generated.h"
 
 #include "combustion_chamber.h"
 #include "force_generator.h"
@@ -180,6 +181,30 @@ void TestSolverRuntime() {
     system.reset();
 }
 
+void TestGeneratedImpulseResponse() {
+    using namespace NextcarEngineSim::Generated;
+    Require(MinimalMuffling02SampleCount > 1, "generated impulse response must not be identity PCM");
+    Require(MinimalMuffling02SampleRate == 44100, "generated impulse response sample rate");
+    Require(MinimalMuffling02Channels == 1, "generated impulse response channel count");
+    Require(MinimalMuffling02BitsPerSample == 16, "generated impulse response bit depth");
+    Require(
+        MinimalMuffling02ByteCount
+            == MinimalMuffling02SampleCount * sizeof(MinimalMuffling02Pcm[0]),
+        "generated impulse response byte count");
+    Require(
+        !(MinimalMuffling02SampleCount == 1 && MinimalMuffling02Pcm[0] == 32767),
+        "fixture impulse response must not be the identity placeholder");
+
+    std::size_t accessibleSamples = 0;
+    std::int64_t checksum = 0;
+    for (std::size_t i = 0; i < MinimalMuffling02SampleCount; ++i) {
+        checksum += MinimalMuffling02Pcm[i];
+        ++accessibleSamples;
+    }
+    Require(accessibleSamples == MinimalMuffling02SampleCount, "full generated PCM must be accessible");
+    Require(checksum != 32767, "full generated PCM must differ from identity PCM");
+}
+
 void TestFixtureAndSimulator() {
     NextcarEngineSim::Phase0::SubaruEJ25AtgVideo2Fixture fixture;
     Engine &engine = fixture.GetEngine();
@@ -220,6 +245,8 @@ int main() {
         std::cout << "PASS deterministic-rng\n";
         TestSolverRuntime();
         std::cout << "PASS solver-runtime\n";
+        TestGeneratedImpulseResponse();
+        std::cout << "PASS impulse-response-integrity\n";
         TestFixtureAndSimulator();
         std::cout << "PASS fixture-simulator-smoke\n";
     } catch (const std::exception &error) {

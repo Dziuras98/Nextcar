@@ -1,4 +1,5 @@
 #include "SubaruEJ25AtgVideo2Fixture.h"
+#include "MinimalMuffling02ImpulseResponse.generated.h"
 
 #include "constants.h"
 #include "direct_throttle_linkage.h"
@@ -12,8 +13,6 @@ namespace NextcarEngineSim::Phase0 {
 namespace {
 constexpr double DiskMoment(double mass, double radius) { return 0.5 * mass * radius * radius; }
 constexpr double RodMoment(double mass, double length) { return mass * length * length / 12.0; }
-// Compile-smoke placeholder only; the exact pinned IR PCM is generated and verified later.
-constexpr std::int16_t Phase0PlaceholderImpulse[] = {32767};
 constexpr double CircleArea(double diameter) {
     const double radius = diameter / 2.0;
     return constants::pi * radius * radius;
@@ -122,7 +121,11 @@ void SubaruEJ25AtgVideo2Fixture::BuildEngine() {
     intake.IdleThrottlePlatePosition = 0.9978; intake.VelocityDecay = 1;
     EngineInstance.getIntake(0)->initialize(intake);
 
-    Impulse.initialize(Phase0PlaceholderImpulse, 1, 44100, 0.01);
+    Impulse.initialize(
+        NextcarEngineSim::Generated::MinimalMuffling02Pcm,
+        static_cast<int>(NextcarEngineSim::Generated::MinimalMuffling02SampleCount),
+        static_cast<int>(NextcarEngineSim::Generated::MinimalMuffling02SampleRate),
+        0.01);
     ExhaustSystem::Parameters exhaust{};
     exhaust.length = units::distance(500, units::mm);
     exhaust.collectorCrossSectionArea = CircleArea(units::distance(2.0, units::inch));

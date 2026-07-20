@@ -82,6 +82,7 @@ add_library(nc003b_fixture STATIC
 )
 target_include_directories(nc003b_fixture PUBLIC
     ${CORE_ROOT}/Private/Fixtures
+    ${CORE_ROOT}/Private/Generated
     ${ENGINE_SIM_ROOT}/include
     ${SOLVER_ROOT}/include
 )
