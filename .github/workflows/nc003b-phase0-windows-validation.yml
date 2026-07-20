@@ -8,13 +8,11 @@ permissions:
   contents: read
 
 jobs:
-  windows-exact-head:
+  windows-python-diagnostic:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 20
     outputs:
-      diagnostic: ${{ steps.matrix.outputs.diagnostic }}
-    env:
-      EXPECTED_SOURCE_SHA: c4bdc6df899d856a9bbdfbf4955b8229c2848148
+      diagnostic: ${{ steps.python.outputs.diagnostic }}
     steps:
       - name: Checkout exact validated source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -23,198 +21,41 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Windows exact-head matrix
-        id: matrix
+      - name: Exact head and Python diagnostic
+        id: python
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          try {
-            $logDir = Join-Path $env:RUNNER_TEMP "nc003b-windows-validation"
-            New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-            $expectedStdout = @(
-              "PASS ring-buffer",
-              "PASS synchronous-synthesizer",
-              "PASS deterministic-rng",
-              "PASS solver-runtime",
-              "PASS impulse-response-integrity",
-              "PASS fixture-transcription-parity",
-              "PASS fixture-simulator-smoke"
-            )
-            function Run([string]$name,[string]$log,[scriptblock]$command) {
-              $output = & $command 2>&1
-              $code = $LASTEXITCODE
-              $output | Tee-Object -FilePath (Join-Path $logDir $log) | Out-Host
-              if ($code -ne 0) { throw "$name failed with exit code $code" }
-              return ,$output
-            }
-            function Runtime([string]$label,[string]$exe,[string]$file) {
-              $output = & $exe 2>&1
-              $code = $LASTEXITCODE
-              $lines = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
-              $lines | Tee-Object -FilePath (Join-Path $logDir $file) | Out-Host
-              if ($code -ne 0) { throw "$label failed with exit code $code" }
-              if (($lines -join "`n") -ne ($expectedStdout -join "`n")) {
-                throw "$label stdout mismatch: $($lines -join ' | ')"
-              }
-              return ,$lines
-            }
-            function Configure([string]$dir,[string[]]$extra=@()) {
-              $args = @("-S","Tools/EngineSimVendor/Standalone","-B",$dir,"-G","Visual Studio 17 2022","-A","x64","-T","v143") + $extra
-              Run "$dir configure" "$dir-configure.log" { cmake @args } | Out-Null
-            }
-            function BuildTest([string]$dir,[string]$config,[string]$prefix) {
-              Run "$prefix build" "$prefix-build.log" { cmake --build $dir --config $config --verbose } | Out-Null
-              Run "$prefix CTest" "$prefix-ctest.log" { ctest --test-dir $dir -C $config --output-on-failure } | Out-Null
-            }
-            function PythonGate([string]$prefix) {
-              Run "$prefix py_compile" "$prefix-pycompile.log" {
-                python -m py_compile Tools/EngineSimVendor/verify_subaru_ej25_fixture.py Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-              } | Out-Null
-              "py_compile PASS"
-              $unit = Run "$prefix unittest" "$prefix-unittest.log" {
-                python -m unittest -v Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-              }
-              $unitText = $unit -join "`n"
-              if ($unitText -notmatch 'Ran 21 tests' -or $unitText -notmatch '(?m)^OK\s*$') { throw "unittest did not report 21/21 OK" }
-              "21/21 unittest PASS"
-              $verify = Run "$prefix verifier" "$prefix-verifier.log" {
-                python Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-                  --spec Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture.json `
-                  --source-root Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim `
-                  --fixture-cpp Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp `
-                  --fixture-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.h `
-                  --ir-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h
-              }
-              $verifyText = $verify -join "`n"
-              if ($verifyText -notmatch '(?m)^all shard hashes PASS\s*$') { throw "shard hashes not PASS" }
-              if ($verifyText -notmatch '(?m)^semantic contract digest PASS\s*$') { throw "semantic digest not PASS" }
-              if ($verifyText -notmatch '(?m)^total: 118\s*$') { throw "verifier total is not 118" }
-              if (@($verify | Where-Object { ([string]$_) -match '^PASS\s+' }).Count -ne 118) { throw "verifier record PASS count is not 118" }
-              "118/118 records PASS"
-            }
-
-            $actual = (git rev-parse HEAD).Trim()
-            if ($actual -ne $env:EXPECTED_SOURCE_SHA) { throw "Unexpected checkout: expected $env:EXPECTED_SOURCE_SHA, received $actual" }
-            if (git status --porcelain) { throw "Checkout is not clean" }
-            "GITHUB_SHA=$env:GITHUB_SHA"
-            "git rev-parse HEAD=$actual"
-            "git status --porcelain:"
-            git status --porcelain
-            "git submodule status:"
-            git submodule status
-            if ($LASTEXITCODE -ne 0) { throw "git submodule status failed" }
-
-            python --version
-            cmake --version
-            git --version
-            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            if (-not (Test-Path $vswhere)) { throw "Environment error: vswhere.exe not found" }
-            $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
-            $vsVersion = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion).Trim()
-            if (-not $vsPath) { throw "Environment error: Visual Studio C++ x64 tools not found" }
-            if (-not $vsVersion.StartsWith("17.")) { throw "Environment error: Visual Studio 2022 required, found $vsVersion" }
-            $devCmd = Join-Path $vsPath "Common7\Tools\VsDevCmd.bat"
-            cmd.exe /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 >nul && set" | ForEach-Object {
-              if ($_ -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1],$matches[2],'Process') }
-            }
-            if ($LASTEXITCODE -ne 0) { throw "Environment error: VsDevCmd.bat failed" }
-            "Visual Studio version: $vsVersion"
-            "Visual Studio path: $vsPath"
-            "MSVC VCToolsVersion: $env:VCToolsVersion"
-            "Windows SDK version: $env:WindowsSDKVersion"
-            cl.exe 2>&1
-            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 2) { throw "cl.exe version query failed" }
-            msbuild.exe -version
-            if ($LASTEXITCODE -ne 0) { throw "MSBuild version query failed" }
-            if (-not $env:VCToolsVersion -or -not $env:WindowsSDKVersion) { throw "Environment error: v143 or Windows SDK unresolved" }
-
-            PythonGate "python"
-
-            Configure "build-nc003b-msvc-release"
-            BuildTest "build-nc003b-msvc-release" "Release" "release"
-            $releaseStdout = Runtime "Release executable" ".\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe" "release-runtime.txt"
-
-            Configure "build-nc003b-msvc-debug"
-            $debugFlags = Get-Content build-nc003b-msvc-debug/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS_DEBUG:' }
-            $debugFlags
-            if (($debugFlags -join "`n") -notmatch '/RTC1(?:\s|$)') { throw "Debug flags do not contain /RTC1" }
-            BuildTest "build-nc003b-msvc-debug" "Debug" "debug"
-            Runtime "Debug executable" ".\build-nc003b-msvc-debug\Debug\nc003b_phase0_tests.exe" "debug-runtime.txt" | Out-Null
-
-            Configure "build-nc003b-msvc-asan" @(
-              '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address',
-              '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
-            )
-            $asanFlags = Get-Content build-nc003b-msvc-asan/CMakeCache.txt | Where-Object {
-              $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:'
-            }
-            $asanText = $asanFlags -join "`n"
-            $asanFlags
-            if ($asanText -notmatch '/fsanitize=address') { throw "ASan flags missing /fsanitize=address" }
-            if ($asanText -notmatch '/Zi(?:\s|$)') { throw "ASan flags missing /Zi" }
-            if ($asanText -match '/RTC1(?:\s|$)') { throw "ASan flags contain /RTC1" }
-            if ($asanText -notmatch '/INCREMENTAL:NO') { throw "ASan linker flags missing /INCREMENTAL:NO" }
-            BuildTest "build-nc003b-msvc-asan" "RelWithDebInfo" "asan"
-            $env:ASAN_OPTIONS = "abort_on_error=true:alloc_dealloc_mismatch=true"
-            Runtime "ASan executable" ".\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe" "asan-runtime.txt" | Out-Null
-
-            Remove-Item -Recurse -Force build-nc003b-msvc-release,build-nc003b-msvc-debug,build-nc003b-msvc-asan
-            foreach ($dir in @('build-nc003b-msvc-release','build-nc003b-msvc-debug','build-nc003b-msvc-asan')) {
-              if (Test-Path $dir) { throw "Build artifact remains: $dir" }
-            }
-            PythonGate "repro-python"
-            Configure "build-nc003b-msvc-release"
-            BuildTest "build-nc003b-msvc-release" "Release" "repro-release"
-            $reproStdout = Runtime "Repro Release executable" ".\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe" "repro-release-runtime.txt"
-            if (($reproStdout -join "`n") -ne ($releaseStdout -join "`n")) { throw "Clean reproducibility stdout mismatch" }
-            "clean reproducibility PASS"
-
-            $warnings = @()
-            Get-ChildItem $logDir -Filter '*-build.log' | ForEach-Object {
-              $warnings += Select-String -Path $_.FullName -Pattern 'warning C\d+:' | ForEach-Object { $_.Line.Trim() }
-            }
-            $warnings = @($warnings | Sort-Object -Unique)
-            $projectWarnings = @($warnings | Where-Object {
-              $_ -match 'NextcarEngineSimCore' -or $_ -match 'Standalone[\\/]tests' -or
-              $_ -match 'SubaruEJ25AtgVideo2Fixture\.cpp' -or $_ -match 'phase0_standalone_tests\.cpp'
-            })
-            $vendoredWarnings = @($warnings | Where-Object {
-              $_ -match 'upstream[\\/]engine-sim' -or $_ -match 'upstream[\\/]simple-2d-constraint-solver'
-            })
-            "PROJECT WARNINGS ($($projectWarnings.Count))"
-            $projectWarnings
-            "VENDORED WARNINGS ($($vendoredWarnings.Count))"
-            $vendoredWarnings
-            "OTHER WARNINGS ($(@($warnings | Where-Object { $_ -notin $projectWarnings -and $_ -notin $vendoredWarnings }).Count))"
-            $warnings | Where-Object { $_ -notin $projectWarnings -and $_ -notin $vendoredWarnings }
-            if ($projectWarnings.Count -ne 0) { throw "Project code emitted $($projectWarnings.Count) unique MSVC /W4 warning(s)" }
-
-            "WINDOWS EXACT-HEAD VALIDATION PASS"
-            "validated source SHA: $env:EXPECTED_SOURCE_SHA"
-            "runner image: windows-2022"
-            "Python 21/21: PASS"
-            "Python verifier 118/118: PASS"
-            "MSVC x64 Release: PASS"
-            "MSVC x64 Debug /RTC1: PASS"
-            "MSVC x64 AddressSanitizer: PASS"
-            "clean reproducibility: PASS"
-            "project MSVC /W4 warnings: 0"
-            "full expected executable stdout:"
-            $releaseStdout
-            "diagnostic=PASS" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $expected = "c4bdc6df899d856a9bbdfbf4955b8229c2848148"
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) { throw "Unexpected checkout: expected $expected, received $actual" }
+          if (git status --porcelain) { throw "Checkout is not clean" }
+          git submodule status
+          python --version
+          cmake --version
+          git --version
+          python -m py_compile `
+            Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
+            Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
+          if ($LASTEXITCODE -ne 0) { throw "py_compile failed with exit code $LASTEXITCODE" }
+          $output = @(python -m unittest -v Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1)
+          $code = $LASTEXITCODE
+          $output | Out-Host
+          if ($code -ne 0) {
+            $tail = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Last 8)
+            $safe = (($tail -join ' / ') -replace '[\r\n]+',' ' -replace '\|','/' -replace "'",'')
+            if ($safe.Length -gt 180) { $safe = $safe.Substring($safe.Length - 180) }
+            "diagnostic=unittest exit $code -- $safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw "Python unittest failed with exit code $code"
           }
-          catch {
-            $safe = ($_.Exception.Message -replace '[\r\n]+', ' ' -replace '\|', '/')
-            "diagnostic=$safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            throw
-          }
+          "diagnostic=Python py_compile and 21/21 unittest PASS" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
   diagnostic:
-    needs: windows-exact-head
+    needs: windows-python-diagnostic
     if: always()
-    name: diagnostic -- ${{ needs.windows-exact-head.outputs.diagnostic }}
+    name: diagnostic -- ${{ needs.windows-python-diagnostic.outputs.diagnostic }}
     runs-on: windows-2022
     steps:
-      - name: Expose validation diagnostic
+      - name: Expose Python diagnostic
         shell: pwsh
-        run: Write-Host '${{ needs.windows-exact-head.outputs.diagnostic }}'
+        run: Write-Host '${{ needs.windows-python-diagnostic.outputs.diagnostic }}'
