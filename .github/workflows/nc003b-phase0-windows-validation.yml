@@ -12,8 +12,8 @@ env:
   EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
 
 jobs:
-  asan-diagnostic:
-    name: MSVC AddressSanitizer focused diagnostic
+  asan-runtime-diagnostic:
+    name: MSVC ASan runtime DLL diagnostic
     runs-on: windows-2022
     timeout-minutes: 30
     outputs:
@@ -32,89 +32,92 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Capture ASan failure
+      - name: Diagnose and load MSVC ASan runtime
         id: asan
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
-          function Safe([object[]]$lines) {
-            $selected = @(
-              $lines |
-                ForEach-Object { ([string]$_).Trim() } |
-                Where-Object {
-                  $_ -match 'AddressSanitizer|ERROR:|SUMMARY:|runtime error|access.violation|heap-|stack-|use-after|double-free|alloc-dealloc|error C\d+|fatal error|LNK\d+|FAILED|failed|Exception'
-                } |
-                Select-Object -Last 10
-            )
-            if ($selected.Count -eq 0) {
-              $selected = @($lines | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Last 10)
-            }
-            $text = ($selected -join ' / ') -replace '[\r\n]+', ' ' -replace '\|', '/' -replace "'", ''
-            $text = ($text -replace '\s+', ' ').Trim()
-            if ($text.Length -gt 220) { $text = $text.Substring(0, 220) }
+          function Clean([string]$value) {
+            $text = $value -replace '[\r\n]+',' ' -replace '\|','/' -replace "'",'' -replace '\s+',' '
+            $text = $text.Trim()
+            if ($text.Length -gt 220) { $text = $text.Substring(0,220) }
             return $text
           }
-          function Fail([string]$stage, [int]$code, [object[]]$output) {
-            $message = "$stage exit $code -- $(Safe $output)"
-            "diagnostic=$message" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            throw $message
+          function HexCode([int]$value) {
+            $unsigned = [BitConverter]::ToUInt32([BitConverter]::GetBytes($value), 0)
+            return ('0x{0:X8}' -f $unsigned)
           }
 
           $actual = (git rev-parse HEAD).Trim()
           if ($actual -ne $env:EXPECTED_SOURCE_SHA) { throw "Unexpected checkout: $actual" }
           if (git status --porcelain) { throw 'Checkout is not clean' }
-          git submodule status
 
-          $configure = @(cmake `
+          cmake `
             -S Tools/EngineSimVendor/Standalone `
             -B build-nc003b-msvc-asan `
             -G 'Visual Studio 17 2022' `
             -A x64 `
             -T v143 `
             '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address' `
-            '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO' 2>&1)
-          $configureCode = $LASTEXITCODE
-          $configure | Out-Host
-          if ($configureCode -ne 0) { Fail 'configure' $configureCode $configure }
+            '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
+          if ($LASTEXITCODE -ne 0) { throw 'ASan configure failed' }
+          cmake --build build-nc003b-msvc-asan --config RelWithDebInfo --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'ASan build failed' }
 
-          $flags = @(Get-Content build-nc003b-msvc-asan/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:' })
-          $flags | Out-Host
-          $flagText = $flags -join "`n"
-          if ($flagText -notmatch '/fsanitize=address' -or $flagText -notmatch '/Zi(?:\s|$)' -or $flagText -match '/RTC1(?:\s|$)' -or $flagText -notmatch '/INCREMENTAL:NO') {
-            "diagnostic=ASan flag contract failed -- $(Safe $flags)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            throw 'ASan flag contract failed'
+          $exe = '.\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe'
+          $before = @(& $exe 2>&1)
+          $beforeCode = [int]$LASTEXITCODE
+          $before | Out-Host
+          $beforeSummary = Clean ($before -join ' / ')
+          Write-Host "pre-runtime-PATH exit=$beforeCode $(HexCode $beforeCode) output=$beforeSummary"
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $vsPath) { throw 'Visual Studio path not found' }
+          $dlls = @(
+            Get-ChildItem -Path $vsPath -Recurse -File -Filter 'clang_rt.asan_dynamic-x86_64.dll' -ErrorAction Stop |
+              Sort-Object FullName
+          )
+          $dlls | ForEach-Object { Write-Host "ASan runtime DLL: $($_.FullName)" }
+          if ($dlls.Count -eq 0) {
+            "diagnostic=pre-exit=$(HexCode $beforeCode) ASan-runtime-DLL-not-found" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw 'ASan runtime DLL not found'
           }
 
-          $build = @(cmake --build build-nc003b-msvc-asan --config RelWithDebInfo --verbose 2>&1)
-          $buildCode = $LASTEXITCODE
-          $build | Out-Host
-          if ($buildCode -ne 0) { Fail 'build' $buildCode $build }
-
+          $dllDirectory = $dlls[-1].DirectoryName
+          $env:PATH = "$dllDirectory;$env:PATH"
           $env:ASAN_OPTIONS = 'abort_on_error=true:alloc_dealloc_mismatch=true'
+          Write-Host "Prepended ASan runtime directory: $dllDirectory"
+
           $ctest = @(ctest --test-dir build-nc003b-msvc-asan -C RelWithDebInfo --output-on-failure 2>&1)
-          $ctestCode = $LASTEXITCODE
+          $ctestCode = [int]$LASTEXITCODE
           $ctest | Out-Host
-          if ($ctestCode -ne 0) { Fail 'CTest' $ctestCode $ctest }
-
-          $runtime = @(& .\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe 2>&1)
-          $runtimeCode = $LASTEXITCODE
-          $runtime | Out-Host
-          if ($runtimeCode -ne 0) { Fail 'runtime' $runtimeCode $runtime }
-
-          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
-          if (($runtime -join "`n") -ne ($expected -join "`n")) {
-            "diagnostic=runtime stdout mismatch -- $(Safe $runtime)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            throw 'ASan runtime stdout mismatch'
+          if ($ctestCode -ne 0) {
+            $summary = Clean (($ctest | Where-Object { ([string]$_) -match 'AddressSanitizer|ERROR:|SUMMARY:|Exception|FAILED|failed' }) -join ' / ')
+            "diagnostic=pre-exit=$(HexCode $beforeCode) DLL-count=$($dlls.Count) CTest-exit=$ctestCode $summary" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw 'ASan CTest failed after runtime PATH setup'
           }
-          'diagnostic=ASan configure build CTest runtime PASS' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+          $runtime = @(& $exe 2>&1)
+          $runtimeCode = [int]$LASTEXITCODE
+          $runtime | Out-Host
+          if ($runtimeCode -ne 0) {
+            $summary = Clean (($runtime | Where-Object { ([string]$_) -match 'AddressSanitizer|ERROR:|SUMMARY:|Exception|failed' }) -join ' / ')
+            "diagnostic=pre-exit=$(HexCode $beforeCode) DLL-count=$($dlls.Count) direct-exit=$(HexCode $runtimeCode) $summary" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            throw 'ASan direct runtime failed after runtime PATH setup'
+          }
+          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
+          if (($runtime -join "`n") -ne ($expected -join "`n")) { throw 'ASan stdout mismatch' }
+
+          "diagnostic=pre-exit=$(HexCode $beforeCode) DLL-count=$($dlls.Count) CTest=PASS direct=PASS" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
   notification:
-    needs: asan-diagnostic
+    needs: asan-runtime-diagnostic
     if: always()
-    name: diagnostic -- ${{ needs.asan-diagnostic.outputs.diagnostic }}
+    name: diagnostic -- ${{ needs.asan-runtime-diagnostic.outputs.diagnostic }}
     runs-on: windows-2022
     steps:
       - name: Force diagnostic notification
         shell: pwsh
-        run: throw 'Intentional ASan diagnostic notification sentinel'
+        run: throw 'Intentional ASan runtime diagnostic notification sentinel'
