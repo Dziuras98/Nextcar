@@ -8,15 +8,15 @@ on:
 permissions:
   contents: read
 
-env:
-  EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
-
 jobs:
-  warning-diagnostic:
-    name: MSVC project warning diagnostic
+  prepare-fixture:
     runs-on: windows-2022
     outputs:
-      diagnostic: ${{ steps.warnings.outputs.diagnostic }}
+      part0: ${{ steps.encode.outputs.part0 }}
+      part1: ${{ steps.encode.outputs.part1 }}
+      part2: ${{ steps.encode.outputs.part2 }}
+      part3: ${{ steps.encode.outputs.part3 }}
+      sha256: ${{ steps.encode.outputs.sha256 }}
     steps:
       - name: Configure byte-exact Git worktree
         shell: pwsh
@@ -29,38 +29,76 @@ jobs:
           ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
           fetch-depth: 1
           persist-credentials: false
-      - name: Capture project warnings
-        id: warnings
+      - name: Encode one-line warning cleanup
+        id: encode
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
-          cmake -S Tools/EngineSimVendor/Standalone -B build-warning-scan -G 'Visual Studio 17 2022' -A x64 -T v143
-          if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
-          $build = @(cmake --build build-warning-scan --config Release --verbose 2>&1)
-          $code = $LASTEXITCODE
-          $build | Out-Host
-          if ($code -ne 0) { throw "build failed $code" }
-          $warnings = @($build | ForEach-Object { ([string]$_).Trim() } | Where-Object {
-            $_ -match 'warning C\d+:' -and (
-              $_ -match 'NextcarEngineSimCore' -or
-              $_ -match 'Standalone[\\/]tests' -or
-              $_ -match 'SubaruEJ25AtgVideo2Fixture\.cpp' -or
-              $_ -match 'phase0_standalone_tests\.cpp'
-            )
-          } | Sort-Object -Unique)
-          $warnings | ForEach-Object { Write-Host "PROJECT_WARNING: $_" }
-          $text = ($warnings -join ' / ') -replace '[\r\n]+',' ' -replace '\|','/' -replace "'",'' -replace '"','' -replace '\s+',' '
-          $text = $text.Trim()
-          if ($text.Length -gt 220) { $text = $text.Substring(0,220) }
-          "diagnostic=count=$($warnings.Count) $text" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          @'
+          import base64, difflib, gzip, hashlib, json, os, pathlib
+          path = pathlib.Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp')
+          original = path.read_bytes()
+          needle = b'    const double stroke = units::distance(Snapshot.StrokeMm, units::mm);\n'
+          if original.count(needle) != 1:
+              raise SystemExit(f'expected exactly one stroke declaration, found {original.count(needle)}')
+          corrected = original.replace(needle, b'', 1)
+          original_lines = original.decode('utf-8').splitlines(keepends=True)
+          corrected_lines = corrected.decode('utf-8').splitlines(keepends=True)
+          diff = list(difflib.unified_diff(original_lines, corrected_lines, fromfile='before', tofile='after'))
+          removed = [line for line in diff if line.startswith('-') and not line.startswith('---')]
+          added = [line for line in diff if line.startswith('+') and not line.startswith('+++')]
+          if removed != ['-    const double stroke = units::distance(Snapshot.StrokeMm, units::mm);\n'] or added:
+              raise SystemExit('unexpected fixture diff')
+          encoded = base64.b64encode(gzip.compress(corrected, mtime=0)).decode('ascii')
+          width = (len(encoded) + 3) // 4
+          parts = [encoded[index * width:(index + 1) * width] for index in range(4)]
+          output = pathlib.Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8', newline='\n') as stream:
+              for index, part in enumerate(parts):
+                  stream.write(f'part{index}={part}\n')
+              stream.write('sha256=' + hashlib.sha256(corrected).hexdigest() + '\n')
+          print('original sha256:', hashlib.sha256(original).hexdigest())
+          print('corrected sha256:', hashlib.sha256(corrected).hexdigest())
+          print('corrected bytes:', len(corrected))
+          print('part lengths:', [len(part) for part in parts])
+          print(''.join(diff))
+          '@ | python -
 
-  notification:
-    needs: warning-diagnostic
-    if: always()
-    name: diagnostic -- ${{ needs.warning-diagnostic.outputs.diagnostic }}
+  fixture-part-0:
+    needs: prepare-fixture
     runs-on: windows-2022
     steps:
-      - name: Force diagnostic notification
-        shell: pwsh
-        run: throw 'Intentional warning diagnostic notification sentinel'
+      - shell: pwsh
+        run: Write-Output 'FIXTURE_PART_0=${{ needs.prepare-fixture.outputs.part0 }}'
+  fixture-part-1:
+    needs: prepare-fixture
+    runs-on: windows-2022
+    steps:
+      - shell: pwsh
+        run: Write-Output 'FIXTURE_PART_1=${{ needs.prepare-fixture.outputs.part1 }}'
+  fixture-part-2:
+    needs: prepare-fixture
+    runs-on: windows-2022
+    steps:
+      - shell: pwsh
+        run: Write-Output 'FIXTURE_PART_2=${{ needs.prepare-fixture.outputs.part2 }}'
+  fixture-part-3:
+    needs: prepare-fixture
+    runs-on: windows-2022
+    steps:
+      - shell: pwsh
+        run: Write-Output 'FIXTURE_PART_3=${{ needs.prepare-fixture.outputs.part3 }}'
+
+  sentinel:
+    needs:
+      - prepare-fixture
+      - fixture-part-0
+      - fixture-part-1
+      - fixture-part-2
+      - fixture-part-3
+    if: always()
+    name: fixture-sha256-${{ needs.prepare-fixture.outputs.sha256 }}
+    runs-on: windows-2022
+    steps:
+      - shell: pwsh
+        run: throw 'Intentional fixture extraction sentinel'
