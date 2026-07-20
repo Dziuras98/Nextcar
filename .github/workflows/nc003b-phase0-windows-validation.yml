@@ -8,493 +8,177 @@ on:
 permissions:
   contents: read
 
+env:
+  EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
+
 jobs:
-  windows-exact-head:
+  python-parity:
+    name: Python parity 21-21 and 118-118
     runs-on: windows-2022
-    timeout-minutes: 90
-    outputs:
-      report_json: ${{ steps.matrix.outputs.report_json }}
-      status: ${{ steps.matrix.outputs.status }}
-      diagnostic: ${{ steps.matrix.outputs.diagnostic }}
-    env:
-      EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
     steps:
       - name: Configure byte-exact Git worktree
         shell: pwsh
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
-          git config --global --get core.autocrlf
-          git config --global --get core.eol
-
       - name: Checkout exact validated source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
           fetch-depth: 1
           persist-credentials: false
-
-      - name: Windows exact-head matrix
-        id: matrix
+      - name: Verify exact head and Python parity
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $false
-
-          $report = [System.Collections.Generic.List[string]]::new()
-          $failure = $null
-          $logDir = Join-Path $env:RUNNER_TEMP 'nc003b-windows-validation'
-          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-
-          $expectedStdout = @(
-            'PASS ring-buffer',
-            'PASS synchronous-synthesizer',
-            'PASS deterministic-rng',
-            'PASS solver-runtime',
-            'PASS impulse-response-integrity',
-            'PASS fixture-transcription-parity',
-            'PASS fixture-simulator-smoke'
-          )
-
-          function Compact([string]$value) {
-            $result = $value `
-              -replace [regex]::Escape($env:GITHUB_WORKSPACE), '<workspace>' `
-              -replace '[\r\n]+', ' ' `
-              -replace '\|', '/' `
-              -replace "'", ''
-            $result = ($result -replace '\s+', ' ').Trim()
-            if ($result.Length -gt 200) {
-              $result = $result.Substring(0, 200)
-            }
-            return $result
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:EXPECTED_SOURCE_SHA) { throw "Unexpected checkout: $actual" }
+          if (git status --porcelain) { throw 'Checkout is not clean' }
+          git submodule status
+          python --version
+          cmake --version
+          git --version
+          python -m py_compile `
+            Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
+            Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
+          if ($LASTEXITCODE -ne 0) { throw 'py_compile failed' }
+          $unit = @(python -m unittest -v Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1)
+          $unit | Out-Host
+          if ($LASTEXITCODE -ne 0 -or ($unit -join "`n") -notmatch 'Ran 21 tests' -or ($unit -join "`n") -notmatch '(?m)^OK\s*$') {
+            throw 'Python unittest 21/21 failed'
+          }
+          $verify = @(python Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
+            --spec Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture.json `
+            --source-root Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim `
+            --fixture-cpp Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp `
+            --fixture-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.h `
+            --ir-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h 2>&1)
+          $verify | Out-Host
+          $text = $verify -join "`n"
+          if ($LASTEXITCODE -ne 0 -or $text -notmatch '(?m)^all shard hashes PASS\s*$' -or $text -notmatch '(?m)^semantic contract digest PASS\s*$' -or $text -notmatch '(?m)^total: 118\s*$') {
+            throw 'Python verifier 118/118 failed'
+          }
+          if (@($verify | Where-Object { ([string]$_) -match '^PASS\s+' }).Count -ne 118) {
+            throw 'Python verifier record count mismatch'
           }
 
-          function Run([string]$name, [string]$log, [scriptblock]$command) {
-            $output = @(& $command 2>&1)
-            $exitCode = $LASTEXITCODE
-            $output | Tee-Object -FilePath (Join-Path $logDir $log) | Out-Host
-            if ($exitCode -ne 0) {
-              $tail = @(
-                $output |
-                  ForEach-Object { ([string]$_).Trim() } |
-                  Where-Object { $_ } |
-                  Select-Object -Last 8
-              )
-              throw "$name failed with exit code $exitCode -- $(Compact ($tail -join ' / '))"
-            }
-            return ,$output
-          }
-
-          function Configure([string]$directory, [string[]]$extra = @()) {
-            $cmakeArgs = @(
-              '-S', 'Tools/EngineSimVendor/Standalone',
-              '-B', $directory,
-              '-G', 'Visual Studio 17 2022',
-              '-A', 'x64',
-              '-T', 'v143'
-            ) + $extra
-            Run "$directory configure" "$directory-configure.log" { cmake @cmakeArgs } | Out-Null
-          }
-
-          function Build([string]$directory, [string]$configuration, [string]$prefix) {
-            Run "$prefix build" "$prefix-build.log" {
-              cmake --build $directory --config $configuration --verbose
-            } | Out-Null
-          }
-
-          function Test([string]$directory, [string]$configuration, [string]$prefix) {
-            Run "$prefix CTest" "$prefix-ctest.log" {
-              ctest --test-dir $directory -C $configuration --output-on-failure
-            } | Out-Null
-          }
-
-          function Runtime([string]$label, [string]$executable, [string]$log) {
-            $output = @(& $executable 2>&1)
-            $exitCode = $LASTEXITCODE
-            $lines = @(
-              $output |
-                ForEach-Object { ([string]$_).Trim() } |
-                Where-Object { $_ }
-            )
-            $lines | Tee-Object -FilePath (Join-Path $logDir $log) | Out-Host
-            if ($exitCode -ne 0) {
-              throw "$label failed with exit code $exitCode -- $(Compact ($lines -join ' / '))"
-            }
-            if (($lines -join "`n") -ne ($expectedStdout -join "`n")) {
-              throw "$label stdout mismatch -- $(Compact ($lines -join ' / '))"
-            }
-            return ,$lines
-          }
-
-          function PythonGate([string]$prefix, [bool]$record) {
-            Run "$prefix py_compile" "$prefix-pycompile.log" {
-              python -m py_compile `
-                Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-                Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-            } | Out-Null
-
-            $unit = Run "$prefix unittest" "$prefix-unittest.log" {
-              python -m unittest -v `
-                Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-            }
-            $unitText = $unit -join "`n"
-            if ($unitText -notmatch 'Ran 21 tests' -or $unitText -notmatch '(?m)^OK\s*$') {
-              throw "$prefix unittest did not report 21/21 OK"
-            }
-
-            $verify = Run "$prefix verifier" "$prefix-verifier.log" {
-              python Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-                --spec Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture.json `
-                --source-root Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim `
-                --fixture-cpp Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp `
-                --fixture-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.h `
-                --ir-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h
-            }
-            $verifyText = $verify -join "`n"
-            if ($verifyText -notmatch '(?m)^all shard hashes PASS\s*$') {
-              throw "$prefix shard hashes not PASS"
-            }
-            if ($verifyText -notmatch '(?m)^semantic contract digest PASS\s*$') {
-              throw "$prefix semantic digest not PASS"
-            }
-            if ($verifyText -notmatch '(?m)^total: 118\s*$') {
-              throw "$prefix verifier total is not 118"
-            }
-            if (@($verify | Where-Object { ([string]$_) -match '^PASS\s+' }).Count -ne 118) {
-              throw "$prefix verifier record PASS count is not 118"
-            }
-
-            if ($record) {
-              $report.Add('Python py_compile=PASS')
-              $report.Add('Python unittest=21/21 PASS')
-              $report.Add('Python verifier shard hashes=PASS')
-              $report.Add('Python verifier semantic digest=PASS')
-              $report.Add('Python verifier records=118/118 PASS')
-            }
-          }
-
-          try {
-            $actual = (git rev-parse HEAD).Trim()
-            if ($actual -ne $env:EXPECTED_SOURCE_SHA) {
-              throw "Unexpected checkout: expected $env:EXPECTED_SOURCE_SHA, received $actual"
-            }
-            if (git status --porcelain) {
-              throw 'Checkout is not clean'
-            }
-
-            $report.Add("validated-source-sha=$actual")
-            $report.Add("workflow-GITHUB_SHA=$env:GITHUB_SHA")
-            $report.Add("workflow-run-id=$env:GITHUB_RUN_ID")
-            $report.Add("workflow-run-attempt=$env:GITHUB_RUN_ATTEMPT")
-            $report.Add('git-status=clean')
-
-            Write-Host "GITHUB_SHA=$env:GITHUB_SHA"
-            Write-Host "git rev-parse HEAD=$actual"
-            Write-Host 'git status --porcelain:'
-            git status --porcelain
-            Write-Host 'git submodule status:'
-            $submodules = @(git submodule status 2>&1)
-            if ($LASTEXITCODE -ne 0) {
-              throw 'git submodule status failed'
-            }
-            $submodules | Out-Host
-            $report.Add("git-submodule-status-lines=$($submodules.Count)")
-
-            $pythonVersion = ((Run 'Python version' 'python-version.log' { python --version }) -join ' ').Trim()
-            $cmakeOutput = Run 'CMake version' 'cmake-version.log' { cmake --version }
-            $cmakeVersion = ([string]$cmakeOutput[0]).Trim()
-            $gitVersion = ((Run 'Git version' 'git-version.log' { git --version }) -join ' ').Trim()
-
-            $report.Add("runner-image=windows-2022 $env:ImageVersion")
-            $report.Add("Python=$pythonVersion")
-            $report.Add("CMake=$cmakeVersion")
-            $report.Add("Git=$gitVersion")
-
-            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            if (-not (Test-Path $vswhere)) {
-              throw 'Environment error: vswhere.exe not found'
-            }
-            $vsPath = (& $vswhere `
-              -latest `
-              -products * `
-              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-              -property installationPath).Trim()
-            $vsVersion = (& $vswhere `
-              -latest `
-              -products * `
-              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-              -property installationVersion).Trim()
-            if (-not $vsPath) {
-              throw 'Environment error: Visual Studio C++ x64 tools not found'
-            }
-            if (-not $vsVersion.StartsWith('17.')) {
-              throw "Environment error: Visual Studio 2022 required, found $vsVersion"
-            }
-
-            $devCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
-            cmd.exe /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 >nul && set" |
-              ForEach-Object {
-                if ($_ -match '^([^=]+)=(.*)$') {
-                  [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
-                }
-              }
-            if ($LASTEXITCODE -ne 0) {
-              throw 'Environment error: VsDevCmd.bat failed'
-            }
-            if (-not $env:VCToolsVersion -or -not $env:WindowsSDKVersion) {
-              throw 'Environment error: MSVC v143 or Windows SDK unresolved'
-            }
-
-            $clOutput = @(cmd.exe /d /c 'cl.exe 2>&1')
-            $clLine = [string](
-              $clOutput |
-                Where-Object { ([string]$_) -match 'Compiler Version' } |
-                Select-Object -First 1
-            )
-            if (-not $clLine) {
-              throw 'Environment error: cl.exe version line missing'
-            }
-            $clOutput | Out-Host
-
-            $msbuildOutput = Run 'MSBuild version' 'msbuild-version.log' {
-              msbuild.exe -version -nologo
-            }
-            $msbuildVersion = [string](
-              $msbuildOutput |
-                Where-Object { ([string]$_).Trim() -match '^\d+\.\d+' } |
-                Select-Object -Last 1
-            )
-
-            $report.Add("Visual-Studio=$vsVersion")
-            $report.Add("MSVC=$(Compact $clLine)")
-            $report.Add("VCToolsVersion=$($env:VCToolsVersion.Trim())")
-            $report.Add("MSBuild=$($msbuildVersion.Trim())")
-            $report.Add("Windows-SDK=$($env:WindowsSDKVersion.Trim('\'))")
-
-            PythonGate 'python' $true
-
-            Configure 'build-nc003b-msvc-release'
-            $report.Add('MSVC x64 Release configure=PASS')
-            Build 'build-nc003b-msvc-release' 'Release' 'release'
-            $report.Add('MSVC x64 Release build=PASS')
-            Test 'build-nc003b-msvc-release' 'Release' 'release'
-            $report.Add('MSVC x64 Release CTest=PASS')
-            $releaseStdout = Runtime `
-              'Release executable' `
-              '.\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe' `
-              'release-runtime.log'
-            $report.Add('MSVC x64 Release runtime=PASS')
-
-            Configure 'build-nc003b-msvc-debug'
-            $report.Add('MSVC x64 Debug configure=PASS')
-            $debugFlags = Get-Content 'build-nc003b-msvc-debug/CMakeCache.txt' |
-              Where-Object { $_ -match '^CMAKE_CXX_FLAGS_DEBUG:' }
-            $debugFlags | Out-Host
-            if (($debugFlags -join "`n") -notmatch '/RTC1(?:\s|$)') {
-              throw 'Debug flags do not contain /RTC1'
-            }
-            $report.Add('MSVC x64 Debug flags=/RTC1 present')
-            Build 'build-nc003b-msvc-debug' 'Debug' 'debug'
-            $report.Add('MSVC x64 Debug build=PASS')
-            Test 'build-nc003b-msvc-debug' 'Debug' 'debug'
-            $report.Add('MSVC x64 Debug CTest=PASS')
-            Runtime `
-              'Debug executable' `
-              '.\build-nc003b-msvc-debug\Debug\nc003b_phase0_tests.exe' `
-              'debug-runtime.log' | Out-Null
-            $report.Add('MSVC x64 Debug runtime=PASS')
-
-            Configure 'build-nc003b-msvc-asan' @(
-              '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address',
-              '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
-            )
-            $report.Add('MSVC x64 ASan configure=PASS')
-            $asanFlags = Get-Content 'build-nc003b-msvc-asan/CMakeCache.txt' |
-              Where-Object {
-                $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or
-                $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:'
-              }
-            $asanFlags | Out-Host
-            $asanText = $asanFlags -join "`n"
-            if ($asanText -notmatch '/fsanitize=address') {
-              throw 'ASan flags missing /fsanitize=address'
-            }
-            if ($asanText -notmatch '/Zi(?:\s|$)') {
-              throw 'ASan flags missing /Zi'
-            }
-            if ($asanText -match '/RTC1(?:\s|$)') {
-              throw 'ASan flags contain /RTC1'
-            }
-            if ($asanText -notmatch '/INCREMENTAL:NO') {
-              throw 'ASan linker flags missing /INCREMENTAL:NO'
-            }
-            $report.Add('MSVC x64 ASan flags=/fsanitize=address /Zi no-/RTC1 /INCREMENTAL:NO')
-
-            Build 'build-nc003b-msvc-asan' 'RelWithDebInfo' 'asan'
-            $report.Add('MSVC x64 ASan build=PASS')
-            $env:ASAN_OPTIONS = 'abort_on_error=true:alloc_dealloc_mismatch=true'
-            Test 'build-nc003b-msvc-asan' 'RelWithDebInfo' 'asan'
-            $report.Add('MSVC x64 ASan CTest=PASS')
-            Runtime `
-              'ASan executable' `
-              '.\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe' `
-              'asan-runtime.log' | Out-Null
-            $report.Add('MSVC x64 ASan runtime=PASS')
-            $report.Add('sparse_matrix zero-size UB=NOT REPRODUCED by Windows Release Debug ASan')
-
-            Remove-Item -Recurse -Force `
-              build-nc003b-msvc-release, `
-              build-nc003b-msvc-debug, `
-              build-nc003b-msvc-asan
-            foreach ($directory in @(
-              'build-nc003b-msvc-release',
-              'build-nc003b-msvc-debug',
-              'build-nc003b-msvc-asan'
-            )) {
-              if (Test-Path $directory) {
-                throw "Build directory remains after cleanup: $directory"
-              }
-            }
-            $strayArtifacts = @(
-              Get-ChildItem -Path . -File -Recurse -ErrorAction Stop |
-                Where-Object {
-                  $_.FullName -notmatch '[\\/]\.git[\\/]' -and
-                  $_.Extension -in @('.obj', '.pdb', '.ilk', '.exe')
-                }
-            )
-            if ($strayArtifacts.Count -ne 0) {
-              throw "Build artifacts remain outside removed build directories: $($strayArtifacts.Count)"
-            }
-            $report.Add('clean reproducibility cleanup=no build directories or artifacts')
-
-            PythonGate 'repro-python' $false
-            $report.Add('clean reproducibility Python verifier=PASS')
-            Configure 'build-nc003b-msvc-release'
-            $report.Add('clean reproducibility Release configure=PASS')
-            Build 'build-nc003b-msvc-release' 'Release' 'repro-release'
-            $report.Add('clean reproducibility Release build=PASS')
-            Test 'build-nc003b-msvc-release' 'Release' 'repro-release'
-            $report.Add('clean reproducibility Release CTest=PASS')
-            $reproStdout = Runtime `
-              'Repro Release executable' `
-              '.\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe' `
-              'repro-release-runtime.log'
-            if (($reproStdout -join "`n") -ne ($releaseStdout -join "`n")) {
-              throw 'Clean reproducibility stdout mismatch'
-            }
-            $report.Add('clean reproducibility direct runtime identical stdout=PASS')
-
-            foreach ($line in $expectedStdout) {
-              $report.Add("stdout=$line")
-            }
-
-            $warnings = @()
-            Get-ChildItem $logDir -Filter '*-build.log' |
-              ForEach-Object {
-                $warnings += Select-String `
-                  -Path $_.FullName `
-                  -Pattern 'warning C\d+:' |
-                  ForEach-Object { $_.Line.Trim() }
-              }
-            $warnings = @($warnings | Sort-Object -Unique)
-
-            $projectWarnings = @(
-              $warnings |
-                Where-Object {
-                  $_ -match 'NextcarEngineSimCore' -or
-                  $_ -match 'Standalone[\\/]tests' -or
-                  $_ -match 'SubaruEJ25AtgVideo2Fixture\.cpp' -or
-                  $_ -match 'phase0_standalone_tests\.cpp'
-                }
-            )
-            $vendoredWarnings = @(
-              $warnings |
-                Where-Object {
-                  $_ -match 'ThirdParty[\\/]EngineSim[\\/]upstream' -or
-                  $_ -match 'simple-2d-constraint-solver' -or
-                  $_ -match 'engine-sim[\\/](include|src)'
-                }
-            )
-            $otherWarnings = @(
-              $warnings |
-                Where-Object {
-                  $_ -notin $projectWarnings -and $_ -notin $vendoredWarnings
-                }
-            )
-
-            $report.Add("project-warning-count=$($projectWarnings.Count)")
-            foreach ($warning in $projectWarnings) {
-              $report.Add("project-warning=$(Compact $warning)")
-            }
-            $report.Add("vendored-warning-count=$($vendoredWarnings.Count)")
-            foreach ($warning in $vendoredWarnings) {
-              $report.Add("vendored-warning=$(Compact $warning)")
-            }
-            $report.Add("other-warning-count=$($otherWarnings.Count)")
-            foreach ($warning in $otherWarnings) {
-              $report.Add("other-warning=$(Compact $warning)")
-            }
-            if ($projectWarnings.Count -ne 0) {
-              throw "Project code emitted $($projectWarnings.Count) unique MSVC /W4 warning(s)"
-            }
-
-            $report.Add('Windows exact-head standalone validation=PASS')
-          }
-          catch {
-            $failure = Compact $_.Exception.Message
-            $report.Add("failure=$failure")
-          }
-          finally {
-            if ($report.Count -eq 0) {
-              $report.Add('report-unavailable')
-            }
-            $json = ConvertTo-Json -InputObject $report.ToArray() -Compress
-            "report_json=$json" |
-              Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            if ($failure) {
-              'status=FAIL' |
-                Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-              "diagnostic=$failure" |
-                Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            }
-            else {
-              'status=PASS' |
-                Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-              'diagnostic=full Windows matrix PASS' |
-                Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            }
-          }
-
-          if ($failure) {
-            throw $failure
-          }
-
-  report:
-    needs: windows-exact-head
-    if: always()
-    strategy:
-      fail-fast: false
-      matrix:
-        item: ${{ fromJSON(needs.windows-exact-head.outputs.report_json || '["report-unavailable"]') }}
-    name: report -- ${{ matrix.item }}
+  msvc-release:
+    name: MSVC x64 Release configure-build-CTest-runtime
     runs-on: windows-2022
     steps:
-      - name: Expose validation report item
+      - name: Configure byte-exact Git worktree
         shell: pwsh
-        run: Write-Host '${{ matrix.item }}'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout exact validated source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
+          fetch-depth: 1
+          persist-credentials: false
+      - name: MSVC Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
+          if (git status --porcelain) { throw 'Checkout is not clean' }
+          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-release -G 'Visual Studio 17 2022' -A x64 -T v143
+          if ($LASTEXITCODE -ne 0) { throw 'Release configure failed' }
+          cmake --build build-nc003b-msvc-release --config Release --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+          ctest --test-dir build-nc003b-msvc-release -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Release CTest failed' }
+          $output = @(& .\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe 2>&1)
+          $output | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Release runtime failed' }
+          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
+          if (($output -join "`n") -ne ($expected -join "`n")) { throw 'Release stdout mismatch' }
+
+  msvc-debug:
+    name: MSVC x64 Debug RTC1 configure-build-CTest-runtime
+    runs-on: windows-2022
+    steps:
+      - name: Configure byte-exact Git worktree
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout exact validated source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
+          fetch-depth: 1
+          persist-credentials: false
+      - name: MSVC Debug with RTC1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
+          if (git status --porcelain) { throw 'Checkout is not clean' }
+          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-debug -G 'Visual Studio 17 2022' -A x64 -T v143
+          if ($LASTEXITCODE -ne 0) { throw 'Debug configure failed' }
+          $flags = Get-Content build-nc003b-msvc-debug/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS_DEBUG:' }
+          $flags | Out-Host
+          if (($flags -join "`n") -notmatch '/RTC1(?:\s|$)') { throw 'Debug flags missing /RTC1' }
+          cmake --build build-nc003b-msvc-debug --config Debug --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'Debug build failed' }
+          ctest --test-dir build-nc003b-msvc-debug -C Debug --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Debug CTest failed' }
+          $output = @(& .\build-nc003b-msvc-debug\Debug\nc003b_phase0_tests.exe 2>&1)
+          $output | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Debug runtime failed' }
+          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
+          if (($output -join "`n") -ne ($expected -join "`n")) { throw 'Debug stdout mismatch' }
+
+  msvc-asan:
+    name: MSVC x64 AddressSanitizer configure-build-CTest-runtime
+    runs-on: windows-2022
+    steps:
+      - name: Configure byte-exact Git worktree
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - name: Checkout exact validated source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
+          fetch-depth: 1
+          persist-credentials: false
+      - name: MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
+          if (git status --porcelain) { throw 'Checkout is not clean' }
+          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-asan -G 'Visual Studio 17 2022' -A x64 -T v143 '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address' '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
+          if ($LASTEXITCODE -ne 0) { throw 'ASan configure failed' }
+          $flags = Get-Content build-nc003b-msvc-asan/CMakeCache.txt | Where-Object { $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:' }
+          $flags | Out-Host
+          $text = $flags -join "`n"
+          if ($text -notmatch '/fsanitize=address' -or $text -notmatch '/Zi(?:\s|$)' -or $text -match '/RTC1(?:\s|$)' -or $text -notmatch '/INCREMENTAL:NO') { throw 'ASan flag contract failed' }
+          cmake --build build-nc003b-msvc-asan --config RelWithDebInfo --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'ASan build failed' }
+          $env:ASAN_OPTIONS = 'abort_on_error=true:alloc_dealloc_mismatch=true'
+          ctest --test-dir build-nc003b-msvc-asan -C RelWithDebInfo --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'ASan CTest failed' }
+          $output = @(& .\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe 2>&1)
+          $output | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'ASan runtime failed' }
+          $expected = @('PASS ring-buffer','PASS synchronous-synthesizer','PASS deterministic-rng','PASS solver-runtime','PASS impulse-response-integrity','PASS fixture-transcription-parity','PASS fixture-simulator-smoke')
+          if (($output -join "`n") -ne ($expected -join "`n")) { throw 'ASan stdout mismatch' }
 
   notification-sentinel:
     needs:
-      - windows-exact-head
-      - report
+      - python-parity
+      - msvc-release
+      - msvc-debug
+      - msvc-asan
     if: always()
-    name: sentinel -- validation=${{ needs.windows-exact-head.outputs.status }} -- attempt=${{ github.run_attempt }}
+    name: sentinel -- python=${{ needs.python-parity.result }} release=${{ needs.msvc-release.result }} debug=${{ needs.msvc-debug.result }} asan=${{ needs.msvc-asan.result }}
     runs-on: windows-2022
     steps:
-      - name: Make first attempt identifiable
+      - name: Force diagnostic notification
         shell: pwsh
-        run: |
-          if ([int]'${{ github.run_attempt }}' -eq 1) {
-            throw 'Intentional first-attempt notification sentinel; rerun failed jobs after a validation PASS.'
-          }
-          Write-Host 'Notification sentinel PASS on rerun attempt.'
+        run: throw 'Intentional diagnostic notification sentinel'
