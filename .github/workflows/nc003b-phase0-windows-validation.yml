@@ -65,6 +65,8 @@ jobs:
     name: diagnostic -- ${{ needs.windows-python-diagnostic.outputs.diagnostic }}
     runs-on: windows-2022
     steps:
-      - name: Expose Python diagnostic
+      - name: Expose Python diagnostic and force notification
         shell: pwsh
-        run: Write-Host '${{ needs.windows-python-diagnostic.outputs.diagnostic }}'
+        run: |
+          Write-Host '${{ needs.windows-python-diagnostic.outputs.diagnostic }}'
+          throw "Intentional diagnostic notification sentinel"
