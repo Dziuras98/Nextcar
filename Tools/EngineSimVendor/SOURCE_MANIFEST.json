@@ -1,12 +1,104 @@
 {
   "schema_version": 1,
-  "status": "Phase 0 WIP — reconstruction in progress, not submitted for manager approval; Phase 1 not started",
-  "scope": "NC-003B Phase 0 engine-sim closure and deterministic Subaru EJ25 impulse-response provenance.",
+  "status": "Phase 0 WIP — fixture parity implementation published, exact-head C++ validation pending, calibration not started; not submitted for manager approval; Phase 1 not started",
+  "scope": "NC-003B Phase 0 engine-sim closure, deterministic Subaru EJ25 impulse-response provenance, and fixture-transcription parity.",
   "source_tree": "0756dea0444ada160540685dd1d28fcd3ef4aac5",
   "translation_unit_counts": {
     "exact-upstream": 21,
     "patched-upstream": 12,
     "total": 33
+  },
+  "fixture_transcription": {
+    "index_path": "Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture.json",
+    "shard_directory": "Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture",
+    "fixture_id": "SubaruEJ25AtgVideo2",
+    "fixture_slug": "subaru_ej25_atg_video_2_01",
+    "source_script_path": "assets/engines/atg-video-2/01_subaru_ej25_eh.mr",
+    "source_script_git_blob": "586ad92f1f27d097d5c422e2484915acc7c6a5d2",
+    "source_script_sha256": "04eba9d5e0f8fa2d1b2d6bfc89ee09cd1a414ecbd81d2b39f6cfd6c04fcdcb5a",
+    "engine_sim_commit": "85f7c3b959a908ed5232ede4f1a4ac7eafe6b630",
+    "engine_sim_tree": "0756dea0444ada160540685dd1d28fcd3ef4aac5",
+    "source_monolithic_candidate_sha256": "096c4e2ed9b310bc1d03cffd44090ba0515162ba56ca0594ffaefe7a72bc0eaf",
+    "semantic_contract_sha256": "3ba447789024d613cdceb2382d917e9d6ce340cbeecb621d4f71133e55578f00",
+    "total_records": 118,
+    "category_counts": {
+      "derived-from-script": 10,
+      "determinism-patch": 1,
+      "excluded-non-headless": 8,
+      "explicit-script": 67,
+      "generated-asset": 7,
+      "headless-construction": 8,
+      "resolved-library-default": 17
+    },
+    "verification_tool": "Tools/EngineSimVendor/verify_subaru_ej25_fixture.py",
+    "shards": [
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/01-engine-and-fuel.json",
+        "record_count": 11,
+        "sha256": "bd58c61d3a6d3e79c33dc1a6bcdb98928c575526a4b5ac16deb43c88de1d8b8f"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/02-crankshaft-and-inertia.json",
+        "record_count": 13,
+        "sha256": "6259a1c6fa79a4d9f910bb0bb996712866f107a949bda0a20ca4c534b2f433a3"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/03-pistons-rods-and-intake.json",
+        "record_count": 12,
+        "sha256": "da484ebbdf9ce500b0a799db9b16839de83926ca7746734fcbca2637359233cd"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/04-exhaust-banks-and-cylinders.json",
+        "record_count": 12,
+        "sha256": "3d46206cc5916809aee64f201e9c89f7c2d5187eddb295f212257257b5f9666f"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/05-heads-and-flow-tables.json",
+        "record_count": 8,
+        "sha256": "e03a9ec6f08a1c83d61618bb13c215b3522633c994d8d281346816fdab17fdc8"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/06-camshafts-and-valvetrain.json",
+        "record_count": 6,
+        "sha256": "6bf036fb854062407362b2fd1588de86e58f2f500dc75c3f80adca6628094657"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/07-ignition-and-firing-order.json",
+        "record_count": 5,
+        "sha256": "f11c1b780302c65b02787d8a17f71d398fc58092305359b2ef5c7a0c93419e7a"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/08-fuel-library-defaults.json",
+        "record_count": 9,
+        "sha256": "7a693958e993bd61072f01e416452416582cc606f4307384578cba4c1e1cfeeb"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/09-engine-and-system-defaults.json",
+        "record_count": 8,
+        "sha256": "47f539f78819d1e9cc2ae6dfcc8e9dad102546dba90ae883c24913d8f1ed1839"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/10-derived-values.json",
+        "record_count": 10,
+        "sha256": "2ce59bc2289cd0b9205128eebb2deea3b28123acafdd1d457cac4e0b8ac06764"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/11-headless-construction.json",
+        "record_count": 8,
+        "sha256": "a3af558a142f72e798f5b09bf92e928f6b61000274e210e70ae0d38a4994de49"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/12-determinism-and-generated-ir.json",
+        "record_count": 8,
+        "sha256": "7b1a0e87e723fe374ca8b4d9a6c2ca5ee089dddc5a266a5711b7b0ef03224066"
+      },
+      {
+        "path": "subaru_ej25_atg_video_2_fixture/13-excluded-non-headless.json",
+        "record_count": 8,
+        "sha256": "e65b9d2549a4178dd9ec423c202e0c47d665a13642ecc4524c10bfc1013db391"
+      }
+    ],
+    "calibration_status": "not started"
   },
   "files": [
     {
