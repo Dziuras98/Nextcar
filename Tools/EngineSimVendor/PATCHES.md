@@ -1,6 +1,6 @@
 # NC-003B Phase 0 working patch ledger
 
-> Status: Phase 0 WIP — fixture parity implementation published, exact-head C++ validation pending, calibration not started. Not submitted for manager approval. Phase 1 not started.
+> Status: Phase 0 WIP — fixture parity Windows exact-head validated, calibration not started, not submitted for manager approval, Phase 1 not started.
 
 ## Source authority
 
@@ -54,7 +54,7 @@ See `Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md` for the full evidence recor
 
 ## Validation status
 
-Python `py_compile`, all 21 verifier unit tests, all 118 field records, every shard SHA-256 and the semantic contract digest passed locally. Exact-head C++ validation is pending because the execution environment did not contain the complete checkout/closure. No C++ PASS is claimed.
+Windows exact-head validation passed for source SHA `542d3261efc3ef48c78f337d990793aea55dd7fb` in GitHub Actions run `29756153748`, final attempt 2, on `windows-2022` with Visual Studio 2022 and MSVC v143. Python `py_compile`, all 21 verifier unit tests, all 118 field records, every shard SHA-256 and the semantic contract digest passed. MSVC x64 Release, Debug `/RTC1`, AddressSanitizer, CTest, runtime and clean reproducibility passed with identical stdout and project warning count 0. Windows did not reproduce the sparse-matrix zero-size UB. The GCC and Clang Release PASS results remain supplementary; the Linux UBSan solver finding is non-gating and the pinned solver is unchanged.
 
 ## Scope note
 
