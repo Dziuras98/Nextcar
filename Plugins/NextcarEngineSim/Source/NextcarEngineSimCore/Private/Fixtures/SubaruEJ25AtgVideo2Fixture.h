@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SubaruEJ25AtgVideo2FixtureSpec.h"
+
 #include "engine.h"
 #include "camshaft.h"
 #include "standard_valvetrain.h"
@@ -25,6 +27,7 @@ public:
 
     Engine &GetEngine() { return EngineInstance; }
     const Engine &GetEngine() const { return EngineInstance; }
+    const FixtureTranscriptionSnapshot &GetTranscriptionSnapshot() const { return Snapshot; }
     void Destroy();
 
 private:
@@ -32,9 +35,11 @@ private:
     void BuildFunctions();
     void BuildEngine();
 
+    FixtureTranscriptionSnapshot Snapshot;
     Engine EngineInstance;
     ImpulseResponse Impulse;
-    Function Turbulence;
+    Function FuelTurbulence;
+    Function MeanPistonSpeedTurbulence;
     Function IntakeFlow;
     Function ExhaustFlow;
     Function IntakeLobe;
@@ -45,4 +50,4 @@ private:
     bool IsDestroyed = false;
 };
 
-}
+} // namespace NextcarEngineSim::Phase0
