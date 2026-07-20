@@ -1,5 +1,6 @@
 #include "../include/gaussian_filter.h"
 
+#include <algorithm>
 #include <cmath>
 
 GaussianFilter::GaussianFilter() {
