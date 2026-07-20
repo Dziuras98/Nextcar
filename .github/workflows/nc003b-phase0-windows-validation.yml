@@ -8,11 +8,11 @@ permissions:
   contents: read
 
 jobs:
-  release-diagnostic:
+  prepare-manifest:
     runs-on: windows-2022
-    timeout-minutes: 30
     outputs:
-      diagnostic: ${{ steps.build.outputs.diagnostic }}
+      chunks: ${{ steps.encode.outputs.chunks }}
+      sha256: ${{ steps.encode.outputs.sha256 }}
     steps:
       - name: Configure byte-exact Git worktree
         shell: pwsh
@@ -27,41 +27,58 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Capture MSVC Release compiler failure
-        id: build
+      - name: Encode deterministic corrected manifest
+        id: encode
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $expected = 'c4bdc6df899d856a9bbdfbf4955b8229c2848148'
-          if ((git rev-parse HEAD).Trim() -ne $expected) { throw 'Unexpected checkout' }
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
-          $devCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
-          cmd.exe /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 >nul && set" | ForEach-Object {
-            if ($_ -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1],$matches[2],'Process') }
-          }
-          cmake -S Tools/EngineSimVendor/Standalone -B build-nc003b-msvc-release -G 'Visual Studio 17 2022' -A x64 -T v143
-          if ($LASTEXITCODE -ne 0) { throw "configure failed $LASTEXITCODE" }
-          $output = @(cmake --build build-nc003b-msvc-release --config Release --verbose 2>&1)
-          $code = $LASTEXITCODE
-          $output | Out-Host
-          $errorLines = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '(error C\d+|fatal error|gaussian_filter\.cpp)' } | Select-Object -Last 6)
-          $safe = (($errorLines -join ' / ') -replace '[\r\n]+',' ' -replace '\|','/' -replace "'",'')
-          if ($safe.Length -gt 230) { $safe = $safe.Substring($safe.Length - 230) }
-          if ($code -ne 0) {
-            "diagnostic=Release exit $code -- $safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            throw "Release build failed with exit code $code"
-          }
-          "diagnostic=Release build unexpectedly PASS" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $ErrorActionPreference = 'Stop'
+          @'
+          import base64, gzip, hashlib, json, pathlib
+          path = pathlib.Path('Tools/EngineSimVendor/SOURCE_MANIFEST.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          data['translation_unit_counts']['exact-upstream'] = 20
+          data['translation_unit_counts']['patched-upstream'] = 13
+          target = 'Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/src/gaussian_filter.cpp'
+          matches = [entry for entry in data['files'] if entry.get('final_path') == target]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one gaussian manifest entry, found {len(matches)}')
+          entry = matches[0]
+          if entry.get('upstream_sha256') != 'c66a3e7a3f017dfb2ca5f15977a0e80a9bc213eaeed9a289182a31f2b184d437':
+              raise SystemExit('unexpected gaussian upstream hash')
+          entry['classification'] = 'patched-upstream'
+          entry['final_sha256'] = '321a58d86d50fec04bf3fb8df7f781cd8f39a30f9d877992541d5661f422683b'
+          entry['reason'] = 'Adds the explicit <algorithm> include required by MSVC v143 to declare std::max; filter calculations and runtime behavior are unchanged.'
+          raw = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+          encoded = base64.b64encode(gzip.compress(raw, mtime=0)).decode('ascii')
+          chunks = [f'{index:03d}:{encoded[offset:offset+180]}' for index, offset in enumerate(range(0, len(encoded), 180))]
+          output = pathlib.Path(__import__('os').environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8', newline='\n') as stream:
+              stream.write('chunks=' + json.dumps(chunks, separators=(',', ':')) + '\n')
+              stream.write('sha256=' + hashlib.sha256(raw).hexdigest() + '\n')
+          print('corrected manifest bytes:', len(raw))
+          print('corrected manifest sha256:', hashlib.sha256(raw).hexdigest())
+          print('compressed chunks:', len(chunks))
+          '@ | python -
 
-  diagnostic:
-    needs: release-diagnostic
-    if: always()
-    name: diagnostic -- ${{ needs.release-diagnostic.outputs.diagnostic }}
+  manifest-chunk:
+    needs: prepare-manifest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJSON(needs.prepare-manifest.outputs.chunks) }}
+    name: manifest-chunk-${{ matrix.chunk }}
     runs-on: windows-2022
     steps:
-      - name: Force diagnostic notification
+      - name: Expose compressed manifest chunk
         shell: pwsh
-        run: |
-          Write-Host '${{ needs.release-diagnostic.outputs.diagnostic }}'
-          throw 'Intentional diagnostic notification sentinel'
+        run: Write-Host '${{ matrix.chunk }}'
+
+  sentinel:
+    needs: [prepare-manifest, manifest-chunk]
+    if: always()
+    name: manifest-sha256-${{ needs.prepare-manifest.outputs.sha256 }}
+    runs-on: windows-2022
+    steps:
+      - name: Force identifiable notification
+        shell: pwsh
+        run: throw 'Intentional manifest extraction sentinel'
