@@ -11,7 +11,10 @@ jobs:
   prepare-manifest:
     runs-on: windows-2022
     outputs:
-      chunks: ${{ steps.encode.outputs.chunks }}
+      part0: ${{ steps.encode.outputs.part0 }}
+      part1: ${{ steps.encode.outputs.part1 }}
+      part2: ${{ steps.encode.outputs.part2 }}
+      part3: ${{ steps.encode.outputs.part3 }}
       sha256: ${{ steps.encode.outputs.sha256 }}
     steps:
       - name: Configure byte-exact Git worktree
@@ -33,7 +36,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           @'
-          import base64, gzip, hashlib, json, pathlib
+          import base64, gzip, hashlib, json, os, pathlib
           path = pathlib.Path('Tools/EngineSimVendor/SOURCE_MANIFEST.json')
           data = json.loads(path.read_text(encoding='utf-8'))
           data['translation_unit_counts']['exact-upstream'] = 20
@@ -50,31 +53,53 @@ jobs:
           entry['reason'] = 'Adds the explicit <algorithm> include required by MSVC v143 to declare std::max; filter calculations and runtime behavior are unchanged.'
           raw = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
           encoded = base64.b64encode(gzip.compress(raw, mtime=0)).decode('ascii')
-          chunks = [f'{index:03d}:{encoded[offset:offset+180]}' for index, offset in enumerate(range(0, len(encoded), 180))]
-          output = pathlib.Path(__import__('os').environ['GITHUB_OUTPUT'])
+          width = (len(encoded) + 3) // 4
+          parts = [encoded[index * width:(index + 1) * width] for index in range(4)]
+          output = pathlib.Path(os.environ['GITHUB_OUTPUT'])
           with output.open('a', encoding='utf-8', newline='\n') as stream:
-              stream.write('chunks=' + json.dumps(chunks, separators=(',', ':')) + '\n')
+              for index, part in enumerate(parts):
+                  stream.write(f'part{index}={part}\n')
               stream.write('sha256=' + hashlib.sha256(raw).hexdigest() + '\n')
           print('corrected manifest bytes:', len(raw))
           print('corrected manifest sha256:', hashlib.sha256(raw).hexdigest())
-          print('compressed chunks:', len(chunks))
+          print('encoded bytes:', len(encoded))
+          print('part lengths:', [len(part) for part in parts])
           '@ | python -
 
-  manifest-chunk:
+  manifest-part-0:
     needs: prepare-manifest
-    strategy:
-      fail-fast: false
-      matrix:
-        chunk: ${{ fromJSON(needs.prepare-manifest.outputs.chunks) }}
-    name: manifest-chunk-${{ matrix.chunk }}
     runs-on: windows-2022
     steps:
-      - name: Expose compressed manifest chunk
+      - name: Print part 0
         shell: pwsh
-        run: Write-Host '${{ matrix.chunk }}'
+        run: Write-Output 'MANIFEST_PART_0=${{ needs.prepare-manifest.outputs.part0 }}'
+
+  manifest-part-1:
+    needs: prepare-manifest
+    runs-on: windows-2022
+    steps:
+      - name: Print part 1
+        shell: pwsh
+        run: Write-Output 'MANIFEST_PART_1=${{ needs.prepare-manifest.outputs.part1 }}'
+
+  manifest-part-2:
+    needs: prepare-manifest
+    runs-on: windows-2022
+    steps:
+      - name: Print part 2
+        shell: pwsh
+        run: Write-Output 'MANIFEST_PART_2=${{ needs.prepare-manifest.outputs.part2 }}'
+
+  manifest-part-3:
+    needs: prepare-manifest
+    runs-on: windows-2022
+    steps:
+      - name: Print part 3
+        shell: pwsh
+        run: Write-Output 'MANIFEST_PART_3=${{ needs.prepare-manifest.outputs.part3 }}'
 
   sentinel:
-    needs: [prepare-manifest, manifest-chunk]
+    needs: [prepare-manifest, manifest-part-0, manifest-part-1, manifest-part-2, manifest-part-3]
     if: always()
     name: manifest-sha256-${{ needs.prepare-manifest.outputs.sha256 }}
     runs-on: windows-2022
