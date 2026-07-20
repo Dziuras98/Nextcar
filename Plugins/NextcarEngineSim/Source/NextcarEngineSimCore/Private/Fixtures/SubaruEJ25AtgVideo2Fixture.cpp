@@ -131,7 +131,6 @@ void SubaruEJ25AtgVideo2Fixture::BuildEngine() {
     fuel.turbulenceToFlameSpeedRatio = &FuelTurbulence;
     EngineInstance.getFuel()->initialize(fuel);
 
-    const double stroke = units::distance(Snapshot.StrokeMm, units::mm);
     const double bore = units::distance(Snapshot.BoreMm, units::mm);
     const double rodLength = units::distance(Snapshot.RodLengthInch, units::inch);
     const double rodMass = units::mass(Snapshot.RodMassG, units::g);
