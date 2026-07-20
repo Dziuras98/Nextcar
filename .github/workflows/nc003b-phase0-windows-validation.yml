@@ -39,7 +39,7 @@ jobs:
           function Run([string]$name,[string]$log,[scriptblock]$command) {
             $output = & $command 2>&1
             $code = $LASTEXITCODE
-            $output | Tee-Object -FilePath (Join-Path $logDir $log)
+            $output | Tee-Object -FilePath (Join-Path $logDir $log) | Out-Host
             if ($code -ne 0) { throw "$name failed with exit code $code" }
             return ,$output
           }
@@ -47,7 +47,7 @@ jobs:
             $output = & $exe 2>&1
             $code = $LASTEXITCODE
             $lines = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
-            $lines | Tee-Object -FilePath (Join-Path $logDir $file)
+            $lines | Tee-Object -FilePath (Join-Path $logDir $file) | Out-Host
             if ($code -ne 0) { throw "$label failed with exit code $code" }
             if (($lines -join "`n") -ne ($expectedStdout -join "`n")) {
               throw "$label stdout mismatch: $($lines -join ' | ')"
