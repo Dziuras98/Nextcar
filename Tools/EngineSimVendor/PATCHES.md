@@ -143,9 +143,20 @@ Every exact-upstream destination is byte-identical to its local SourceInputs cou
 
 ## Project-authored support files
 
-- `Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp`: compile-smoke fixture alignment with exact harmonic cam-lobe generation, stable per-cylinder seeds, `circle_area(2.0 * units.inch)` collector semantics, and an explicitly temporary in-memory identity PCM placeholder. The pinned WAV generator/verifier remains a separate step.
+- `Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp`: exact harmonic cam-lobe generation, stable per-cylinder seeds, `circle_area(2.0 * units.inch)` collector semantics, and initialization from the generated full Subaru EJ25 PCM with gain `0.01`; the one-sample identity placeholder was removed.
 - `Tools/EngineSimVendor/Standalone/CMakeLists.txt`: explicit offline C++17 build graph with no Unreal, FetchContent, network, Git, credentials, scripting, UI or application target.
-- `Tools/EngineSimVendor/Standalone/tests/phase0_standalone_tests.cpp`: direct runtime coverage for ring-buffer occupancy/bounds, the real synchronous Synthesizer cap, deterministic RNG, solver runtime, and fixture/simulator lifecycle.
+- `Tools/EngineSimVendor/Standalone/tests/phase0_standalone_tests.cpp`: direct runtime coverage for generated impulse-response metadata and full PCM accessibility, ring-buffer occupancy/bounds, the real synchronous Synthesizer cap, deterministic RNG, solver runtime, and fixture/simulator lifecycle.
+
+
+## Deterministic Subaru impulse response
+
+- Exact input: `Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav`.
+- Source Git blob: `6d3f8688e170cb6e5f4bfec42f580f3900514d72`.
+- Generator: `Tools/EngineSimVendor/generate_impulse_response_header.py` uses a strict standard-library RIFF parser and writes atomically without timestamps or environment-dependent data.
+- Generated output: `Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h` contains the complete decoded PCM16 sequence and stable metadata.
+- Independent verification: `Tools/EngineSimVendor/verify_impulse_response.py` independently validates raw RIFF fields, Python `wave` decoding, every generated PCM value, hashes, manifest linkage, generation command, and notice mapping.
+- Fixture integration: `Phase0PlaceholderImpulse` was removed; the fixture passes the generated PCM pointer, full generated sample count, generated sample rate, and gain `0.01` to the in-memory `ImpulseResponse` contract.
+- Runtime I/O: ordinary Core construction, standalone tests, simulator and synthesizer do not open or parse the WAV and do not depend on the working directory.
 
 ## Headless exclusions
 
@@ -157,4 +168,4 @@ Test results are not stored here as final evidence. Commands, compiler versions,
 
 ## Scope note
 
-This checkpoint does not modify the already-published simple-solver closure. `SourceInputs`, the exact staged WAV, generated-IR work, calibration, profiles, evidence, Unreal validation and Phase 1 remain outside this checkpoint.
+This checkpoint does not modify the already-published simple-solver closure. `SourceInputs` and both exact WAV paths remain preserved. Calibration, profiles, evidence, Unreal validation and Phase 1 remain outside this checkpoint.
