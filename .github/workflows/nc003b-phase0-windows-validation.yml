@@ -14,6 +14,14 @@ jobs:
     outputs:
       diagnostic: ${{ steps.python.outputs.diagnostic }}
     steps:
+      - name: Configure byte-exact Git worktree
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global --get core.autocrlf
+          git config --global --get core.eol
+
       - name: Checkout exact validated source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -34,6 +42,7 @@ jobs:
           python --version
           cmake --version
           git --version
+          python -c "import hashlib,pathlib,subprocess; p=pathlib.Path('Tools/EngineSimVendor/verify_subaru_ej25_fixture.py'); print('worktree verifier SHA-256:',hashlib.sha256(p.read_bytes()).hexdigest()); print('git blob verifier SHA-256:',hashlib.sha256(subprocess.check_output(['git','show','HEAD:'+p.as_posix()])).hexdigest())"
           python -m py_compile `
             Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
             Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
@@ -48,7 +57,7 @@ jobs:
             "diagnostic=unittest exit $code -- $safe" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             throw "Python unittest failed with exit code $code"
           }
-          "diagnostic=Python py_compile and 21/21 unittest PASS" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "diagnostic=Python py_compile and 21/21 unittest PASS with byte-exact LF checkout" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
   diagnostic:
     needs: windows-python-diagnostic
