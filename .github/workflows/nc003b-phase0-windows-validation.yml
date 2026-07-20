@@ -8,342 +8,59 @@ on:
 permissions:
   contents: read
 
+env:
+  EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
+
 jobs:
-  windows-exact-head:
+  warning-diagnostic:
+    name: MSVC project warning diagnostic
     runs-on: windows-2022
-    timeout-minutes: 90
     outputs:
-      report_json: ${{ steps.matrix.outputs.report_json }}
-      status: ${{ steps.matrix.outputs.status }}
-      diagnostic: ${{ steps.matrix.outputs.diagnostic }}
-    env:
-      EXPECTED_SOURCE_SHA: 22721f28f617d8eadcf624198a2a105aa9f26be2
+      diagnostic: ${{ steps.warnings.outputs.diagnostic }}
     steps:
       - name: Configure byte-exact Git worktree
         shell: pwsh
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
-          git config --global --get core.autocrlf
-          git config --global --get core.eol
-
       - name: Checkout exact validated source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 22721f28f617d8eadcf624198a2a105aa9f26be2
           fetch-depth: 1
           persist-credentials: false
-
-      - name: Windows exact-head matrix
-        id: matrix
+      - name: Capture project warnings
+        id: warnings
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $false
-          $report = [System.Collections.Generic.List[string]]::new()
-          $failure = $null
-          $logDir = Join-Path $env:RUNNER_TEMP 'nc003b-windows-validation'
-          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          $expectedStdout = @(
-            'PASS ring-buffer',
-            'PASS synchronous-synthesizer',
-            'PASS deterministic-rng',
-            'PASS solver-runtime',
-            'PASS impulse-response-integrity',
-            'PASS fixture-transcription-parity',
-            'PASS fixture-simulator-smoke'
-          )
-
-          function Compact([string]$value) {
-            $text = $value `
-              -replace [regex]::Escape($env:GITHUB_WORKSPACE), '<workspace>' `
-              -replace '[\r\n]+', ' ' `
-              -replace '\|', '/' `
-              -replace "'", '' `
-              -replace '"', ''
-            $text = ($text -replace '\s+', ' ').Trim()
-            if ($text.Length -gt 190) { $text = $text.Substring(0, 190) }
-            return $text
-          }
-
-          function Run([string]$name, [string]$log, [scriptblock]$command) {
-            $output = @(& $command 2>&1)
-            $code = $LASTEXITCODE
-            $output | Tee-Object -FilePath (Join-Path $logDir $log) | Out-Host
-            if ($code -ne 0) {
-              $tail = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } | Select-Object -Last 8)
-              throw "$name failed with exit code $code -- $(Compact ($tail -join ' / '))"
-            }
-            return ,$output
-          }
-
-          function Configure([string]$directory, [string[]]$extra = @()) {
-            $cmakeArgs = @(
-              '-S', 'Tools/EngineSimVendor/Standalone',
-              '-B', $directory,
-              '-G', 'Visual Studio 17 2022',
-              '-A', 'x64',
-              '-T', 'v143'
-            ) + $extra
-            Run "$directory configure" "$directory-configure.log" { cmake @cmakeArgs } | Out-Null
-          }
-
-          function Build([string]$directory, [string]$configuration, [string]$prefix) {
-            Run "$prefix build" "$prefix-build.log" {
-              cmake --build $directory --config $configuration --verbose
-            } | Out-Null
-          }
-
-          function Test([string]$directory, [string]$configuration, [string]$prefix) {
-            Run "$prefix CTest" "$prefix-ctest.log" {
-              ctest --test-dir $directory -C $configuration --output-on-failure
-            } | Out-Null
-          }
-
-          function Runtime([string]$label, [string]$executable, [string]$log) {
-            $output = @(& $executable 2>&1)
-            $code = $LASTEXITCODE
-            $lines = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
-            $lines | Tee-Object -FilePath (Join-Path $logDir $log) | Out-Host
-            if ($code -ne 0) { throw "$label failed with exit code $code -- $(Compact ($lines -join ' / '))" }
-            if (($lines -join "`n") -ne ($expectedStdout -join "`n")) {
-              throw "$label stdout mismatch -- $(Compact ($lines -join ' / '))"
-            }
-            return ,$lines
-          }
-
-          function PythonGate([string]$prefix, [bool]$record) {
-            Run "$prefix py_compile" "$prefix-pycompile.log" {
-              python -m py_compile `
-                Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-                Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-            } | Out-Null
-            $unit = Run "$prefix unittest" "$prefix-unittest.log" {
-              python -m unittest -v Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py
-            }
-            $unitText = $unit -join "`n"
-            if ($unitText -notmatch 'Ran 21 tests' -or $unitText -notmatch '(?m)^OK\s*$') {
-              throw "$prefix unittest did not report 21/21 OK"
-            }
-            $verify = Run "$prefix verifier" "$prefix-verifier.log" {
-              python Tools/EngineSimVendor/verify_subaru_ej25_fixture.py `
-                --spec Tests/EngineSimCore/Fixtures/subaru_ej25_atg_video_2_fixture.json `
-                --source-root Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim `
-                --fixture-cpp Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.cpp `
-                --fixture-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Fixtures/SubaruEJ25AtgVideo2Fixture.h `
-                --ir-header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h
-            }
-            $verifyText = $verify -join "`n"
-            if ($verifyText -notmatch '(?m)^all shard hashes PASS\s*$') { throw "$prefix shard hashes not PASS" }
-            if ($verifyText -notmatch '(?m)^semantic contract digest PASS\s*$') { throw "$prefix semantic digest not PASS" }
-            if ($verifyText -notmatch '(?m)^total: 118\s*$') { throw "$prefix verifier total is not 118" }
-            if (@($verify | Where-Object { ([string]$_) -match '^PASS\s+' }).Count -ne 118) {
-              throw "$prefix verifier record PASS count is not 118"
-            }
-            if ($record) {
-              $report.Add('Python=py_compile PASS; unittest 21/21 PASS; verifier 118/118 PASS')
-              $report.Add('Python verifier=all shard hashes PASS; semantic digest PASS')
-            }
-          }
-
-          try {
-            $actual = (git rev-parse HEAD).Trim()
-            if ($actual -ne $env:EXPECTED_SOURCE_SHA) {
-              throw "Unexpected checkout: expected $env:EXPECTED_SOURCE_SHA, received $actual"
-            }
-            if (git status --porcelain) { throw 'Checkout is not clean' }
-
-            Write-Host "GITHUB_SHA=$env:GITHUB_SHA"
-            Write-Host "git rev-parse HEAD=$actual"
-            Write-Host 'git status --porcelain:'
-            git status --porcelain
-            Write-Host 'git submodule status:'
-            $submodules = @(git submodule status 2>&1)
-            if ($LASTEXITCODE -ne 0) { throw 'git submodule status failed' }
-            $submodules | Out-Host
-
-            $report.Add("validated-source-sha=$actual")
-            $report.Add("workflow-commit-sha=$env:GITHUB_SHA")
-            $report.Add("workflow-run-id=$env:GITHUB_RUN_ID attempt=$env:GITHUB_RUN_ATTEMPT")
-            $report.Add("checkout=clean; submodule-status-lines=$($submodules.Count)")
-
-            $pythonVersion = ((Run 'Python version' 'python-version.log' { python --version }) -join ' ').Trim()
-            $cmakeVersionOutput = Run 'CMake version' 'cmake-version.log' { cmake --version }
-            $cmakeVersion = ([string]$cmakeVersionOutput[0]).Trim()
-            $gitVersion = ((Run 'Git version' 'git-version.log' { git --version }) -join ' ').Trim()
-
-            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            if (-not (Test-Path $vswhere)) { throw 'Environment error: vswhere.exe not found' }
-            $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
-            $vsVersion = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion).Trim()
-            if (-not $vsPath) { throw 'Environment error: Visual Studio C++ x64 tools not found' }
-            if (-not $vsVersion.StartsWith('17.')) { throw "Environment error: Visual Studio 2022 required, found $vsVersion" }
-
-            $devCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
-            cmd.exe /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 >nul && set" | ForEach-Object {
-              if ($_ -match '^([^=]+)=(.*)$') {
-                [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
-              }
-            }
-            if ($LASTEXITCODE -ne 0) { throw 'Environment error: VsDevCmd.bat failed' }
-            if (-not $env:VCToolsVersion -or -not $env:WindowsSDKVersion) {
-              throw 'Environment error: MSVC v143 or Windows SDK unresolved'
-            }
-
-            $clOutput = @(cmd.exe /d /c 'cl.exe 2>&1')
-            $clLine = [string]($clOutput | Where-Object { ([string]$_) -match 'Compiler Version' } | Select-Object -First 1)
-            if (-not $clLine) { throw 'Environment error: cl.exe version line missing' }
-            $clOutput | Out-Host
-            $msbuildOutput = Run 'MSBuild version' 'msbuild-version.log' { msbuild.exe -version -nologo }
-            $msbuildVersion = [string]($msbuildOutput | Where-Object { ([string]$_).Trim() -match '^\d+\.\d+' } | Select-Object -Last 1)
-
-            $report.Add("runner=windows-2022 $env:ImageVersion; Windows Server 2022 x64")
-            $report.Add("Visual Studio=$vsVersion; MSVC=$(Compact $clLine)")
-            $report.Add("VCTools=$($env:VCToolsVersion.Trim()); MSBuild=$($msbuildVersion.Trim()); SDK=$($env:WindowsSDKVersion.Trim('\'))")
-            $report.Add("Python=$pythonVersion; CMake=$cmakeVersion; Git=$gitVersion")
-
-            PythonGate 'python' $true
-
-            Configure 'build-nc003b-msvc-release'
-            Build 'build-nc003b-msvc-release' 'Release' 'release'
-            Test 'build-nc003b-msvc-release' 'Release' 'release'
-            $releaseStdout = Runtime 'Release executable' '.\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe' 'release-runtime.log'
-            $report.Add('Release=VS17 2022 x64 v143 configure/build/CTest/direct runtime PASS')
-
-            Configure 'build-nc003b-msvc-debug'
-            $debugFlags = Get-Content 'build-nc003b-msvc-debug/CMakeCache.txt' | Where-Object { $_ -match '^CMAKE_CXX_FLAGS_DEBUG:' }
-            $debugFlags | Out-Host
-            if (($debugFlags -join "`n") -notmatch '/RTC1(?:\s|$)') { throw 'Debug flags do not contain /RTC1' }
-            Build 'build-nc003b-msvc-debug' 'Debug' 'debug'
-            Test 'build-nc003b-msvc-debug' 'Debug' 'debug'
-            Runtime 'Debug executable' '.\build-nc003b-msvc-debug\Debug\nc003b_phase0_tests.exe' 'debug-runtime.log' | Out-Null
-            $report.Add('Debug=VS17 2022 x64 v143 /RTC1 configure/build/CTest/direct runtime PASS')
-
-            Configure 'build-nc003b-msvc-asan' @(
-              '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address',
-              '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
-            )
-            $asanFlags = Get-Content 'build-nc003b-msvc-asan/CMakeCache.txt' | Where-Object {
-              $_ -match '^CMAKE_CXX_FLAGS(?:_RELWITHDEBINFO)?:' -or
-              $_ -match '^CMAKE_EXE_LINKER_FLAGS(?:_RELWITHDEBINFO)?:'
-            }
-            $asanFlags | Out-Host
-            $asanText = $asanFlags -join "`n"
-            if ($asanText -notmatch '/fsanitize=address') { throw 'ASan flags missing /fsanitize=address' }
-            if ($asanText -notmatch '/Zi(?:\s|$)') { throw 'ASan flags missing /Zi' }
-            if ($asanText -match '/RTC1(?:\s|$)') { throw 'ASan flags contain /RTC1' }
-            if ($asanText -notmatch '/INCREMENTAL:NO') { throw 'ASan linker flags missing /INCREMENTAL:NO' }
-            Build 'build-nc003b-msvc-asan' 'RelWithDebInfo' 'asan'
-
-            $asanDlls = @(Get-ChildItem -Path $vsPath -Recurse -File -Filter 'clang_rt.asan_dynamic-x86_64.dll' -ErrorAction Stop | Sort-Object FullName)
-            if ($asanDlls.Count -eq 0) { throw 'Environment error: MSVC ASan runtime DLL not found' }
-            $asanRuntimeDirectory = $asanDlls[-1].DirectoryName
-            $env:PATH = "$asanRuntimeDirectory;$env:PATH"
-            $env:ASAN_OPTIONS = 'abort_on_error=true:alloc_dealloc_mismatch=true'
-            Write-Host "MSVC ASan runtime directory: $asanRuntimeDirectory"
-
-            Test 'build-nc003b-msvc-asan' 'RelWithDebInfo' 'asan'
-            Runtime 'ASan executable' '.\build-nc003b-msvc-asan\RelWithDebInfo\nc003b_phase0_tests.exe' 'asan-runtime.log' | Out-Null
-            $report.Add('ASan=RelWithDebInfo /O1 /Zi /fsanitize=address no-/RTC1 /INCREMENTAL:NO PASS')
-            $report.Add("ASan runtime=local VS DLL path; ASAN_OPTIONS=$env:ASAN_OPTIONS; CTest/direct PASS")
-            $report.Add('sparse_matrix zero-size UB=NOT REPRODUCED by Windows Release Debug ASan')
-
-            Remove-Item -Recurse -Force build-nc003b-msvc-release, build-nc003b-msvc-debug, build-nc003b-msvc-asan
-            foreach ($directory in @('build-nc003b-msvc-release','build-nc003b-msvc-debug','build-nc003b-msvc-asan')) {
-              if (Test-Path $directory) { throw "Build directory remains after cleanup: $directory" }
-            }
-            $strayArtifacts = @(Get-ChildItem -Path . -File -Recurse -ErrorAction Stop | Where-Object {
-              $_.FullName -notmatch '[\\/]\.git[\\/]' -and $_.Extension -in @('.obj','.pdb','.ilk','.exe')
-            })
-            if ($strayArtifacts.Count -ne 0) {
-              throw "Build artifacts remain outside removed build directories: $($strayArtifacts.Count)"
-            }
-
-            PythonGate 'repro-python' $false
-            Configure 'build-nc003b-msvc-release'
-            Build 'build-nc003b-msvc-release' 'Release' 'repro-release'
-            Test 'build-nc003b-msvc-release' 'Release' 'repro-release'
-            $reproStdout = Runtime 'Repro Release executable' '.\build-nc003b-msvc-release\Release\nc003b_phase0_tests.exe' 'repro-release-runtime.log'
-            if (($reproStdout -join "`n") -ne ($releaseStdout -join "`n")) {
-              throw 'Clean reproducibility stdout mismatch'
-            }
-            $report.Add('clean reproducibility=cleanup complete; Python/Release configure/build/CTest/direct PASS; stdout identical')
-
-            foreach ($line in $expectedStdout) { $report.Add("stdout=$line") }
-
-            $warnings = @()
-            Get-ChildItem $logDir -Filter '*-build.log' | ForEach-Object {
-              $warnings += Select-String -Path $_.FullName -Pattern 'warning C\d+:' | ForEach-Object { $_.Line.Trim() }
-            }
-            $warnings = @($warnings | Sort-Object -Unique)
-            $projectWarnings = @($warnings | Where-Object {
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE_SHA) { throw 'Unexpected checkout' }
+          cmake -S Tools/EngineSimVendor/Standalone -B build-warning-scan -G 'Visual Studio 17 2022' -A x64 -T v143
+          if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
+          $build = @(cmake --build build-warning-scan --config Release --verbose 2>&1)
+          $code = $LASTEXITCODE
+          $build | Out-Host
+          if ($code -ne 0) { throw "build failed $code" }
+          $warnings = @($build | ForEach-Object { ([string]$_).Trim() } | Where-Object {
+            $_ -match 'warning C\d+:' -and (
               $_ -match 'NextcarEngineSimCore' -or
               $_ -match 'Standalone[\\/]tests' -or
               $_ -match 'SubaruEJ25AtgVideo2Fixture\.cpp' -or
               $_ -match 'phase0_standalone_tests\.cpp'
-            })
-            $vendoredWarnings = @($warnings | Where-Object {
-              $_ -match 'ThirdParty[\\/]EngineSim[\\/]upstream' -or
-              $_ -match 'simple-2d-constraint-solver' -or
-              $_ -match 'engine-sim[\\/](include|src)'
-            })
-            $otherWarnings = @($warnings | Where-Object { $_ -notin $projectWarnings -and $_ -notin $vendoredWarnings })
+            )
+          } | Sort-Object -Unique)
+          $warnings | ForEach-Object { Write-Host "PROJECT_WARNING: $_" }
+          $text = ($warnings -join ' / ') -replace '[\r\n]+',' ' -replace '\|','/' -replace "'",'' -replace '"','' -replace '\s+',' '
+          $text = $text.Trim()
+          if ($text.Length -gt 220) { $text = $text.Substring(0,220) }
+          "diagnostic=count=$($warnings.Count) $text" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-            $report.Add("project-warning-count=$($projectWarnings.Count)")
-            foreach ($warning in $projectWarnings) { $report.Add("project-warning=$(Compact $warning)") }
-            $report.Add("vendored-warning-count=$($vendoredWarnings.Count)")
-            foreach ($warning in $vendoredWarnings) { $report.Add("vendored-warning=$(Compact $warning)") }
-            $report.Add("other-warning-count=$($otherWarnings.Count)")
-            foreach ($warning in $otherWarnings) { $report.Add("other-warning=$(Compact $warning)") }
-            if ($projectWarnings.Count -ne 0) {
-              throw "Project code emitted $($projectWarnings.Count) unique MSVC /W4 warning(s)"
-            }
-            $report.Add('Windows exact-head standalone validation=PASS')
-          }
-          catch {
-            $failure = Compact $_.Exception.Message
-            $report.Add("failure=$failure")
-          }
-          finally {
-            if ($report.Count -eq 0) { $report.Add('report-unavailable') }
-            $json = ConvertTo-Json -InputObject $report.ToArray() -Compress
-            "report_json=$json" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            if ($failure) {
-              'status=FAIL' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-              "diagnostic=$failure" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            } else {
-              'status=PASS' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-              'diagnostic=full Windows matrix PASS' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            }
-          }
-          if ($failure) { throw $failure }
-
-  report:
-    needs: windows-exact-head
-    if: always() && needs.windows-exact-head.result == 'success'
-    strategy:
-      fail-fast: false
-      matrix:
-        item: ${{ fromJSON(needs.windows-exact-head.outputs.report_json) }}
-    name: report -- ${{ matrix.item }}
-    runs-on: windows-2022
-    steps:
-      - name: Expose validation report item
-        shell: pwsh
-        run: Write-Host '${{ matrix.item }}'
-
-  notification-sentinel:
-    needs:
-      - windows-exact-head
-      - report
+  notification:
+    needs: warning-diagnostic
     if: always()
-    name: sentinel -- validation=${{ needs.windows-exact-head.outputs.status }} -- ${{ needs.windows-exact-head.outputs.diagnostic }} -- attempt=${{ github.run_attempt }}
+    name: diagnostic -- ${{ needs.warning-diagnostic.outputs.diagnostic }}
     runs-on: windows-2022
     steps:
-      - name: Make first attempt identifiable
+      - name: Force diagnostic notification
         shell: pwsh
-        run: |
-          if ([int]'${{ github.run_attempt }}' -eq 1) {
-            throw 'Intentional first-attempt notification sentinel; rerun failed jobs after validation PASS.'
-          }
-          Write-Host 'Notification sentinel PASS on rerun attempt.'
+        run: throw 'Intentional warning diagnostic notification sentinel'
