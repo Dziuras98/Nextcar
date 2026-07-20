@@ -13,8 +13,8 @@ No cross-repository fetch is required or permitted for this reconstruction.
 
 ## Translation-unit classification
 
-- Exact upstream translation units: **21**
-- Patched upstream translation units: **12**
+- Exact upstream translation units: **20**
+- Patched upstream translation units: **13**
 - Total translation units: **33**
 
 Exact-upstream destinations remain byte-identical to their SourceInputs counterparts. `SOURCE_MANIFEST.json` retains source/final paths and SHA-256 values.
@@ -26,6 +26,7 @@ Exact-upstream destinations remain byte-identical to their SourceInputs counterp
 - `src/connecting_rod.cpp`: portable include spelling and owned journal cleanup.
 - `src/cylinder_head.cpp`: accepted lower-case parameter names.
 - `src/engine.cpp`: Engine-only headless simulator creation and ownership.
+- `src/gaussian_filter.cpp`: explicit standard-algorithm include required by MSVC v143 for `std::max`.
 - `src/ignition_module.cpp`: explicit assertion include.
 - `src/impulse_response.cpp`: in-memory PCM contract; no runtime WAV loading.
 - `src/jitter_filter.cpp`: explicit C string support and owned buffer cleanup.
