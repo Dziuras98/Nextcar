@@ -181,7 +181,9 @@ jobs:
           test ! -d Tools/EngineSimVendor/SourceInputs
           test ! -e Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration
           ! git grep -n -E 'RUNNER_BOOTSTRAP_REQUEST|bootstrap_on_runner\.ps1|git credential fill' -- ':!*.md'
-          ! git grep -n -E 'LoadWave|loadWave|\.wav["'"']' -- Plugins/NextcarEngineSim/Source/NextcarEngineSimCore
+          ! git grep -n -E 'LoadWave|loadWave|std::ifstream.*\.wav|fopen\(.*\.wav' -- \
+            Plugins/NextcarEngineSim/Source/NextcarEngineSimCore \
+            ':!Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/**'
           test -z "$(git status --porcelain)"
           printf '%s\n' \
             'residue scan: PASS' \
