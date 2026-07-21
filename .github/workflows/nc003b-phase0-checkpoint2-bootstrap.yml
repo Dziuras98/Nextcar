@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - manager/nc-003b-phase0-final-closure-bootstrap
+  pull_request:
+    branches:
+      - manager/nc-003b-phase0-final-closure-bootstrap
 
 permissions:
   contents: write
