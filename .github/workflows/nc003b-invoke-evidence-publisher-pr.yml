@@ -1,4 +1,4 @@
-name: NC-003B publish exact final closure evidence from PR 39
+name: NC-003B prepare exact-head workflow metadata fix
 
 on:
   pull_request:
@@ -11,137 +11,103 @@ permissions:
   contents: write
   actions: read
 
-env:
-  CANDIDATE_SHA: 7cc91bf136554ca6a40bbbeb90a557ec4bef078c
-  CANDIDATE_TREE: b616b2ae12a51b4df83ba05858ce96cbbdce75e6
-  TARGET_SHA: 9bb6464123228f1d9638d467e7160a7cb2aa98c8
-
 jobs:
-  publish-evidence:
+  metadata-fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact Checkpoint 2
+      - name: Checkout validation branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: 7cc91bf136554ca6a40bbbeb90a557ec4bef078c
-          fetch-depth: 4
+          ref: manager/nc-003b-phase0-final-closure-validation
+          fetch-depth: 2
           persist-credentials: true
+          path: validation
           show-progress: false
 
-      - name: Verify immutable publication inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-          test "$(git rev-parse 'HEAD^{tree}')" = "$CANDIDATE_TREE"
-          test "$(git rev-parse HEAD~2)" = "$TARGET_SHA"
-          test "$(git ls-remote origin refs/heads/manager/nc-003b-phase0-final-closure-candidate | cut -f1)" = "$CANDIDATE_SHA"
-          read -r behind ahead < <(git rev-list --left-right --count "$TARGET_SHA...$CANDIDATE_SHA")
-          test "$behind" = 0
-          test "$ahead" = 2
-          test -z "$(git status --porcelain)"
+      - name: Checkout accepted workflow-fix
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: a25c6af112e667c47ee77aaba33c5cd9d992ea6a
+          fetch-depth: 1
+          persist-credentials: false
+          path: accepted
+          show-progress: false
 
-      - name: Reconstruct five evidence files from durable accepted sources
+      - name: Restore accepted workflow and fix only final artifact metadata
         shell: python
-        env:
-          STATUS_B64: UGhhc2UgMCBXSVAg4oCUIGZpbmFsIGNsb3N1cmUgY2FuZGlkYXRlIFdpbmRvd3MtdmFsaWRhdGVkIGFuZCBldmlkZW5jZSByZWNvcmRlZDsKZXhhY3QgZXZpZGVuY2UtaGVhZCBwdWJsaWNhdGlvbiBnYXRlIHJlcXVpcmVkIGJlZm9yZSBtYW5hZ2VyIHN1Ym1pc3Npb24uCgpQaGFzZSAxIG5vdCBzdGFydGVkLg==
-          EVIDENCE_B64: eyJ2YWxpZGF0aW9uX3N0YWdlIjoiY2xvc3VyZS1jYW5kaWRhdGUiLCJzdGF0dXMiOiJQaGFzZSAwIFdJUCDigJQgZmluYWwgY2xvc3VyZSBjYW5kaWRhdGUgV2luZG93cy12YWxpZGF0ZWQgYW5kIGV2aWRlbmNlIHJlY29yZGVkO1xuZXhhY3QgZXZpZGVuY2UtaGVhZCBwdWJsaWNhdGlvbiBnYXRlIHJlcXVpcmVkIGJlZm9yZSBtYW5hZ2VyIHN1Ym1pc3Npb24uXG5cblBoYXNlIDEgbm90IHN0YXJ0ZWQuIiwidmFsaWRhdGVkX2NoZWNrcG9pbnRfMl9zaGEiOiI3Y2M5MWJmMTM2NTU0Y2E2YTQwYmJiZWI5MGE1NTdlYzRiZWYwNzhjIiwidmFsaWRhdGVkX2NoZWNrcG9pbnRfMl90cmVlIjoiYjYxNmIyYWUxMmE1MWI0ZGY4M2JhMDU4NThjZTk2Y2JiZGNlNzVlNiIsInZhbGlkYXRlZF90YXJnZXRfc2hhIjoiOWJiNjQ2NDEyMzIyOGYxZDk2MzhkNDY3ZTcxNjBhN2NiMmFhOThjOCIsImNhbmRpZGF0ZV9haGVhZCI6MiwiY2FuZGlkYXRlX2JlaGluZCI6MCwid29ya2Zsb3dfZml4X3NoYSI6ImEyNWM2YWYxMTJlNjY3YzQ3ZWU3N2FhYmEzM2M1Y2Q5ZDk5MmVhNmEiLCJjbG9zdXJlX2NhbmRpZGF0ZV9ydW5faWQiOjI5ODYxMDg4NjU0LCJjbG9zdXJlX2NhbmRpZGF0ZV9ydW5fYXR0ZW1wdCI6MSwiY2xvc3VyZV9jYW5kaWRhdGVfYXJ0aWZhY3RfaWQiOjg1MDc0MTA0NTIsImNsb3N1cmVfY2FuZGlkYXRlX2FydGlmYWN0X25hbWUiOiJOQy0wMDNCLVBoYXNlMC1maW5hbC1jbG9zdXJlLTdjYzkxYmYxMzY1NTRjYTZhNDBiYmJlYjkwYTU1N2VjNGJlZjA3OGMiLCJjbG9zdXJlX2NhbmRpZGF0ZV9naXRodWJfZGlnZXN0Ijoic2hhMjU2OjA3MjIyOGI0MjdhZmE2M2YxOTFjNTQ3ZmJiMWE3YWE4YWQxYjc1NGZlMmMxYjMxY2VhZjg4MTE1OTI2NGY5ODkiLCJjbG9zdXJlX2NhbmRpZGF0ZV9pbmRlcGVuZGVudF96aXBfc2hhMjU2IjoiMDcyMjI4YjQyN2FmYTYzZjE5MWM1NDdmYmIxYTdhYThhZDFiNzU0ZmUyYzFiMzFjZWFmODgxMTU5MjY0Zjk4OSIsImFydGlmYWN0X2ZpbGVfY291bnQiOjY0LCJoYXNoX21hbmlmZXN0X2VudHJ5X2NvdW50Ijo2MywiaGFzaF9tYW5pZmVzdF9yZXN1bHQiOiI2My82MyBQQVNTIiwicnVubmVyIjoiR2l0SHViLWhvc3RlZCB3aW5kb3dzLTIwMjIiLCJydW5uZXJfaW1hZ2UiOiJ3aW5kb3dzLTIwMjIvMjAyNjA3MTQuMjQ0LjEiLCJydW5uZXJfdmVyc2lvbiI6IjIuMzM2LjAiLCJvcGVyYXRpbmdfc3lzdGVtIjoiV2luZG93cyBTZXJ2ZXIgMjAyMiB4NjQiLCJ2aXN1YWxfc3R1ZGlvX3ZlcnNpb24iOiIxNy4xNC4zNzQxMS43IiwibXN2Y192ZXJzaW9uIjoiTWljcm9zb2Z0IChSKSBDL0MrKyBPcHRpbWl6aW5nIENvbXBpbGVyIFZlcnNpb24gMTkuNDQuMzUyMjggZm9yIHg2NCIsInZjX3Rvb2xzX3ZlcnNpb24iOiIxNC40NC4zNTIwNyIsIndpbmRvd3Nfc2RrX3ZlcnNpb24iOiIxMC4wLjI2MTAwLjAiLCJjbWFrZV92ZXJzaW9uIjoiY21ha2UgdmVyc2lvbiAzLjMxLjYiLCJweXRob25fdmVyc2lvbiI6IlB5dGhvbiAzLjEyLjEwIiwiZ2l0X3ZlcnNpb24iOiJnaXQgdmVyc2lvbiAyLjU1LjAud2luZG93cy4yIiwiYXV0b2NybGZfcHJvb2YiOiJQQVNTIiwiYm91bmRhcnlfcHJvb2YiOiJQQVNTIiwic291cmNlaW5wdXRzX2Fic2VuY2UiOiJQQVNTIiwic291cmNlaW5wdXRzX2RpcmVjdG9yeV9hYnNlbnQiOnRydWUsInRyYWNrZWRfc291cmNlaW5wdXRzX2NvdW50IjowLCJuZXR3b3JrX3NjYW4iOiJQQVNTIiwibmV0d29ya19zY2FuX2hpdF9jb3VudCI6MCwicnVudGltZV93YXZfc2NhbiI6IlBBU1MiLCJydW50aW1lX3dhdl9zY2FuX2hpdF9jb3VudCI6MCwicmVwb3NpdG9yeV92YWxpZGF0aW9uIjoiUEFTUyIsImdpdF9kaWZmX2NoZWNrIjoiUEFTUyIsInNuYXBzaG90X3ZlcmlmaWVyIjoiUEFTUyIsInNuYXBzaG90X3Rlc3RzIjoiNy83IFBBU1MiLCJmaXh0dXJlX211dGF0aW9uX3Rlc3RzIjoiMjQvMjQgUEFTUyIsImZpeHR1cmVfcGFyaXR5IjoiMTE4LzExOCBQQVNTIiwiaXJfbXV0YXRpb25fdGVzdHMiOiIxMS8xMSBQQVNTIiwiaXJfdmVyaWZpZXIiOiJQQVNTIiwiaXJfZ2VuZXJhdG9yX2RldGVybWluaXNtIjoiUEFTUyIsImNvbGRfc3RhcnRfbXV0YXRpb25fdGVzdHMiOiIxNS8xNSBQQVNTIiwiY29sZF9zdGFydF92ZXJpZmllciI6IlBBU1MiLCJjb2xkX3N0YXJ0X2dlbmVyYXRvcl9kZXRlcm1pbmlzbSI6IlBBU1MiLCJwcm9maWxlX2hlYWRlcl9jb25zaXN0ZW5jeSI6IlBBU1MiLCJtc3ZjX3g2NF9yZWxlYXNlIjoiUEFTUyIsIm1zdmNfeDY0X2RlYnVnX3J0YzEiOiJQQVNTIiwibXN2Y194NjRfYWRkcmVzc19zYW5pdGl6ZXIiOiJQQVNTIiwiY3Rlc3QiOiJQQVNTIiwiZGlyZWN0X3J1bnRpbWUiOiJQQVNTIiwic2VsZWN0ZWRfdHJpYWxzIjoiMTAvMTAgUEFTUyIsInRpbWVvdXQiOiJQQVNTIiwic3RhbGwiOiJQQVNTIiwicHJvamVjdF93YXJuaW5nX2NvdW50IjowLCJjbGVhbl9yZXByb2R1Y2liaWxpdHkiOiJQQVNTIiwicG9zdF9tYXRyaXhfY2xlYW51cCI6IlBBU1MiLCJnaXRfc3RhdHVzX2NsZWFuX2FmdGVyX21hdHJpeCI6IlBBU1MiLCJ0ZW1wb3Jhcnlfd29ya2Zsb3dfYWJzZW50X2Zyb21fY2FuZGlkYXRlX3RyZWUiOiJQQVNTIiwiZXhhY3RfZXZpZGVuY2VfaGVhZF92YWxpZGF0aW9uIjoicmVxdWlyZWQiLCJ0YXJnZXRfcHVibGljYXRpb25fcnVsZSI6IlRhcmdldCBwdWJsaWNhdGlvbiByZXF1aXJlcyBhIHNlcGFyYXRlIGZ1bGwgV2luZG93cyBleGFjdC1oZWFkIHJ1biBhZ2FpbnN0IHRoaXMgZXZpZGVuY2UgY29tbWl0LiIsImFydGlmYWN0X2lkZW50aXR5X3J1bGUiOiJUaGUgY2xvc3VyZSBhcnRpZmFjdCBpZGVudGl0eSBpcyBkZWZpbmVkIGJ5IEdpdEh1YiBhcnRpZmFjdCBtZXRhZGF0YTogSUQgODUwNzQxMDQ1MiwgbmFtZSBOQy0wMDNCLVBoYXNlMC1maW5hbC1jbG9zdXJlLTdjYzkxYmYxMzY1NTRjYTZhNDBiYmJlYjkwYTU1N2VjNGJlZjA3OGMsIGFuZCBaSVAgU0hBLTI1NiAwNzIyMjhiNDI3YWZhNjNmMTkxYzU0N2ZiYjFhN2FhOGFkMWI3NTRmZTJjMWIzMWNlYWY4ODExNTkyNjRmOTg5LiIsImluaGVyaXRlZF90b29sY2hhaW5fYXJ0aWZhY3RfbmFtZV9ub3RlIjoiVGhlIGFydGlmYWN0J3MgaW5oZXJpdGVkIHRvb2xjaGFpbi12ZXJzaW9ucy5qc29uIGFydGlmYWN0X25hbWUgZmllbGQgdXNlcyBhIGNvbGQtc3RhcnQgdmFsaWRhdG9yIGxhYmVsIGFuZCBpcyBub24tYXV0aG9yaXRhdGl2ZS4ifQ==
-          SECTION_B64: IyMgRmluYWwgUGhhc2UgMCBjbG9zdXJlIHZhbGlkYXRpb24gZXZpZGVuY2UKClN0YXR1cyBhdCB0aGlzIGNvbW1pdDoKCmBgYHRleHQKUGhhc2UgMCBXSVAg4oCUIGZpbmFsIGNsb3N1cmUgY2FuZGlkYXRlIFdpbmRvd3MtdmFsaWRhdGVkIGFuZCBldmlkZW5jZSByZWNvcmRlZDsKZXhhY3QgZXZpZGVuY2UtaGVhZCBwdWJsaWNhdGlvbiBnYXRlIHJlcXVpcmVkIGJlZm9yZSBtYW5hZ2VyIHN1Ym1pc3Npb24uCgpQaGFzZSAxIG5vdCBzdGFydGVkLgpgYGAKClRhcmdldCBwdWJsaWNhdGlvbiByZXF1aXJlcyBhIHNlcGFyYXRlIGZ1bGwgV2luZG93cyBleGFjdC1oZWFkIHJ1biBhZ2FpbnN0IHRoaXMgZXZpZGVuY2UgY29tbWl0LgoKVmFsaWRhdGVkIENoZWNrcG9pbnQgMiBhbmQgcHVibGljYXRpb24gYm91bmRhcnk6CgpgYGB0ZXh0CmNoZWNrcG9pbnQgU0hBOiA3Y2M5MWJmMTM2NTU0Y2E2YTQwYmJiZWI5MGE1NTdlYzRiZWYwNzhjCmNoZWNrcG9pbnQgdHJlZTogYjYxNmIyYWUxMmE1MWI0ZGY4M2JhMDU4NThjZTk2Y2JiZGNlNzVlNgp0YXJnZXQgU0hBOiA5YmI2NDY0MTIzMjI4ZjFkOTYzOGQ0NjdlNzE2MGE3Y2IyYWE5OGM4CmFoZWFkOiAyCmJlaGluZDogMAp3b3JrZmxvdy1maXggU0hBOiBhMjVjNmFmMTEyZTY2N2M0N2VlNzdhYWJhMzNjNWNkOWQ5OTJlYTZhCmBgYAoKQ2xvc3VyZS1jYW5kaWRhdGUgV2luZG93cyBydW4gYW5kIGFydGlmYWN0OgoKYGBgdGV4dApydW4gSUQ6IDI5ODYxMDg4NjU0CmF0dGVtcHQ6IDEKYXJ0aWZhY3QgSUQ6IDg1MDc0MTA0NTIKYXJ0aWZhY3QgbmFtZTogTkMtMDAzQi1QaGFzZTAtZmluYWwtY2xvc3VyZS03Y2M5MWJmMTM2NTU0Y2E2YTQwYmJiZWI5MGE1NTdlYzRiZWYwNzhjCkdpdEh1YiBkaWdlc3Q6IHNoYTI1NjowNzIyMjhiNDI3YWZhNjNmMTkxYzU0N2ZiYjFhN2FhOGFkMWI3NTRmZTJjMWIzMWNlYWY4ODExNTkyNjRmOTg5CmluZGVwZW5kZW50IFpJUCBTSEEtMjU2OiAwNzIyMjhiNDI3YWZhNjNmMTkxYzU0N2ZiYjFhN2FhOGFkMWI3NTRmZTJjMWIzMWNlYWY4ODExNTkyNjRmOTg5CmZpbGUgY291bnQ6IDY0Cmhhc2gtbWFuaWZlc3QgZW50cmllczogNjMKaGFzaC1tYW5pZmVzdDogNjMvNjMgUEFTUwpgYGAKClRoZSBjbG9zdXJlIGFydGlmYWN0IGlkZW50aXR5IGlzIGRlZmluZWQgYnkgR2l0SHViIGFydGlmYWN0IG1ldGFkYXRhOiBJRCA4NTA3NDEwNDUyLCBuYW1lIGBOQy0wMDNCLVBoYXNlMC1maW5hbC1jbG9zdXJlLTdjYzkxYmYxMzY1NTRjYTZhNDBiYmJlYjkwYTU1N2VjNGJlZjA3OGNgLCBhbmQgWklQIFNIQS0yNTYgYDA3MjIyOGI0MjdhZmE2M2YxOTFjNTQ3ZmJiMWE3YWE4YWQxYjc1NGZlMmMxYjMxY2VhZjg4MTE1OTI2NGY5ODlgLgoKVGhlIGFydGlmYWN0J3MgaW5oZXJpdGVkIGB0b29sY2hhaW4tdmVyc2lvbnMuanNvbmAgYGFydGlmYWN0X25hbWVgIGZpZWxkIHVzZXMgYSBjb2xkLXN0YXJ0IHZhbGlkYXRvciBsYWJlbCBhbmQgaXMgbm9uLWF1dGhvcml0YXRpdmUuCgpSdW5uZXIgYW5kIGZ1bGwgdG9vbGNoYWluOgoKYGBgdGV4dApydW5uZXI6IEdpdEh1Yi1ob3N0ZWQgd2luZG93cy0yMDIyCnJ1bm5lciBpbWFnZTogd2luZG93cy0yMDIyLzIwMjYwNzE0LjI0NC4xCnJ1bm5lciB2ZXJzaW9uOiAyLjMzNi4wCm9wZXJhdGluZyBzeXN0ZW06IFdpbmRvd3MgU2VydmVyIDIwMjIgeDY0ClZpc3VhbCBTdHVkaW86IDE3LjE0LjM3NDExLjcKTVNWQzogTWljcm9zb2Z0IChSKSBDL0MrKyBPcHRpbWl6aW5nIENvbXBpbGVyIFZlcnNpb24gMTkuNDQuMzUyMjggZm9yIHg2NApWQyB0b29sczogMTQuNDQuMzUyMDcKV2luZG93cyBTREs6IDEwLjAuMjYxMDAuMApDTWFrZTogY21ha2UgdmVyc2lvbiAzLjMxLjYKUHl0aG9uOiBQeXRob24gMy4xMi4xMApHaXQ6IGdpdCB2ZXJzaW9uIDIuNTUuMC53aW5kb3dzLjIKYGBgCgpCb3VuZGFyeSBhbmQgZGVwZW5kZW5jeSBwcm9vZnM6CgpgYGB0ZXh0CmF1dG9jcmxmLXByb29mOiBQQVNTCmJvdW5kYXJ5LXByb29mOiBQQVNTClNvdXJjZUlucHV0cyBhYnNlbmNlOiBQQVNTClNvdXJjZUlucHV0cyBkaXJlY3RvcnkgYWJzZW50OiBQQVNTCnRyYWNrZWQgU291cmNlSW5wdXRzIGNvdW50OiAwCm5ldHdvcmsgc2NhbjogUEFTUwpuZXR3b3JrIHNjYW4gaGl0IGNvdW50OiAwCnJ1bnRpbWUgV0FWIHNjYW46IFBBU1MKcnVudGltZSBXQVYgc2NhbiBoaXQgY291bnQ6IDAKcG9zdC1tYXRyaXggY2xlYW51cDogUEFTUwpnaXQgc3RhdHVzIGNsZWFuIGFmdGVyIG1hdHJpeDogUEFTUwp0ZW1wb3Jhcnkgd29ya2Zsb3cgYWJzZW50IGZyb20gY2FuZGlkYXRlIHRyZWU6IFBBU1MKYGBgCgpWYWxpZGF0aW9uIG1hdHJpeDoKCmBgYHRleHQKcmVwb3NpdG9yeSB2YWxpZGF0aW9uOiBQQVNTCmdpdCBkaWZmIC0tY2hlY2s6IFBBU1MKc25hcHNob3QgdmVyaWZpZXI6IFBBU1MKc25hcHNob3QgdGVzdHM6IDcvNyBQQVNTCmZpeHR1cmUgbXV0YXRpb24gdGVzdHM6IDI0LzI0IFBBU1MKZml4dHVyZSBwYXJpdHk6IDExOC8xMTggUEFTUwpJUiBtdXRhdGlvbiB0ZXN0czogMTEvMTEgUEFTUwpJUiB2ZXJpZmllcjogUEFTUwpJUiBnZW5lcmF0b3IgZGV0ZXJtaW5pc206IFBBU1MKY29sZC1zdGFydCBtdXRhdGlvbiB0ZXN0czogMTUvMTUgUEFTUwpjb2xkLXN0YXJ0IHZlcmlmaWVyOiBQQVNTCmNvbGQtc3RhcnQgZ2VuZXJhdG9yIGRldGVybWluaXNtOiBQQVNTCnByb2ZpbGUvaGVhZGVyIGNvbnNpc3RlbmN5OiBQQVNTCk1TVkMgeDY0IFJlbGVhc2U6IFBBU1MKTVNWQyB4NjQgRGVidWcgL1JUQzE6IFBBU1MKTVNWQyB4NjQgQWRkcmVzc1Nhbml0aXplcjogUEFTUwpDVGVzdDogUEFTUwpkaXJlY3QgcnVudGltZTogUEFTUwpzZWxlY3RlZCB0cmlhbHM6IDEwLzEwIFBBU1MKdGltZW91dDogUEFTUwpzdGFsbDogUEFTUwpwcm9qZWN0IHdhcm5pbmcgY291bnQ6IDAKY2xlYW4gcmVwcm9kdWNpYmlsaXR5OiBQQVNTCnBvc3QtbWF0cml4IGNsZWFudXA6IFBBU1MKYGBgCg==
         run: |
-          import base64
-          import json
-          import os
           from pathlib import Path
 
-          status = base64.b64decode(os.environ['STATUS_B64']).decode('utf-8')
-          evidence = json.loads(base64.b64decode(os.environ['EVIDENCE_B64']).decode('utf-8'))
-          section = base64.b64decode(os.environ['SECTION_B64']).decode('utf-8')
+          relative = Path('.github/workflows/nc003b-phase0-final-closure-windows.yml')
+          accepted = (Path('accepted') / relative).read_text(encoding='utf-8')
+          target = Path('validation') / relative
+          needle = "          shutil.copyfile(metadata, root / 'toolchain-versions.json')"
+          assert accepted.count(needle) == 1
 
-          manifest_path = Path('Tools/EngineSimVendor/SOURCE_MANIFEST.json')
-          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-          assert manifest['schema_version'] == 1
-          assert len(manifest['files']) == 58
-          manifest['status'] = status
-          manifest['phase0_final_closure_validation'] = evidence
-          manifest_path.write_text(
-              json.dumps(manifest, ensure_ascii=False, separators=(',', ':')) + '\n',
-              encoding='utf-8',
-          )
+          candidate_expr = '$' + '{{ inputs.candidate_sha }}'
+          run_expr = '$' + '{{ github.run_id }}'
+          artifact_expr = '$' + '{{ inputs.artifact_name }}'
+          replacement = "\n".join([
+              "          toolchain_path = root / 'toolchain-versions.json'",
+              "          shutil.copyfile(metadata, toolchain_path)",
+              "          toolchain = json.loads(toolchain_path.read_text(encoding='utf-8-sig'))",
+              "          toolchain.update({",
+              f"              'candidate_source_sha': '{candidate_expr}',",
+              f"              'run_id': int('{run_expr}'),",
+              f"              'artifact_name': '{artifact_expr}',",
+              "              'artifact_id': 'assigned-after-upload',",
+              "          })",
+              "          toolchain_path.write_text(json.dumps(toolchain, indent=2, sort_keys=True) + '\\n', encoding='utf-8')",
+              "          assert toolchain['candidate_source_sha'] == '${{ inputs.candidate_sha }}'",
+              "          assert toolchain['run_id'] == int('${{ github.run_id }}')",
+              "          assert toolchain['artifact_name'] == '${{ inputs.artifact_name }}'",
+              "          assert toolchain['artifact_id'] == 'assigned-after-upload'",
+          ])
+          fixed = accepted.replace(needle, replacement)
+          assert fixed != accepted
+          assert fixed.replace(replacement, needle) == accepted
+          target.write_text(fixed, encoding='utf-8')
 
-          for relative in (
-              'Tools/EngineSimVendor/PATCHES.md',
-              'Tools/EngineSimVendor/UPDATE.md',
-              'Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md',
-              'Tools/EngineSimVendor/COLD_START_CALIBRATION.md',
-          ):
-              path = Path(relative)
-              original = path.read_text(encoding='utf-8')
-              assert '## Final Phase 0 closure validation evidence' not in original
-              path.write_text(original.rstrip() + '\n\n' + section, encoding='utf-8')
-
-      - name: Verify exact evidence bytes and scope
+      - name: Verify workflow-only exact patch
         shell: bash
+        working-directory: validation
         run: |
           set -euo pipefail
-          expected=$(printf '%s\n' \
-            Tools/EngineSimVendor/COLD_START_CALIBRATION.md \
-            Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md \
-            Tools/EngineSimVendor/PATCHES.md \
-            Tools/EngineSimVendor/SOURCE_MANIFEST.json \
-            Tools/EngineSimVendor/UPDATE.md)
-          actual=$(git diff --name-only | sort)
-          test "$actual" = "$expected"
+          test "$(git diff --name-only)" = '.github/workflows/nc003b-phase0-final-closure-windows.yml'
           git diff --check
-          test "$(git hash-object Tools/EngineSimVendor/SOURCE_MANIFEST.json)" = 605c874e38b5c9832086160bd563fc7d5187a2f5
-          test "$(git hash-object Tools/EngineSimVendor/PATCHES.md)" = 46239953aa3bc1ca48949109c7667b157533f216
-          test "$(git hash-object Tools/EngineSimVendor/UPDATE.md)" = 2102062035b3ed8aca7a46536335a3cc3f745cc4
-          test "$(git hash-object Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md)" = 3431749ce267d6053350871f61d9a85d7dffa7e5
-          test "$(git hash-object Tools/EngineSimVendor/COLD_START_CALIBRATION.md)" = d0e94fa2694c11a6827f571fd48a96446ca49b8c
-          python -B - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path('Tools/EngineSimVendor/SOURCE_MANIFEST.json').read_text(encoding='utf-8'))
-          evidence = manifest['phase0_final_closure_validation']
-          assert len(manifest['files']) == 58
-          assert evidence['validated_checkpoint_2_sha'] == '7cc91bf136554ca6a40bbbeb90a557ec4bef078c'
-          assert evidence['validated_checkpoint_2_tree'] == 'b616b2ae12a51b4df83ba05858ce96cbbdce75e6'
-          assert evidence['closure_candidate_run_id'] == 29861088654
-          assert evidence['closure_candidate_artifact_id'] == 8507410452
-          assert evidence['hash_manifest_result'] == '63/63 PASS'
-          assert evidence['sourceinputs_absence'] == 'PASS'
-          assert evidence['network_scan'] == 'PASS'
-          assert evidence['runtime_wav_scan'] == 'PASS'
-          assert evidence['post_matrix_cleanup'] == 'PASS'
-          assert evidence['project_warning_count'] == 0
-          assert evidence['exact_evidence_head_validation'] == 'required'
-          PY
+          test "$(grep -c '^  autocrlf-proof:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
+          test "$(grep -c '^  boundary-proof:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
+          test "$(grep -c '^  windows-matrix:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
+          grep -F "'candidate_source_sha': '${{ inputs.candidate_sha }}'" .github/workflows/nc003b-phase0-final-closure-windows.yml
+          grep -F "'run_id': int('${{ github.run_id }}')" .github/workflows/nc003b-phase0-final-closure-windows.yml
+          grep -F "'artifact_name': '${{ inputs.artifact_name }}'" .github/workflows/nc003b-phase0-final-closure-windows.yml
+          grep -F "'artifact_id': 'assigned-after-upload'" .github/workflows/nc003b-phase0-final-closure-windows.yml
+          ! grep -F "NC-003B-cold-start-selected-profile-${{ inputs.candidate_sha }}" .github/workflows/nc003b-phase0-final-closure-windows.yml
 
-      - name: Commit and fast-forward publish evidence
+      - name: Commit and fast-forward publish workflow metadata fix
         shell: bash
+        working-directory: validation
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          parent=$(git rev-parse HEAD)
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- \
-            Tools/EngineSimVendor/SOURCE_MANIFEST.json \
-            Tools/EngineSimVendor/PATCHES.md \
-            Tools/EngineSimVendor/UPDATE.md \
-            Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md \
-            Tools/EngineSimVendor/COLD_START_CALIBRATION.md
-          git commit -m 'WIP Phase 0 reconstruction: record final Phase 0 closure validation'
-          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
-          test "$(git diff-tree --no-commit-id --name-only -r HEAD | sort)" = "$(printf '%s\n' Tools/EngineSimVendor/COLD_START_CALIBRATION.md Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md Tools/EngineSimVendor/PATCHES.md Tools/EngineSimVendor/SOURCE_MANIFEST.json Tools/EngineSimVendor/UPDATE.md)"
-          git push origin HEAD:refs/heads/manager/nc-003b-phase0-final-closure-candidate
-          echo "evidence_sha=$(git rev-parse HEAD)" | tee "$RUNNER_TEMP/evidence-head.txt"
-          echo "evidence_tree=$(git rev-parse 'HEAD^{tree}')" | tee -a "$RUNNER_TEMP/evidence-head.txt"
-          echo "evidence_parent=$(git rev-parse HEAD^)" | tee -a "$RUNNER_TEMP/evidence-head.txt"
-          echo "force=false" | tee -a "$RUNNER_TEMP/evidence-head.txt"
+          git add -- .github/workflows/nc003b-phase0-final-closure-windows.yml
+          git commit -m 'fix final closure exact-head artifact metadata'
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/nc003b-phase0-final-closure-windows.yml'
+          git push origin HEAD:refs/heads/manager/nc-003b-phase0-final-closure-validation
+          {
+            echo "workflow_metadata_fix_sha=$(git rev-parse HEAD)"
+            echo "workflow_metadata_fix_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "workflow_metadata_fix_parent=$parent"
+            echo 'changed_paths=.github/workflows/nc003b-phase0-final-closure-windows.yml'
+            echo 'force=false'
+          } | tee "$RUNNER_TEMP/workflow-metadata-fix.txt"
 
-      - name: Upload evidence head identity
+      - name: Upload workflow metadata-fix identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: nc003b-evidence-head
-          path: ${{ runner.temp }}/evidence-head.txt
+          name: nc003b-workflow-metadata-fix
+          path: ${{ runner.temp }}/workflow-metadata-fix.txt
           if-no-files-found: error
           retention-days: 2
