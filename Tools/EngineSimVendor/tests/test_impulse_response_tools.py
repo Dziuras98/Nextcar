@@ -139,7 +139,7 @@ class ImpulseResponseToolTests(unittest.TestCase):
                     "introduction_commit": INTRODUCTION_COMMIT,
                     "upstream_path": UPSTREAM_PATH,
                     "git_blob_sha": git_blob_sha(wav_data),
-                    "source_input_path": "Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim/" + UPSTREAM_PATH,
+                    "source_input_path": "Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/" + UPSTREAM_PATH,
                     "vendored_path": "Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/" + UPSTREAM_PATH,
                     "wav_sha256": sha256(wav_data),
                     "format": "PCM signed 16-bit little-endian mono",

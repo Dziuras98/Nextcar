@@ -1,6 +1,6 @@
 # Subaru EJ25 cold-start calibration
 
-> Status: Phase 0 WIP — cold-start calibration published, manager review pending, not submitted for manager approval. Phase 1 not started.
+> Status: Phase 0 WIP — cold-start calibration manager-accepted and unchanged; final closure Windows exact-head validation pending. Phase 1 not started.
 
 ## Validated source
 
@@ -97,3 +97,12 @@
 - Project warning count: `0`
 
 The fixture transcription, mechanical values, engine-sim pin, solver pin, exact WAV, and generated impulse response were not changed.
+
+## Publication validation and closure linkage
+
+- Publication validation run: `29818165243`
+- Publication validation artifact: `8490296560`
+- Correct publication artifact SHA-256: `28a63d12a3b7565957c57cb758aa35ca0bdfac914c127525c30bb72816a90ec5`
+- Selected-profile artifact SHA-256 remains `f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b`.
+
+The minimal fixture-source snapshot and removal of temporary SourceInputs do not change the accepted profile ID, throttle, disengagement threshold, post-starter minimum, stability window, maximum simulation time, trace hashes, profile JSON semantics or generated-header values. Final Phase 0 closure validation must run on Windows against the published closure candidate before manager submission.

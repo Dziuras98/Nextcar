@@ -1,6 +1,6 @@
 # Subaru EJ25 fixture-transcription parity
 
-> Status: Phase 0 WIP — fixture parity Windows exact-head validated and cold-start calibration published. Manager review pending; not submitted for manager approval. Phase 1 not started.
+> Status: Phase 0 WIP — fixture parity and cold-start calibration remain accepted; minimal source snapshot migration complete, final closure Windows exact-head validation pending. Phase 1 not started.
 
 ## Pinned source
 
@@ -11,7 +11,7 @@
 - Source script Git blob: `586ad92f1f27d097d5c422e2484915acc7c6a5d2`
 - Source script SHA-256: `04eba9d5e0f8fa2d1b2d6bfc89ee09cd1a414ecbd81d2b39f6cfd6c04fcdcb5a`
 
-The source authority remains the preserved local `Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim` tree. No cross-repository fetch is required for verification.
+The active source evidence is the exact-byte four-file snapshot at `Tools/EngineSimVendor/FixtureSourceSnapshot/engine-sim`, indexed by `Tools/EngineSimVendor/FixtureSourceSnapshot/SNAPSHOT.json`. Normal verification requires no SourceInputs tree, network access, sibling checkout or submodule.
 
 ## Canonical contract
 
@@ -43,9 +43,9 @@ Earlier cold-start and profile calibration attempts are non-evidence for this pa
 
 ## Verification
 
-`Tools/EngineSimVendor/verify_subaru_ej25_fixture.py` validates index metadata, safe relative shard paths, ordered shard names, per-shard SHA-256, per-shard and total record counts, unique field IDs, category counts, the semantic digest, pinned source script hash/blob, source anchors, fixture snapshot values, generated IR provenance, headless exclusions and the existing deterministic fixture constraints.
+`Tools/EngineSimVendor/verify_fixture_source_snapshot.py` first verifies the snapshot index, exact path set, SHA-256 and Git blob of every evidence file, commit/tree provenance and absence of unexpected files. `Tools/EngineSimVendor/verify_subaru_ej25_fixture.py` then validates index metadata, safe relative shard paths, ordered shard names, per-shard SHA-256, all 118 records, category counts, the semantic digest, source anchors and line context, fixture snapshot values, generated IR provenance, headless exclusions and deterministic fixture constraints. Its default execution uses the snapshot; `--source-root` is retained only for explicit updates, diagnostics and mutation tests.
 
-`Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py` retains the original 15 mutation tests and adds rejection tests for a missing shard, modified shard bytes, duplicate records across shards, changed ordering, semantic digest mismatch and path traversal.
+`Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py` covers valid, missing, changed, unexpected, path-traversal and wrong commit/tree cases. `Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py` retains the complete fixture/shard mutation matrix and adds source-anchor and source-line-context rejection tests.
 
 Python validation passed on the exact Windows checkout: `py_compile`, 21/21 unit tests, all shard hashes, the semantic contract digest and all 118 field records.
 
@@ -97,7 +97,7 @@ Attempt 1 completed the full Windows matrix successfully and intentionally faile
 
 ## Scope boundaries
 
-This work does not modify the generated IR, IR generator, IR verifier, exact WAV files, simple-solver, SourceInputs, cold-start profiles, benchmarks, gameplay, Runtime Audio or the public Phase 1 API. PR #23 remains draft. Phase 0 is not submitted for manager approval.
+This closure migration removes only temporary staging inputs and reconstruction documents. It does not modify fixture records or shards, mechanical values, generated IR, IR tools, exact WAV, simple-solver, cold-start profiles, gameplay, Runtime Audio or the public Phase 1 API. PR #23 remains draft; final Windows exact-head closure validation is pending.
 
 ## Cold-start calibration linkage
 

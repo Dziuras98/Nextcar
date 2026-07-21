@@ -16,6 +16,8 @@ REQUIRED_FILES = (
     ROOT / ".github" / "pull_request_template.md",
     ROOT / ".github" / "workflows" / "repository-validation.yml",
     ROOT / ".github" / "workflows" / "delete-merged-branch.yml",
+    ROOT / "Tools" / "EngineSimVendor" / "FixtureSourceSnapshot" / "SNAPSHOT.json",
+    ROOT / "Tools" / "EngineSimVendor" / "verify_fixture_source_snapshot.py",
 )
 
 REQUIRED_POLICY_PHRASES = (
@@ -184,6 +186,31 @@ def check_workflow_scope() -> None:
             fail(f"Branch cleanup workflow is missing: {fragment!r}")
 
 
+
+def check_phase0_closure() -> None:
+    sourceinputs = ROOT / "Tools" / "EngineSimVendor" / "SourceInputs"
+    if sourceinputs.exists():
+        fail("Temporary Tools/EngineSimVendor/SourceInputs must be absent")
+    for name in ("RECONSTRUCTION_AUDIT.md", "WIP_CHECKPOINT.md"):
+        if (ROOT / "Tools" / "EngineSimVendor" / name).exists():
+            fail(f"Reconstruction-only document remains: {name}")
+    forbidden_names = {"_transport_probe_local.txt", "_should_not_use", "RUNNER_BOOTSTRAP_REQUEST", "bootstrap_on_runner.ps1"}
+    for path in ROOT.rglob("*"):
+        if path.name in forbidden_names or path.suffix == ".pyc" or "__pycache__" in path.parts:
+            fail(f"Closure residue remains: {path.relative_to(ROOT)}")
+    workflow = ROOT / ".github" / "workflows" / "nc003b-phase0-final-closure-windows.yml"
+    if workflow.exists():
+        fail("Temporary final-closure workflow must not be present in the candidate tree")
+    snapshot_index = ROOT / "Tools" / "EngineSimVendor" / "FixtureSourceSnapshot" / "SNAPSHOT.json"
+    snapshot = json.loads(snapshot_index.read_text(encoding="utf-8"))
+    if snapshot.get("file_count") != 4 or len(snapshot.get("files", [])) != 4:
+        fail("Fixture source snapshot must contain exactly four indexed files")
+    manifest = json.loads((ROOT / "Tools" / "EngineSimVendor" / "SOURCE_MANIFEST.json").read_text(encoding="utf-8"))
+    if manifest.get("schema_version") != 1 or not isinstance(manifest.get("files"), list):
+        fail("SOURCE_MANIFEST.json must remain a monolithic schema_version 1 document")
+    if "fixture_source_snapshot" not in manifest or "final_closure" not in manifest:
+        fail("SOURCE_MANIFEST.json lacks Phase 0 closure sections")
+
 def main() -> int:
     checks = (
         check_required_files,
@@ -195,6 +222,7 @@ def main() -> int:
         check_unreal_generated_header_order,
         check_utf8_text_files,
         check_workflow_scope,
+        check_phase0_closure,
     )
 
     for check in checks:

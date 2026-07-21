@@ -1,15 +1,16 @@
 # NC-003B Phase 0 working patch ledger
 
-> Status: Phase 0 WIP — cold-start calibration published, manager review pending, not submitted for manager approval, Phase 1 not started.
+> Status: Phase 0 WIP — final closure candidate prepared without temporary SourceInputs; Windows exact-head closure validation pending. Phase 1 not started.
 
 ## Source authority
 
 - Repository: `Dziuras98/engine-sim`
 - Commit: `85f7c3b959a908ed5232ede4f1a4ac7eafe6b630`
 - Tree: `0756dea0444ada160540685dd1d28fcd3ef4aac5`
-- Authoritative local input: `Tools/EngineSimVendor/SourceInputs/NC-003B-source-inputs/engine-sim`
+- Active fixture-source evidence: `Tools/EngineSimVendor/FixtureSourceSnapshot/engine-sim`
+- Snapshot index: `Tools/EngineSimVendor/FixtureSourceSnapshot/SNAPSHOT.json`
 
-No cross-repository fetch is required or permitted for this reconstruction.
+Normal build and verification require neither cross-repository access nor the removed staging tree. The four-file snapshot is the active source evidence for field-by-field fixture parity.
 
 ## Translation-unit classification
 
@@ -17,7 +18,7 @@ No cross-repository fetch is required or permitted for this reconstruction.
 - Patched upstream translation units: **13**
 - Total translation units: **33**
 
-Exact-upstream destinations remain byte-identical to their SourceInputs counterparts. `SOURCE_MANIFEST.json` retains source/final paths and SHA-256 values.
+Exact-upstream destinations remain byte-identical to the pinned inputs. Historical `source_path` values in `SOURCE_MANIFEST.json` are provenance only; active verification uses the fixture-source snapshot.
 
 ## Patched upstream files
 
@@ -66,4 +67,4 @@ Windows exact-head validation passed for source SHA `542d3261efc3ef48c78f337d990
 
 ## Scope note
 
-The simple-solver closure, SourceInputs, exact WAV paths, generated IR, benchmarks, gameplay, Runtime Audio and Phase 1 API are unchanged. The measured cold-start profile is now published for manager review. PR #23 remains draft; Phase 0 is not submitted for manager approval.
+The temporary `Tools/EngineSimVendor/SourceInputs` tree was removed after its four required fixture-source files were preserved byte-for-byte in the indexed snapshot. The exact WAV, generated IR, solver, benchmarks, gameplay, Runtime Audio and Phase 1 API are unchanged. Final Windows exact-head closure validation remains pending; PR #23 remains draft.
