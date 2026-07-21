@@ -58,14 +58,18 @@ jobs:
               "              'artifact_id': 'assigned-after-upload',",
               "          })",
               "          toolchain_path.write_text(json.dumps(toolchain, indent=2, sort_keys=True) + '\\n', encoding='utf-8')",
-              "          assert toolchain['candidate_source_sha'] == '${{ inputs.candidate_sha }}'",
-              "          assert toolchain['run_id'] == int('${{ github.run_id }}')",
-              "          assert toolchain['artifact_name'] == '${{ inputs.artifact_name }}'",
+              f"          assert toolchain['candidate_source_sha'] == '{candidate_expr}'",
+              f"          assert toolchain['run_id'] == int('{run_expr}')",
+              f"          assert toolchain['artifact_name'] == '{artifact_expr}'",
               "          assert toolchain['artifact_id'] == 'assigned-after-upload'",
           ])
           fixed = accepted.replace(needle, replacement)
           assert fixed != accepted
           assert fixed.replace(replacement, needle) == accepted
+          assert fixed.count(candidate_expr) == 2
+          assert fixed.count(run_expr) == 2
+          assert fixed.count(artifact_expr) == 2
+          assert 'NC-003B-cold-start-selected-profile-' + candidate_expr not in fixed
           target.write_text(fixed, encoding='utf-8')
 
       - name: Verify workflow-only exact patch
@@ -78,11 +82,7 @@ jobs:
           test "$(grep -c '^  autocrlf-proof:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
           test "$(grep -c '^  boundary-proof:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
           test "$(grep -c '^  windows-matrix:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
-          grep -F "'candidate_source_sha': '${{ inputs.candidate_sha }}'" .github/workflows/nc003b-phase0-final-closure-windows.yml
-          grep -F "'run_id': int('${{ github.run_id }}')" .github/workflows/nc003b-phase0-final-closure-windows.yml
-          grep -F "'artifact_name': '${{ inputs.artifact_name }}'" .github/workflows/nc003b-phase0-final-closure-windows.yml
           grep -F "'artifact_id': 'assigned-after-upload'" .github/workflows/nc003b-phase0-final-closure-windows.yml
-          ! grep -F "NC-003B-cold-start-selected-profile-${{ inputs.candidate_sha }}" .github/workflows/nc003b-phase0-final-closure-windows.yml
 
       - name: Commit and fast-forward publish workflow metadata fix
         shell: bash
