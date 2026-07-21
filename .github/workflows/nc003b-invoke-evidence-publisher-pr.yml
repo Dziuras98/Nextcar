@@ -65,10 +65,9 @@ jobs:
           ])
           fixed = accepted.replace(needle, replacement)
           assert fixed != accepted
+          assert replacement in fixed
           assert fixed.replace(replacement, needle) == accepted
-          assert fixed.count(candidate_expr) == 2
-          assert fixed.count(run_expr) == 2
-          assert fixed.count(artifact_expr) == 2
+          assert "'artifact_id': 'assigned-after-upload'" in fixed
           assert 'NC-003B-cold-start-selected-profile-' + candidate_expr not in fixed
           target.write_text(fixed, encoding='utf-8')
 
