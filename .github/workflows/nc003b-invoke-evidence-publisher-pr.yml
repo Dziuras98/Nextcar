@@ -1,4 +1,4 @@
-name: NC-003B stage exact-head workflow blob
+name: NC-003B export validation parent identity
 
 on:
   pull_request:
@@ -8,115 +8,36 @@ on:
       - manager/nc-003b-phase0-final-closure-bootstrap
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
+  actions: write
 
 jobs:
-  stage-workflow-blob:
+  validation-identity:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout technical publisher branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: manager/nc-003b-phase0-final-closure-boundary-isolation-trigger
-          fetch-depth: 2
-          persist-credentials: true
-          path: publisher
-          show-progress: false
-
-      - name: Checkout current validation branch
+      - name: Checkout validation branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: manager/nc-003b-phase0-final-closure-validation
           fetch-depth: 1
           persist-credentials: false
-          path: validation
           show-progress: false
 
-      - name: Checkout accepted workflow-fix
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: a25c6af112e667c47ee77aaba33c5cd9d992ea6a
-          fetch-depth: 1
-          persist-credentials: false
-          path: accepted
-          show-progress: false
-
-      - name: Generate exact workflow blob
-        shell: python
-        run: |
-          import hashlib
-          import json
-          import subprocess
-          from pathlib import Path
-
-          relative = Path('.github/workflows/nc003b-phase0-final-closure-windows.yml')
-          accepted = (Path('accepted') / relative).read_text(encoding='utf-8')
-          needle = "          shutil.copyfile(metadata, root / 'toolchain-versions.json')"
-          assert accepted.count(needle) == 1
-          candidate_expr = '$' + '{{ inputs.candidate_sha }}'
-          run_expr = '$' + '{{ github.run_id }}'
-          artifact_expr = '$' + '{{ inputs.artifact_name }}'
-          replacement = "\n".join([
-              "          toolchain_path = root / 'toolchain-versions.json'",
-              "          shutil.copyfile(metadata, toolchain_path)",
-              "          toolchain = json.loads(toolchain_path.read_text(encoding='utf-8-sig'))",
-              "          toolchain.update({",
-              f"              'candidate_source_sha': '{candidate_expr}',",
-              f"              'run_id': int('{run_expr}'),",
-              f"              'artifact_name': '{artifact_expr}',",
-              "              'artifact_id': 'assigned-after-upload',",
-              "          })",
-              "          toolchain_path.write_text(json.dumps(toolchain, indent=2, sort_keys=True) + '\\n', encoding='utf-8')",
-              f"          assert toolchain['candidate_source_sha'] == '{candidate_expr}'",
-              f"          assert toolchain['run_id'] == int('{run_expr}')",
-              f"          assert toolchain['artifact_name'] == '{artifact_expr}'",
-              "          assert toolchain['artifact_id'] == 'assigned-after-upload'",
-          ])
-          fixed = accepted.replace(needle, replacement)
-          assert fixed.replace(replacement, needle) == accepted
-          assert fixed.count('  autocrlf-proof:') == 1
-          assert fixed.count('  boundary-proof:') == 1
-          assert fixed.count('  windows-matrix:') == 1
-          assert "'artifact_id': 'assigned-after-upload'" in fixed
-          assert 'NC-003B-cold-start-selected-profile-' + candidate_expr not in fixed
-
-          safe = Path('publisher/Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml')
-          safe.parent.mkdir(parents=True, exist_ok=True)
-          safe.write_text(fixed, encoding='utf-8')
-          metadata = {
-              'accepted_workflow_fix_sha': 'a25c6af112e667c47ee77aaba33c5cd9d992ea6a',
-              'accepted_blob_sha': subprocess.check_output(['git', '-C', 'accepted', 'rev-parse', 'HEAD:.github/workflows/nc003b-phase0-final-closure-windows.yml'], text=True).strip(),
-              'validation_parent_sha': subprocess.check_output(['git', '-C', 'validation', 'rev-parse', 'HEAD'], text=True).strip(),
-              'fixed_sha256': hashlib.sha256(safe.read_bytes()).hexdigest(),
-              'target_path': relative.as_posix(),
-              'safe_blob_path': safe.relative_to('publisher').as_posix(),
-          }
-          Path('publisher/Tools/EngineSimVendor/WorkflowBlob/metadata-fix.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-
-      - name: Commit safe workflow blob to technical branch
+      - name: Record validation identity
         shell: bash
-        working-directory: publisher
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml Tools/EngineSimVendor/WorkflowBlob/metadata-fix.json
-          git diff --cached --check
-          git commit -m 'stage exact-head workflow blob for connector publication'
-          git push origin HEAD:refs/heads/manager/nc-003b-phase0-final-closure-boundary-isolation-trigger
           {
-            echo "staging_commit=$(git rev-parse HEAD)"
-            echo "workflow_blob=$(git rev-parse HEAD:Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml)"
-            echo "metadata_blob=$(git rev-parse HEAD:Tools/EngineSimVendor/WorkflowBlob/metadata-fix.json)"
-            echo 'force=false'
-          } | tee "$RUNNER_TEMP/staged-workflow-blob.txt"
+            echo "validation_parent_sha=$(git rev-parse HEAD)"
+            echo "validation_parent_tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "validation_workflow_blob=$(git rev-parse HEAD:.github/workflows/nc003b-phase0-final-closure-windows.yml)"
+            echo "staged_fixed_workflow_blob=be2df306be6f19c741390efba45601a842c85c09"
+          } | tee "$RUNNER_TEMP/validation-parent-identity.txt"
 
-      - name: Upload staged blob identity
+      - name: Upload validation identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: nc003b-staged-workflow-blob
-          path: ${{ runner.temp }}/staged-workflow-blob.txt
+          name: nc003b-validation-parent-identity
+          path: ${{ runner.temp }}/validation-parent-identity.txt
           if-no-files-found: error
           retention-days: 2
