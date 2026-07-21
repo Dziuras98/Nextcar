@@ -1,6 +1,6 @@
 # NC-003B Phase 0 working patch ledger
 
-> Status: Phase 0 WIP — fixture parity Windows exact-head validated, calibration not started, not submitted for manager approval, Phase 1 not started.
+> Status: Phase 0 WIP — cold-start calibration published, manager review pending, not submitted for manager approval, Phase 1 not started.
 
 ## Source authority
 
@@ -48,9 +48,17 @@ The canonical field contract is now a small index plus ordered semantic shards. 
 
 The verifier rejects unsafe shard paths, missing files, ordering changes, shard hash/count changes, duplicate IDs, category-count changes and semantic digest changes before running the pre-existing source, fixture, snapshot and IR checks.
 
-The corrected fixture evidence includes `display_depth = 0.5` rather than `0.4`, a separate 30-point chamber turbulence function, explicit fuel defaults including `max_dilution_effect = 10`, `pos_x = 0`, `pos_y = 0`, deck height `195.5068 mm`, circular two-inch collector area, deterministic seeds `0x4E433033..0x4E433036`, and exclusion of Vehicle, Transmission and runtime WAV I/O. Earlier calibration attempts remain non-evidence; calibration has not started.
+The corrected fixture evidence includes `display_depth = 0.5` rather than `0.4`, a separate 30-point chamber turbulence function, explicit fuel defaults including `max_dilution_effect = 10`, `pos_x = 0`, `pos_y = 0`, deck height `195.5068 mm`, circular two-inch collector area, deterministic seeds `0x4E433033..0x4E433036`, and exclusion of Vehicle, Transmission and runtime WAV I/O. Earlier unsuccessful calibration attempts remain non-evidence. The accepted cold-start calibration is recorded separately in `Tools/EngineSimVendor/COLD_START_CALIBRATION.md`.
 
 See `Tools/EngineSimVendor/FIXTURE_TRANSCRIPTION.md` for the full evidence record.
+
+## Subaru cold-start calibration
+
+The Phase 0 calibration harness evaluates deterministic `1/120 s` simulation slices on fresh fixture instances, records only actually produced native and PCM frames, rejects non-finite values, measures RMS from produced samples, and always disables starter and ignition before destroying simulator and fixture state.
+
+The selected candidate remains `thr-0p050-dis-0800-min-0600-win-2p000-max-8p000`: startup throttle `0.05`, starter disengagement at `800 RPM`, post-starter minimum `600 RPM`, stability window `2.0 s`, and maximum startup simulation time `8.0 s`. Windows run `29814599329`, final attempt 2, passed 10/10 fresh trials, deterministic timeout and stall-after-disengagement cases, profile generation, header generation, strict verification, mutation tests, MSVC x64 Release, Debug `/RTC1`, AddressSanitizer, CTest, direct runtime, clean reproducibility, and project warning count 0.
+
+The measured profile SHA-256 is `2e8a6795c85e648606e174a00cc96230363b6bc60a78cd62374490377414bb1d`; the generated header SHA-256 is `8d44a17e4491dfdb1500ff8498c739c143fffa84510df2f31bfdf9a0e3797d5f`. The profile does not introduce runtime WAV loading and does not modify fixture mechanics, engine-sim provenance, solver provenance, the exact impulse response, or fixture-transcription parity.
 
 ## Validation status
 
@@ -58,4 +66,4 @@ Windows exact-head validation passed for source SHA `542d3261efc3ef48c78f337d990
 
 ## Scope note
 
-The simple-solver closure, SourceInputs, exact WAV paths, generated IR, cold-start profiles, benchmarks, gameplay, Runtime Audio and Phase 1 API are unchanged. PR #23 remains draft; Phase 0 is not submitted for manager approval.
+The simple-solver closure, SourceInputs, exact WAV paths, generated IR, benchmarks, gameplay, Runtime Audio and Phase 1 API are unchanged. The measured cold-start profile is now published for manager review. PR #23 remains draft; Phase 0 is not submitted for manager approval.

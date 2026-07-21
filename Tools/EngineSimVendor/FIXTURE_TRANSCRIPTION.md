@@ -1,6 +1,6 @@
 # Subaru EJ25 fixture-transcription parity
 
-> Status: Phase 0 WIP — fixture parity Windows exact-head validated, calibration not started. Not submitted for manager approval. Phase 1 not started.
+> Status: Phase 0 WIP — fixture parity Windows exact-head validated and cold-start calibration published. Manager review pending; not submitted for manager approval. Phase 1 not started.
 
 ## Pinned source
 
@@ -98,3 +98,11 @@ Attempt 1 completed the full Windows matrix successfully and intentionally faile
 ## Scope boundaries
 
 This work does not modify the generated IR, IR generator, IR verifier, exact WAV files, simple-solver, SourceInputs, cold-start profiles, benchmarks, gameplay, Runtime Audio or the public Phase 1 API. PR #23 remains draft. Phase 0 is not submitted for manager approval.
+
+## Cold-start calibration linkage
+
+The field-by-field fixture-transcription contract, its 118 records, semantic SHA-256 `3ba447789024d613cdceb2382d917e9d6ce340cbeecb621d4f71133e55578f00`, mechanical parameters, deterministic seeds, IR provenance and Windows exact-head parity evidence remain unchanged.
+
+The separately measured Phase 0 cold-start profile is `SubaruEJ25AtgVideo2ColdStartV1`. It uses startup throttle `0.05`, starter disengagement at `800 RPM`, a required post-starter minimum of `600 RPM`, a `2.0 s` stability window and an `8.0 s` maximum simulation window. Windows run `29814599329`, final attempt 2, produced 10/10 successful deterministic trials plus passing timeout and stall-after-disengagement cases. Full trace hashes, distributions, margins, generated-input hashes and toolchain evidence are recorded in `Tools/EngineSimVendor/COLD_START_CALIBRATION.md`.
+
+No fixture-transcription shard, source-script provenance, exact WAV, generated IR, engine-sim pin, solver pin or excluded non-headless dependency was changed by calibration.
