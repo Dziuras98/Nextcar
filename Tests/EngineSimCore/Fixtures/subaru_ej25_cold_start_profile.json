@@ -1,0 +1,214 @@
+{
+  "calibration_status": "windows_pass",
+  "candidate_sweep": {
+    "evaluated_candidate_count": 1080,
+    "maximum_startup_simulation_seconds": [
+      2.0,
+      4.0,
+      8.0
+    ],
+    "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_sweep.json",
+    "post_starter_minimum_rpm": [
+      400,
+      500,
+      600,
+      700
+    ],
+    "sha256": "13054525abfcd275752146ffa548ae89ac9afe3474aa5d4c392fb550ff2b93ca",
+    "stability_window_seconds": [
+      0.5,
+      1.0,
+      2.0
+    ],
+    "starter_disengagement_rpm": [
+      500,
+      650,
+      800,
+      950,
+      1100,
+      1300
+    ],
+    "startup_throttle": [
+      0.05,
+      0.1,
+      0.2,
+      0.35,
+      0.5
+    ]
+  },
+  "deterministic_seed": 1313026099,
+  "engine_sim_commit": "85f7c3b959a908ed5232ede4f1a4ac7eafe6b630",
+  "engine_sim_tree": "0756dea0444ada160540685dd1d28fcd3ef4aac5",
+  "failure_count": 0,
+  "fixture_id": "SubaruEJ25AtgVideo2",
+  "fixture_semantic_contract_sha256": "3ba447789024d613cdceb2382d917e9d6ce340cbeecb621d4f71133e55578f00",
+  "generated_header": {
+    "path": "Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h",
+    "sha256": "8d44a17e4491dfdb1500ff8498c739c143fffa84510df2f31bfdf9a0e3797d5f"
+  },
+  "generated_ir_sha256": "ce0702aa501d94f35b5f804efcd1b21688b9f9cacaa0fa2fc7f459c03a98e540",
+  "generator": {
+    "command": "python Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h",
+    "path": "Tools/EngineSimVendor/generate_cold_start_profile_header.py",
+    "sha256": "208790f300970ef004fbe57816231685a0a4d2013d48339ffc6467d53d14cb4f"
+  },
+  "ir_wav_sha256": "df0b8be829d28ae64e5b2818a1942a3b3e5733186bdf262cad4c2af038995d48",
+  "maximum_startup_simulation_seconds": 8.0,
+  "no_runtime_wav_dependency": true,
+  "observed_distributions": {
+    "disengagement_rpm": {
+      "maximum": 806.94440744,
+      "mean": 806.94440744,
+      "median": 806.94440744,
+      "minimum": 806.94440744,
+      "p95": 806.94440744
+    },
+    "disengagement_time_seconds": {
+      "maximum": 1.941666667,
+      "mean": 1.941666667,
+      "median": 1.941666667,
+      "minimum": 1.941666667,
+      "p95": 1.941666667
+    },
+    "mean_post_starter_rpm": {
+      "maximum": 814.285833297,
+      "mean": 814.285833297,
+      "median": 814.285833297,
+      "minimum": 814.285833297,
+      "p95": 814.285833297
+    },
+    "minimum_post_starter_rpm": {
+      "maximum": 739.201050833,
+      "mean": 739.201050833,
+      "median": 739.201050833,
+      "minimum": 739.201050833,
+      "p95": 739.201050833
+    },
+    "post_start_pcm_rms": {
+      "maximum": 0.140563552,
+      "mean": 0.140563552,
+      "median": 0.140563552,
+      "minimum": 0.140563552,
+      "p95": 0.140563552
+    },
+    "produced_native_frames": {
+      "maximum": 78991.0,
+      "mean": 78991.0,
+      "median": 78991.0,
+      "minimum": 78991.0,
+      "p95": 78991.0
+    },
+    "produced_pcm_frames": {
+      "maximum": 174175.0,
+      "mean": 174175.0,
+      "median": 174175.0,
+      "minimum": 174175.0,
+      "p95": 174175.0
+    }
+  },
+  "payload_sha256": "e94ea6572b51be523ed7b33a5786865303a18e14ef3ee0fb14a3edeb48d47d49",
+  "positive_traces": [
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-00.json",
+      "result": "Success",
+      "sha256": "8eb297a99da10a4e97aebba37e995cd0813d20b7873ad9b7648cc58c6c5c38d0",
+      "trial_index": 0
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-01.json",
+      "result": "Success",
+      "sha256": "3e4a8d5f9d1d8d5eb6d828dbd598385afd96b3439ef879cbe63909c7775b8263",
+      "trial_index": 1
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-02.json",
+      "result": "Success",
+      "sha256": "e19a045374125f6ba0015fded0849518b1d07e6e9786ecbdceebd5266b128478",
+      "trial_index": 2
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-03.json",
+      "result": "Success",
+      "sha256": "bc97a4b197465a29a384cba4bde1e28c5a739ee7bfb84296275d9ff9a121127d",
+      "trial_index": 3
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-04.json",
+      "result": "Success",
+      "sha256": "c69336da2b20b0856537eba81abaac8d637c6e0bec8df105113b0ec71ba78841",
+      "trial_index": 4
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-05.json",
+      "result": "Success",
+      "sha256": "5671b43de33bba3c35f88fbd7d6e88707c1a4ad6b328c1eb945675930488d50c",
+      "trial_index": 5
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-06.json",
+      "result": "Success",
+      "sha256": "af1efba664b9b57d6f2bb05fd040f691ca7ab8522c301bed439fe7d2470a31e5",
+      "trial_index": 6
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-07.json",
+      "result": "Success",
+      "sha256": "d60b3d3cab44e02057863d6f6288ae44eb8b2381a2463b595a30daae2d7512bb",
+      "trial_index": 7
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-08.json",
+      "result": "Success",
+      "sha256": "d7b9d47ca5bca6bb224506f0f4a388c2d81fd67da3b9a804a5c0344ef84a3867",
+      "trial_index": 8
+    },
+    {
+      "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-09.json",
+      "result": "Success",
+      "sha256": "d3e56038fa6f22b9adf7ad18a480de8cb072806c0f471bf631c54d777ecd0799",
+      "trial_index": 9
+    }
+  ],
+  "post_starter_minimum_rpm": 600.0,
+  "profile_id": "SubaruEJ25AtgVideo2ColdStartV1",
+  "sample_rate_hz": 44100,
+  "schema_version": 1,
+  "selected_candidate_id": "thr-0p050-dis-0800-min-0600-win-2p000-max-8p000",
+  "selected_margins": {
+    "disengagement_separation_rpm": 6.944407439999964,
+    "post_starter_rpm": 139.20105083299995,
+    "timeout_seconds": 4.058333333
+  },
+  "selected_trial_count": 10,
+  "selection_requirements": {
+    "minimum_disengagement_separation_rpm": 1.0,
+    "minimum_post_starter_rpm_margin": 100.0,
+    "minimum_selected_trials": 10,
+    "minimum_timeout_margin_seconds": 1.0,
+    "required_success_fraction": 1.0
+  },
+  "simulation_frequency_hz": 20000,
+  "solver_commit": "e009f4ff1c9c4c5874e865e893cdb62e208fb2b3",
+  "stability_window_seconds": 2.0,
+  "stall_trace": {
+    "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/negative-stall.json",
+    "result": "StallAfterDisengagement",
+    "sha256": "44d437f560a23e2435f0e4ecdf35b9be7d50bdd1e0d5c237c857ac5eb2ad043b"
+  },
+  "starter_disengagement_criterion": {
+    "rpm": 800.0,
+    "type": "rpm_at_or_above"
+  },
+  "startup_throttle": 0.05,
+  "success_count": 10,
+  "timeout_trace": {
+    "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/negative-timeout.json",
+    "result": "Timeout",
+    "sha256": "2c4f7780706b78e674f7d121085ff31c2d4af91b963cc3da501af197dfc817ed"
+  },
+  "validated_parity_source_sha": "542d3261efc3ef48c78f337d990793aea55dd7fb",
+  "verifier": {
+    "path": "Tools/EngineSimVendor/verify_cold_start_profile.py",
+    "sha256": "63f6bfe15692228bd1dd66661c2bf24f3a45d543acd25be2f67fbe86369ef008"
+  }
+}
