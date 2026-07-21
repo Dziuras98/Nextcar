@@ -1,4 +1,4 @@
-name: NC-003B export exact-head workflow metadata fix
+name: NC-003B stage exact-head workflow blob
 
 on:
   pull_request:
@@ -8,13 +8,22 @@ on:
       - manager/nc-003b-phase0-final-closure-bootstrap
 
 permissions:
-  contents: read
-  actions: write
+  contents: write
+  actions: read
 
 jobs:
-  export-metadata-fix:
+  stage-workflow-blob:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout technical publisher branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: manager/nc-003b-phase0-final-closure-boundary-isolation-trigger
+          fetch-depth: 2
+          persist-credentials: true
+          path: publisher
+          show-progress: false
+
       - name: Checkout current validation branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -33,7 +42,7 @@ jobs:
           path: accepted
           show-progress: false
 
-      - name: Generate and verify workflow-only metadata fix
+      - name: Generate exact workflow blob
         shell: python
         run: |
           import hashlib
@@ -42,11 +51,9 @@ jobs:
           from pathlib import Path
 
           relative = Path('.github/workflows/nc003b-phase0-final-closure-windows.yml')
-          accepted_path = Path('accepted') / relative
-          accepted = accepted_path.read_text(encoding='utf-8')
+          accepted = (Path('accepted') / relative).read_text(encoding='utf-8')
           needle = "          shutil.copyfile(metadata, root / 'toolchain-versions.json')"
           assert accepted.count(needle) == 1
-
           candidate_expr = '$' + '{{ inputs.candidate_sha }}'
           run_expr = '$' + '{{ github.run_id }}'
           artifact_expr = '$' + '{{ inputs.artifact_name }}'
@@ -74,23 +81,42 @@ jobs:
           assert "'artifact_id': 'assigned-after-upload'" in fixed
           assert 'NC-003B-cold-start-selected-profile-' + candidate_expr not in fixed
 
-          out = Path('export/nc003b-phase0-final-closure-windows.yml')
-          out.parent.mkdir(parents=True, exist_ok=True)
-          out.write_text(fixed, encoding='utf-8')
+          safe = Path('publisher/Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml')
+          safe.parent.mkdir(parents=True, exist_ok=True)
+          safe.write_text(fixed, encoding='utf-8')
           metadata = {
               'accepted_workflow_fix_sha': 'a25c6af112e667c47ee77aaba33c5cd9d992ea6a',
               'accepted_blob_sha': subprocess.check_output(['git', '-C', 'accepted', 'rev-parse', 'HEAD:.github/workflows/nc003b-phase0-final-closure-windows.yml'], text=True).strip(),
               'validation_parent_sha': subprocess.check_output(['git', '-C', 'validation', 'rev-parse', 'HEAD'], text=True).strip(),
-              'fixed_sha256': hashlib.sha256(out.read_bytes()).hexdigest(),
-              'changed_path': relative.as_posix(),
-              'change': 'toolchain-versions.json exact evidence-head metadata finalization only',
+              'fixed_sha256': hashlib.sha256(safe.read_bytes()).hexdigest(),
+              'target_path': relative.as_posix(),
+              'safe_blob_path': safe.relative_to('publisher').as_posix(),
           }
-          Path('export/metadata-fix.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          Path('publisher/Tools/EngineSimVendor/WorkflowBlob/metadata-fix.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 
-      - name: Upload verified workflow metadata fix
+      - name: Commit safe workflow blob to technical branch
+        shell: bash
+        working-directory: publisher
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml Tools/EngineSimVendor/WorkflowBlob/metadata-fix.json
+          git diff --cached --check
+          git commit -m 'stage exact-head workflow blob for connector publication'
+          git push origin HEAD:refs/heads/manager/nc-003b-phase0-final-closure-boundary-isolation-trigger
+          {
+            echo "staging_commit=$(git rev-parse HEAD)"
+            echo "workflow_blob=$(git rev-parse HEAD:Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml)"
+            echo "metadata_blob=$(git rev-parse HEAD:Tools/EngineSimVendor/WorkflowBlob/metadata-fix.json)"
+            echo 'force=false'
+          } | tee "$RUNNER_TEMP/staged-workflow-blob.txt"
+
+      - name: Upload staged blob identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: nc003b-fixed-exact-head-workflow
-          path: export
+          name: nc003b-staged-workflow-blob
+          path: ${{ runner.temp }}/staged-workflow-blob.txt
           if-no-files-found: error
           retention-days: 2
