@@ -128,7 +128,7 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 29814599329
 
-      - name: Verify accepted selected-profile artifact contents
+      - name: Verify and mount accepted selected-profile artifact
         shell: bash
         run: |
           set -euo pipefail
@@ -148,6 +148,8 @@ jobs:
           PY
           cmp /tmp/nc003b-cp2/selected-profile/subaru_ej25_cold_start_profile.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json
           cmp /tmp/nc003b-cp2/selected-profile/SubaruEJ25ColdStartProfile.generated.h Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h
+          test ! -e Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration
+          ln -s /tmp/nc003b-cp2/selected-profile/selected-calibration Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration
           for i in {0..9}; do
             n="$(printf '%02d' "$i")"
             cmp "/tmp/nc003b-cp2/selected-profile/selected-calibration/positive-traces/trial-${n}.json" "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-${n}.json"
@@ -166,6 +168,7 @@ jobs:
           python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile "$ARTIFACT_PROFILE" --repo-root . | tee /tmp/nc003b-cp2/logs/cold-start-verifier.log
           python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile "$ARTIFACT_PROFILE" --output /tmp/nc003b-cp2/cold-start-generated.h
           cmp "$HEADER" /tmp/nc003b-cp2/cold-start-generated.h
+          rm Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration
           echo "cold-start generator byte-identical: PASS" | tee /tmp/nc003b-cp2/logs/cold-start-generator.log
           echo "profile/header byte-identical: PASS" | tee /tmp/nc003b-cp2/logs/profile-header-consistency.log
 
@@ -176,6 +179,7 @@ jobs:
           test "$(find . -type d -name __pycache__ -print | wc -l)" -eq 0
           test "$(find . -type f -name '*.pyc' -print | wc -l)" -eq 0
           test ! -d Tools/EngineSimVendor/SourceInputs
+          test ! -e Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration
           ! git grep -n -E 'RUNNER_BOOTSTRAP_REQUEST|bootstrap_on_runner\.ps1|git credential fill' -- ':!*.md'
           ! git grep -n -E 'LoadWave|loadWave|\.wav["'"']' -- Plugins/NextcarEngineSim/Source/NextcarEngineSimCore
           test -z "$(git status --porcelain)"
