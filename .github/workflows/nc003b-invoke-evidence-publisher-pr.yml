@@ -74,10 +74,9 @@ jobs:
           assert "'artifact_id': 'assigned-after-upload'" in fixed
           assert 'NC-003B-cold-start-selected-profile-' + candidate_expr not in fixed
 
-          out = Path('export/.github/workflows/nc003b-phase0-final-closure-windows.yml')
+          out = Path('export/nc003b-phase0-final-closure-windows.yml')
           out.parent.mkdir(parents=True, exist_ok=True)
           out.write_text(fixed, encoding='utf-8')
-          subprocess.run(['git', 'diff', '--no-index', '--check', accepted_path.as_posix(), out.as_posix()], check=False)
           metadata = {
               'accepted_workflow_fix_sha': 'a25c6af112e667c47ee77aaba33c5cd9d992ea6a',
               'accepted_blob_sha': subprocess.check_output(['git', '-C', 'accepted', 'rev-parse', 'HEAD:.github/workflows/nc003b-phase0-final-closure-windows.yml'], text=True).strip(),
