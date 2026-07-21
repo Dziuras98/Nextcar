@@ -1,0 +1,60 @@
+name: NC-003B clean transient Python residue
+
+on:
+  pull_request:
+    branches:
+      - manager/nc-003b-phase0-final-closure-bootstrap
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  patch-validation-workflow:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validation workflow head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: manager/nc-003b-phase0-final-closure-validation
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Add explicit transient residue cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c395f88eed58968248f00a08bf72b397943058c1"
+          python -B - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/nc003b-phase0-final-closure-windows.yml')
+          text = path.read_text(encoding='utf-8')
+          old = """          $artifact = Join-Path $env:GITHUB_WORKSPACE 'nc003b-final-closure-artifact'
+          if (Test-Path Tools/EngineSimVendor/SourceInputs) { throw 'SourceInputs directory remains' }
+"""
+          new = """          $artifact = Join-Path $env:GITHUB_WORKSPACE 'nc003b-final-closure-artifact'
+          $transientPycache = @(Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Force -Directory -Filter __pycache__ -ErrorAction SilentlyContinue)
+          $transientPyc = @(Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Force -File -Filter *.pyc -ErrorAction SilentlyContinue)
+          [ordered]@{
+            pycache_before_cleanup = $transientPycache.Count
+            pyc_before_cleanup = $transientPyc.Count
+            pycache_paths = @($transientPycache.FullName)
+            pyc_paths = @($transientPyc.FullName)
+          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $artifact 'transient-python-residue-cleanup.json')
+          foreach ($file in $transientPyc) { Remove-Item -Force $file.FullName }
+          foreach ($directory in ($transientPycache | Sort-Object { $_.FullName.Length } -Descending)) { Remove-Item -Recurse -Force $directory.FullName }
+          if (Test-Path Tools/EngineSimVendor/SourceInputs) { throw 'SourceInputs directory remains' }
+"""
+          assert text.count(old) == 1, text.count(old)
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git diff --check
+          test "$(git diff --name-only)" = ".github/workflows/nc003b-phase0-final-closure-windows.yml"
+          git config user.name "OpenAI NC-003B Closure Agent"
+          git config user.email "noreply@openai.com"
+          git add .github/workflows/nc003b-phase0-final-closure-windows.yml
+          git commit -m "clean transient Python residue before closure scan"
+          git push origin HEAD:refs/heads/manager/nc-003b-phase0-final-closure-validation
