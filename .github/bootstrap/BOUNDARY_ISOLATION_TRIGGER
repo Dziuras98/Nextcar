@@ -1,3 +1,4 @@
 NC-003B Phase 0 final closure isolated boundary-proof trigger.
 workflow-fix: a25c6af112e667c47ee77aaba33c5cd9d992ea6a
-bootstrap-caller: 0ef2f4bc98dcea96da75a602cde21df3de294e86
+bootstrap-caller: 05eea66ea109a1b5792d1278bf646cd6e1a02aac
+action: publish-evidence-head
