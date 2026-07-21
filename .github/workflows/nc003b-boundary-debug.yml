@@ -1,0 +1,112 @@
+name: NC-003B boundary diagnostic
+
+on:
+  pull_request:
+    branches:
+      - manager/nc-003b-phase0-final-closure-bootstrap
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    steps:
+      - name: Configure exact LF checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout exact Checkpoint 2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 7cc91bf136554ca6a40bbbeb90a557ec4bef078c
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Produce boundary diagnostic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          New-Item -ItemType Directory -Force -Path boundary-diagnostic | Out-Null
+          @'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          old = json.loads(subprocess.check_output([
+              'git', 'show', '9bb6464123228f1d9638d467e7160a7cb2aa98c8:Tools/EngineSimVendor/SOURCE_MANIFEST.json'
+          ]))
+          new = json.loads(Path('Tools/EngineSimVendor/SOURCE_MANIFEST.json').read_text(encoding='utf-8'))
+          tracked = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+          network_patterns = [re.compile(x) for x in (
+              r'RUNNER_BOOTSTRAP_REQUEST', r'bootstrap_on_runner\.ps1', r'git credential fill'
+          )]
+          runtime_patterns = [re.compile(x) for x in (
+              r'LoadWave', r'loadWave', r'std::ifstream.*\.wav', r'fopen\(.*\.wav'
+          )]
+          network_hits = []
+          runtime_hits = []
+          read_errors = []
+          for raw in tracked:
+              if not raw:
+                  continue
+              path = Path(raw.decode('utf-8'))
+              if path.suffix.lower() == '.md':
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError) as exc:
+                  read_errors.append({'path': path.as_posix(), 'error': type(exc).__name__})
+                  continue
+              rel = path.as_posix()
+              for line_no, line in enumerate(text.splitlines(), 1):
+                  if any(pattern.search(line) for pattern in network_patterns):
+                      network_hits.append(f'{rel}:{line_no}:{line}')
+                  if (
+                      rel.startswith('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/')
+                      and '/Private/Generated/' not in f'/{rel}'
+                      and any(pattern.search(line) for pattern in runtime_patterns)
+                  ):
+                      runtime_hits.append(f'{rel}:{line_no}:{line}')
+          pycache = [p.as_posix() for p in Path('.').rglob('__pycache__') if p.is_dir()]
+          pyc = [p.as_posix() for p in Path('.').rglob('*.pyc') if p.is_file()]
+          result = {
+              'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+              'manifest_schema_old': old.get('schema_version'),
+              'manifest_schema_new': new.get('schema_version'),
+              'manifest_old_count': len(old.get('files', [])),
+              'manifest_new_count': len(new.get('files', [])),
+              'manifest_first_45_equal': new.get('files', [])[:45] == old.get('files', []),
+              'manifest_additions_count': len(new.get('files', [])[45:]),
+              'sourceinputs_directory_exists': Path('Tools/EngineSimVendor/SourceInputs').exists(),
+              'tracked_sourceinputs': [p.decode('utf-8') for p in tracked if p and p.decode('utf-8').startswith('Tools/EngineSimVendor/SourceInputs/')],
+              'reconstruction_audit_exists': Path('Tools/EngineSimVendor/RECONSTRUCTION_AUDIT.md').exists(),
+              'wip_checkpoint_exists': Path('Tools/EngineSimVendor/WIP_CHECKPOINT.md').exists(),
+              'network_hits': network_hits,
+              'runtime_wav_hits': runtime_hits,
+              'pycache_directories': pycache,
+              'pyc_files': pyc,
+              'read_errors': read_errors,
+          }
+          Path('boundary-diagnostic/boundary-debug.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw 'diagnostic script failed' }
+
+      - name: Upload boundary diagnostic
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nc003b-boundary-diagnostic-${{ github.run_id }}
+          path: boundary-diagnostic
+          if-no-files-found: error
+          retention-days: 2
