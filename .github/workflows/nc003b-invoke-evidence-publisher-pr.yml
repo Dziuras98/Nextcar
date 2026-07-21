@@ -1,4 +1,4 @@
-name: NC-003B prepare exact-head workflow metadata fix
+name: NC-003B export exact-head workflow metadata fix
 
 on:
   pull_request:
@@ -8,19 +8,19 @@ on:
       - manager/nc-003b-phase0-final-closure-bootstrap
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
+  actions: write
 
 jobs:
-  metadata-fix:
+  export-metadata-fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout validation branch
+      - name: Checkout current validation branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: manager/nc-003b-phase0-final-closure-validation
-          fetch-depth: 2
-          persist-credentials: true
+          fetch-depth: 1
+          persist-credentials: false
           path: validation
           show-progress: false
 
@@ -33,14 +33,17 @@ jobs:
           path: accepted
           show-progress: false
 
-      - name: Restore accepted workflow and fix only final artifact metadata
+      - name: Generate and verify workflow-only metadata fix
         shell: python
         run: |
+          import hashlib
+          import json
+          import subprocess
           from pathlib import Path
 
           relative = Path('.github/workflows/nc003b-phase0-final-closure-windows.yml')
-          accepted = (Path('accepted') / relative).read_text(encoding='utf-8')
-          target = Path('validation') / relative
+          accepted_path = Path('accepted') / relative
+          accepted = accepted_path.read_text(encoding='utf-8')
           needle = "          shutil.copyfile(metadata, root / 'toolchain-versions.json')"
           assert accepted.count(needle) == 1
 
@@ -64,49 +67,31 @@ jobs:
               "          assert toolchain['artifact_id'] == 'assigned-after-upload'",
           ])
           fixed = accepted.replace(needle, replacement)
-          assert fixed != accepted
-          assert replacement in fixed
           assert fixed.replace(replacement, needle) == accepted
+          assert fixed.count('  autocrlf-proof:') == 1
+          assert fixed.count('  boundary-proof:') == 1
+          assert fixed.count('  windows-matrix:') == 1
           assert "'artifact_id': 'assigned-after-upload'" in fixed
           assert 'NC-003B-cold-start-selected-profile-' + candidate_expr not in fixed
-          target.write_text(fixed, encoding='utf-8')
 
-      - name: Verify workflow-only exact patch
-        shell: bash
-        working-directory: validation
-        run: |
-          set -euo pipefail
-          test "$(git diff --name-only)" = '.github/workflows/nc003b-phase0-final-closure-windows.yml'
-          git diff --check
-          test "$(grep -c '^  autocrlf-proof:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
-          test "$(grep -c '^  boundary-proof:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
-          test "$(grep -c '^  windows-matrix:' .github/workflows/nc003b-phase0-final-closure-windows.yml)" = 1
-          grep -F "'artifact_id': 'assigned-after-upload'" .github/workflows/nc003b-phase0-final-closure-windows.yml
+          out = Path('export/.github/workflows/nc003b-phase0-final-closure-windows.yml')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(fixed, encoding='utf-8')
+          subprocess.run(['git', 'diff', '--no-index', '--check', accepted_path.as_posix(), out.as_posix()], check=False)
+          metadata = {
+              'accepted_workflow_fix_sha': 'a25c6af112e667c47ee77aaba33c5cd9d992ea6a',
+              'accepted_blob_sha': subprocess.check_output(['git', '-C', 'accepted', 'rev-parse', 'HEAD:.github/workflows/nc003b-phase0-final-closure-windows.yml'], text=True).strip(),
+              'validation_parent_sha': subprocess.check_output(['git', '-C', 'validation', 'rev-parse', 'HEAD'], text=True).strip(),
+              'fixed_sha256': hashlib.sha256(out.read_bytes()).hexdigest(),
+              'changed_path': relative.as_posix(),
+              'change': 'toolchain-versions.json exact evidence-head metadata finalization only',
+          }
+          Path('export/metadata-fix.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 
-      - name: Commit and fast-forward publish workflow metadata fix
-        shell: bash
-        working-directory: validation
-        run: |
-          set -euo pipefail
-          parent=$(git rev-parse HEAD)
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- .github/workflows/nc003b-phase0-final-closure-windows.yml
-          git commit -m 'fix final closure exact-head artifact metadata'
-          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/nc003b-phase0-final-closure-windows.yml'
-          git push origin HEAD:refs/heads/manager/nc-003b-phase0-final-closure-validation
-          {
-            echo "workflow_metadata_fix_sha=$(git rev-parse HEAD)"
-            echo "workflow_metadata_fix_tree=$(git rev-parse 'HEAD^{tree}')"
-            echo "workflow_metadata_fix_parent=$parent"
-            echo 'changed_paths=.github/workflows/nc003b-phase0-final-closure-windows.yml'
-            echo 'force=false'
-          } | tee "$RUNNER_TEMP/workflow-metadata-fix.txt"
-
-      - name: Upload workflow metadata-fix identity
+      - name: Upload verified workflow metadata fix
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: nc003b-workflow-metadata-fix
-          path: ${{ runner.temp }}/workflow-metadata-fix.txt
+          name: nc003b-fixed-exact-head-workflow
+          path: export
           if-no-files-found: error
           retention-days: 2
