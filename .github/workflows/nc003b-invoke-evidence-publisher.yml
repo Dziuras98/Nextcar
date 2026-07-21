@@ -1,0 +1,22 @@
+name: NC-003B invoke final closure evidence publisher
+
+on:
+  pull_request:
+    types:
+      - reopened
+    branches:
+      - manager/nc-003b-phase0-final-closure-bootstrap
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-evidence:
+    uses: Dziuras98/Nextcar/.github/workflows/nc003b-phase0-final-closure-windows.yml@manager/nc-003b-phase0-final-closure-validation
+    with:
+      candidate_sha: 7cc91bf136554ca6a40bbbeb90a557ec4bef078c
+      expected_tree: b616b2ae12a51b4df83ba05858ce96cbbdce75e6
+      expected_ahead: 2
+      artifact_name: NC-003B-Phase0-final-closure-7cc91bf136554ca6a40bbbeb90a557ec4bef078c
+    secrets: inherit
