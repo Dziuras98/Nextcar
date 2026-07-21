@@ -1,0 +1,2 @@
+# Preserve exact-byte upstream fixture evidence without normalization or text diffs.
+Tools/EngineSimVendor/FixtureSourceSnapshot/engine-sim/** -text -diff
