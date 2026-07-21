@@ -1,4 +1,4 @@
-name: NC-003B export validation parent identity
+name: NC-003B final exact evidence-head matrix
 
 on:
   pull_request:
@@ -9,35 +9,13 @@ on:
 
 permissions:
   contents: read
-  actions: write
+  actions: read
 
 jobs:
-  validation-identity:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout validation branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: manager/nc-003b-phase0-final-closure-validation
-          fetch-depth: 1
-          persist-credentials: false
-          show-progress: false
-
-      - name: Record validation identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo "validation_parent_sha=$(git rev-parse HEAD)"
-            echo "validation_parent_tree=$(git rev-parse 'HEAD^{tree}')"
-            echo "validation_workflow_blob=$(git rev-parse HEAD:.github/workflows/nc003b-phase0-final-closure-windows.yml)"
-            echo "staged_fixed_workflow_blob=be2df306be6f19c741390efba45601a842c85c09"
-          } | tee "$RUNNER_TEMP/validation-parent-identity.txt"
-
-      - name: Upload validation identity
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: nc003b-validation-parent-identity
-          path: ${{ runner.temp }}/validation-parent-identity.txt
-          if-no-files-found: error
-          retention-days: 2
+  final-exact-head:
+    uses: Dziuras98/Nextcar/.github/workflows/nc003b-phase0-final-closure-windows.yml@4500f3194b696fcd59249048587d9349927f8108
+    with:
+      candidate_sha: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
+      expected_tree: 64a4af00ed06bdaa57553960685e670a472b55ba
+      expected_ahead: 3
+      artifact_name: NC-003B-Phase0-final-closure-3c67a53a1c2a8d940736e21218cfd89a0b9870b6
