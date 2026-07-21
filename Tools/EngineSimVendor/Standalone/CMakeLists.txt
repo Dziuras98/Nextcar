@@ -9,6 +9,9 @@ get_filename_component(NEXTCAR_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUT
 set(ENGINE_SIM_ROOT "${NEXTCAR_ROOT}/Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim")
 set(SOLVER_ROOT "${NEXTCAR_ROOT}/Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/simple-2d-constraint-solver")
 set(CORE_ROOT "${NEXTCAR_ROOT}/Plugins/NextcarEngineSim/Source/NextcarEngineSimCore")
+set(CALIBRATION_ROOT "${CORE_ROOT}/Private/Calibration")
+set(COLD_START_PROFILE_HEADER
+    "${CORE_ROOT}/Private/Generated/SubaruEJ25ColdStartProfile.generated.h")
 
 set(SOLVER_SOURCES
     ${SOLVER_ROOT}/src/clutch_constraint.cpp
@@ -88,22 +91,85 @@ target_include_directories(nc003b_fixture PUBLIC
 )
 target_link_libraries(nc003b_fixture PUBLIC nc003b_engine_sim)
 
+add_library(nc003b_cold_start_calibration_lib STATIC
+    ${CALIBRATION_ROOT}/ColdStartCalibrationHarness.cpp
+)
+target_include_directories(nc003b_cold_start_calibration_lib PUBLIC
+    ${CALIBRATION_ROOT}
+    ${CORE_ROOT}/Private/Fixtures
+    ${CORE_ROOT}/Private/Generated
+    ${ENGINE_SIM_ROOT}/include
+    ${SOLVER_ROOT}/include
+)
+target_link_libraries(nc003b_cold_start_calibration_lib PUBLIC nc003b_fixture)
+
 add_executable(nc003b_phase0_tests tests/phase0_standalone_tests.cpp)
 target_link_libraries(nc003b_phase0_tests PRIVATE nc003b_fixture)
 
+add_executable(
+    nc003b_cold_start_calibration
+    calibration/cold_start_calibration_main.cpp
+)
+target_link_libraries(
+    nc003b_cold_start_calibration
+    PRIVATE nc003b_cold_start_calibration_lib
+)
+
+add_executable(
+    nc003b_cold_start_calibration_tests
+    tests/cold_start_calibration_tests.cpp
+)
+target_link_libraries(
+    nc003b_cold_start_calibration_tests
+    PRIVATE nc003b_cold_start_calibration_lib
+)
+
+if(EXISTS "${COLD_START_PROFILE_HEADER}")
+    add_executable(
+        nc003b_cold_start_profile_tests
+        tests/cold_start_profile_tests.cpp
+    )
+    target_include_directories(
+        nc003b_cold_start_profile_tests
+        PRIVATE ${CORE_ROOT}/Private/Generated
+    )
+endif()
+
+set(NC003B_PROJECT_TARGETS
+    nc003b_solver
+    nc003b_engine_sim
+    nc003b_fixture
+    nc003b_cold_start_calibration_lib
+    nc003b_phase0_tests
+    nc003b_cold_start_calibration
+    nc003b_cold_start_calibration_tests
+)
+if(TARGET nc003b_cold_start_profile_tests)
+    list(APPEND NC003B_PROJECT_TARGETS nc003b_cold_start_profile_tests)
+endif()
+
 if(MSVC)
-    target_compile_options(nc003b_solver PRIVATE /W4)
-    target_compile_options(nc003b_engine_sim PRIVATE /W4)
-    target_compile_options(nc003b_fixture PRIVATE /W4)
-    target_compile_options(nc003b_phase0_tests PRIVATE /W4)
+    foreach(target ${NC003B_PROJECT_TARGETS})
+        target_compile_options(${target} PRIVATE /W4)
+    endforeach()
 else()
     # Pinned solver headers use the MSVC spelling. Keep the compatibility
     # definition visible and confined to this standalone harness.
     target_compile_definitions(nc003b_solver PUBLIC __forceinline=inline)
-    foreach(target nc003b_solver nc003b_engine_sim nc003b_fixture nc003b_phase0_tests)
+    foreach(target ${NC003B_PROJECT_TARGETS})
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
 
 enable_testing()
 add_test(NAME nc003b_phase0_tests COMMAND nc003b_phase0_tests)
+add_test(
+    NAME nc003b_cold_start_calibration_tests
+    COMMAND nc003b_cold_start_calibration_tests
+)
+if(TARGET nc003b_cold_start_profile_tests)
+    add_test(
+        NAME nc003b_cold_start_profile_tests
+        COMMAND nc003b_cold_start_profile_tests
+    )
+endif()

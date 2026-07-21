@@ -1,0 +1,152 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$CandidateSha,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Discovery', 'Selected')]
+    [string]$Phase,
+
+    [string]$SelectedCandidatePath = '',
+
+    [string]$ArtifactRoot = 'nc003b-cold-start-artifact'
+)
+
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
+Set-StrictMode -Version Latest
+
+$RepositoryRoot = (Get-Location).Path
+Set-Location $RepositoryRoot
+$ArtifactPath = Join-Path $RepositoryRoot $ArtifactRoot
+$LogPath = Join-Path $ArtifactPath 'logs'
+New-Item -ItemType Directory -Force -Path $LogPath | Out-Null
+
+$Failure = $null
+$ProjectWarningCount = -1
+$CleanReproducibility = 'NOT RUN'
+$ReleaseResult = 'NOT RUN'
+$DebugResult = 'NOT RUN'
+$AsanResult = 'NOT RUN'
+$SelectedTrialsResult = 'NOT RUN'
+$TimeoutResult = 'NOT RUN'
+$StallResult = 'NOT RUN'
+$PythonTests = 'NOT RUN'
+
+function Compact([string]$Value) {
+    $Text = $Value `
+        -replace [regex]::Escape($RepositoryRoot), '<repo>' `
+        -replace '[\r\n]+', ' ' `
+        -replace '\s+', ' '
+    $Text = $Text.Trim()
+    if ($Text.Length -gt 500) {
+        return $Text.Substring(0, 500)
+    }
+    return $Text
+}
+
+function Invoke-Logged(
+    [string]$Name,
+    [string]$LogName,
+    [scriptblock]$Command
+) {
+    $Output = @(& $Command 2>&1)
+    $ExitCode = $LASTEXITCODE
+    $Output | Tee-Object -FilePath (Join-Path $LogPath $LogName) | Out-Host
+    if ($ExitCode -ne 0) {
+        $Tail = @(
+            $Output |
+                ForEach-Object { ([string]$_).Trim() } |
+                Where-Object { $_ } |
+                Select-Object -Last 12
+        )
+        throw "$Name failed with exit code $ExitCode -- $(Compact ($Tail -join ' / '))"
+    }
+    return ,$Output
+}
+
+function Configure([string]$Directory, [string[]]$Extra = @()) {
+    $Arguments = @(
+        '-S', 'Tools/EngineSimVendor/Standalone',
+        '-B', $Directory,
+        '-G', 'Visual Studio 17 2022',
+        '-A', 'x64',
+        '-T', 'v143'
+    ) + $Extra
+    Invoke-Logged "$Directory configure" "$Directory-configure.log" {
+        cmake @Arguments
+    } | Out-Null
+}
+
+function Build(
+    [string]$Directory,
+    [string]$Configuration,
+    [string]$Prefix
+) {
+    Invoke-Logged "$Prefix build" "$Prefix-build.log" {
+        cmake --build $Directory --config $Configuration --verbose
+    } | Out-Null
+}
+
+function Test-CMake(
+    [string]$Directory,
+    [string]$Configuration,
+    [string]$Prefix
+) {
+    Invoke-Logged "$Prefix CTest" "$Prefix-ctest.log" {
+        ctest --test-dir $Directory -C $Configuration --output-on-failure
+    } | Out-Null
+}
+
+function Get-Executable(
+    [string]$Directory,
+    [string]$Configuration,
+    [string]$Name
+) {
+    return Join-Path $RepositoryRoot "$Directory/$Configuration/$Name.exe"
+}
+
+function Write-HashManifest([string]$Root, [string]$OutputPath) {
+    $ResolvedRoot = (Resolve-Path $Root).Path
+    $Entries = @(
+        Get-ChildItem -Path $ResolvedRoot -File -Recurse |
+            Where-Object { $_.FullName -ne $OutputPath } |
+            Sort-Object FullName |
+            ForEach-Object {
+                [ordered]@{
+                    path = $_.FullName.Substring($ResolvedRoot.Length + 1).Replace('\', '/')
+                    sha256 = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLowerInvariant()
+                    size = $_.Length
+                }
+            }
+    )
+    $Json = ConvertTo-Json -InputObject $Entries -Depth 4
+    [System.IO.File]::WriteAllText(
+        $OutputPath,
+        $Json + "`n",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
+
+try {
+    git config --global core.autocrlf false
+    git config --global core.eol lf
+
+    $ActualSha = (git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $ActualSha -ne $CandidateSha) {
+        throw "expected candidate $CandidateSha, checked out $ActualSha"
+    }
+    if (git status --porcelain) {
+        throw 'candidate checkout is not clean'
+    }
+
+    $PythonVersion = ((python --version 2>&1) -join ' ').Trim()
+    $CMakeVersion = ((cmake --version | Select-Object -First 1) -join ' ').Trim()
+    $GitVersion = ((git --version) -join ' ').Trim()
+
+    $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $VsWhere)) {
+        throw 'vswhere.exe not found'
+    }
+    $VisualStudioPath = (
+        & $VsWhere -latest -products * `
