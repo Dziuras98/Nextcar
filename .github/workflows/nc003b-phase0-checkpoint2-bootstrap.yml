@@ -150,23 +150,26 @@ jobs:
           PY
           cmp /tmp/nc003b-cp2/selected-profile/subaru_ej25_cold_start_profile.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json
           cmp /tmp/nc003b-cp2/selected-profile/SubaruEJ25ColdStartProfile.generated.h Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h
-          for n in $(seq -w 0 9); do
+          for i in {0..9}; do
+            n="$(printf '%02d' "$i")"
             cmp "/tmp/nc003b-cp2/selected-profile/selected-calibration/positive-traces/trial-${n}.json" "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-${n}.json"
           done
           cmp /tmp/nc003b-cp2/selected-profile/selected-calibration/negative-timeout.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/negative-timeout.json
           cmp /tmp/nc003b-cp2/selected-profile/selected-calibration/negative-stall.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/negative-stall.json
+          echo "selected-profile artifact SHA-256 and hash-manifest: PASS" | tee /tmp/nc003b-cp2/logs/selected-profile-artifact.log
 
-      - name: Run cold-start mutation and generator validation
+      - name: Run cold-start mutation, verifier, and generator validation
         shell: bash
         run: |
           set -euo pipefail
-          PROFILE="Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json"
+          ARTIFACT_PROFILE="/tmp/nc003b-cp2/selected-profile/subaru_ej25_cold_start_profile.json"
           HEADER="Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h"
           python -B Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py 2>&1 | tee /tmp/nc003b-cp2/logs/cold-start-tests.log
-          python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile "$PROFILE" --output /tmp/nc003b-cp2/cold-start-generated.h
+          python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile "$ARTIFACT_PROFILE" --repo-root . | tee /tmp/nc003b-cp2/logs/cold-start-verifier.log
+          python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile "$ARTIFACT_PROFILE" --output /tmp/nc003b-cp2/cold-start-generated.h
           cmp "$HEADER" /tmp/nc003b-cp2/cold-start-generated.h
           echo "cold-start generator byte-identical: PASS" | tee /tmp/nc003b-cp2/logs/cold-start-generator.log
-          python -B Tools/EngineSimVendor/verify_cold_start_profile.py --help > /tmp/nc003b-cp2/logs/cold-start-verifier-help.log
+          echo "profile/header byte-identical: PASS" | tee /tmp/nc003b-cp2/logs/profile-header-consistency.log
 
       - name: Prove closure residue and dependency boundaries
         shell: bash
