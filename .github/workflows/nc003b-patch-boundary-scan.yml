@@ -17,24 +17,34 @@ jobs:
           ref: manager/nc-003b-phase0-final-closure-validation
           fetch-depth: 1
           persist-credentials: true
-      - name: Replace PowerShell boundary scans with deterministic Python
+      - name: Correct PowerShell boundary scans
         shell: bash
-        env:
-          REPLACEMENT_B64: QCAgICAgICAgICBAJwogICAgICAgICAgaW1wb3J0IGpzb24KICAgICAgICAgIGltcG9ydCByZQogICAgICAgICAgaW1wb3J0IHN1YnByb2Nlc3MKICAgICAgICAgIGZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKICAgICAgICAgIGxvZ3MgPSBQYXRoKCduYzAwM2ItZmluYWwtY2xvc3VyZS1hcnRpZmFjdC9sb2dzJykKICAgICAgICAgIHRyYWNrZWQgPSBzdWJwcm9jZXNzLmNoZWNrX291dHB1dChbJ2dpdCcsICdscy1maWxlcycsICcteiddKS5zcGxpdChiJ1wwJykKICAgICAgICAgIHRyYWNrZWRfcGF0aHMgPSBbUGF0aChpdGVtLmRlY29kZSgndXRmLTgnKSkgZm9yIGl0ZW0gaW4gdHJhY2tlZCBpZiBpdGVtXQogICAgICAgICAgbmV0d29ya19wYXR0ZXJucyA9IFsKICAgICAgICAgICAgICByZS5jb21waWxlKHInUlVOTkVSX0JPT1RTVFJBUF9SRVFVRVNUJyksCiAgICAgICAgICAgICAgcmUuY29tcGlsZShyJ2Jvb3RzdHJhcF9vbl9ydW5uZXJcLnBzMScpLAogICAgICAgICAgICAgIHJlLmNvbXBpbGUocidnaXQgY3JlZGVudGlhbCBmaWxsJyksCiAgICAgICAgICBdCiAgICAgICAgICBydW50aW1lX3BhdHRlcm5zID0gWwogICAgICAgICAgICAgIHJlLmNvbXBpbGUocidMb2FkV2F2ZScpLAogICAgICAgICAgICAgIHJlLmNvbXBpbGUocidsb2FkV2F2ZScpLAogICAgICAgICAgICAgIHJlLmNvbXBpbGUocidzdGQ6Omlmc3RyZWFtLipcLndhdicpLAogICAgICAgICAgICAgIHJlLmNvbXBpbGUocidm b3BlblwoLipcLndhdicucmVwbGFjZSgnICcsICcnKSksCiAgICAgICAgICBdCiAgICAgICAgICBuZXR3b3JrX2hpdHMgPSBbXQogICAgICAgICAgcnVudGltZV9oaXRzID0gW10KICAgICAgICAgIGZvciBwYXRoIGluIHRyYWNrZWRfcGF0aHM6CiAgICAgICAgICAgICAgaWYgcGF0aC5zdWZmaXgubG93ZXIoKSA9PSAnLm1kJzoKICAgICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICAgIHRleHQgPSBwYXRoLnJlYWRfdGV4dChlbmNvZGluZz0ndXRmLTgnKQogICAgICAgICAgICAgIGV4Y2VwdCAoVW5pY29kZURlY29kZUVycm9yLCBPU0Vycm9yKToKICAgICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgICByZWwgPSBwYXRoLmFzX3Bvc2l4KCkKICAgICAgICAgICAgICBmb3IgbGluZV9ubywgbGluZSBpbiBlbnVtZXJhdGUodGV4dC5zcGxpdGxpbmVzKCksIDEpOgogICAgICAgICAgICAgICAgaWYgYW55KHBhdHRlcm4uc2VhcmNoKGxpbmUpIGZvciBwYXR0ZXJuIGluIG5ldHdvcmtfcGF0dGVybnMpOgogICAgICAgICAgICAgICAgICAgIG5ldHdvcmtfaGl0cy5hcHBlbmQoZid7cmVsfTp7bGluZV9ub306e2xpbmV9JykKICAgICAgICAgICAgICAgIGlmICgKICAgICAgICAgICAgICAgICAgICByZWwuc3RhcnRzd2l0aCgnUGx1Z2lucy9OZXh0Y2FyRW5naW5lU2ltL1NvdXJjZS9OZXh0Y2FyRW5naW5lU2ltQ29yZS8nKQogICAgICAgICAgICAgICAgICAgIGFuZCAnL1ByaXZhdGUvR2VuZXJhdGVkLycgbm90IGluIGYnL3tyZWx9JwogICAgICAgICAgICAgICAgICAgIGFuZCBhbnkocGF0dGVybi5zZWFyY2gobGluZSkgZm9yIHBhdHRlcm4gaW4gcnVudGltZV9wYXR0ZXJucykKICAgICAgICAgICAgICAgICk6CiAgICAgICAgICAgICAgICAgICAgcnVudGltZV9oaXRzLmFwcGVuZChmJ3tyZWx9OntsaW5lX25vfTp7bGluZX0nKQogICAgICAgICAgYXNzZXJ0IG5vdCBuZXR3b3JrX2hpdHMsIG5ldHdvcmtfaGl0cwogICAgICAgICAgYXNzZXJ0IG5vdCBydW50aW1lX2hpdHMsIHJ1bnRpbWVfaGl0cwogICAgICAgICAgcHljYWNoZSA9IHNvcnRlZChzdHIocGF0aCkgZm9yIHBhdGggaW4gUGF0aCgnLicpLnJnbG9iKCdfX3B5Y2FjaGVfXycpIGlmIHBhdGguaXNfZGlyKCkpCiAgICAgICAgICBweWMgPSBzb3J0ZWQoc3RyKHBhdGgpIGZvciBwYXRoIGluIFBhdGgoJy4nKS5yZ2xvYignKi5weWMnKSBpZiBwYXRoLmlzX2ZpbGUoKSkKICAgICAgICAgIGFzc2VydCBub3QgcHljYWNoZSwgcHljYWNoZQogICAgICAgICAgYXNzZXJ0IG5vdCBweWMsIHB5YwogICAgICAgICAgKGxvZ3MgLyAnbmV0d29yay1zY2FuLmxvZycpLndyaXRlX3RleHQoJ25ldHdvcmsgZGVwZW5kZW5jeSBzY2FuOiBQQVNTXG4nLCBlbmNvZGluZz0ndXRmLTgnKQogICAgICAgICAgKGxvZ3MgLyAncnVudGltZS13YXYtc2Nhbi5sb2cnKS53cml0ZV90ZXh0KCdydW50aW1lIFdBViBkZXBlbmRlbmN5IHNjYW46IFBBU1NcbicsIGVuY29kaW5nPSd1dGYtOCcpCiAgICAgICAgICAobG9ncyAvICdyZXNpZHVlLXNjYW4tcHJlLW1hdHJpeC5sb2cnKS53cml0ZV90ZXh0KAogICAgICAgICAgICAgICdyZXNpZHVlIHNjYW46IFBBU1Ncb19fcHljYWNoZV9fIGNvdW50OiAwXG4ucHljIGNvdW50OiAwXG4nLAogICAgICAgICAgICAgIGVuY29kaW5nPSd1dGYtOCcsCiAgICAgICAgICApCiAgICAgICAgICAnQCB8IHB5dGhvbiAtQiAtCiAgICAgICAgICBpZiAoJExBU1RFWElUQ09ERSAtbmUgMCkgeyB0aHJvdyAnYm91bmRhcnkgc2NhbiBmYWlsZWQnIH0=
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "a4501c9e7d921359b4eae36b601c8475ead1374f"
           python -B - <<'PY'
-          import base64
-          import os
           from pathlib import Path
+
           path = Path('.github/workflows/nc003b-phase0-final-closure-windows.yml')
           text = path.read_text(encoding='utf-8')
           start_marker = "          git grep -n -I -E 'RUNNER_BOOTSTRAP_REQUEST"
           end_marker = "          @('residue scan: PASS', '__pycache__ count: 0', '.pyc count: 0') | Set-Content -Encoding utf8 (Join-Path $logs 'residue-scan-pre-matrix.log')"
           start = text.index(start_marker)
           end = text.index(end_marker, start) + len(end_marker)
-          replacement = base64.b64decode(os.environ['REPLACEMENT_B64']).decode('utf-8')
+          replacement = """          $networkHits = @(& git grep -n -I -E 'RUNNER_BOOTSTRAP_REQUEST|bootstrap_on_runner\\.ps1|git credential fill' -- ':!*.md' 2>&1)
+          $networkExit = $LASTEXITCODE
+          if ($networkExit -eq 0) { $networkHits | Set-Content -Encoding utf8 (Join-Path $logs 'network-scan.log'); throw 'network dependency residue found' }
+          if ($networkExit -ne 1) { throw \"network scan failed with exit $networkExit\" }
+          'network dependency scan: PASS' | Set-Content -Encoding utf8 (Join-Path $logs 'network-scan.log')
+          $runtimeHits = @(& git grep -n -I -E 'LoadWave|loadWave|std::ifstream.*\\.wav|fopen\\(.*\\.wav' -- Plugins/NextcarEngineSim/Source/NextcarEngineSimCore ':(exclude)Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/**' 2>&1)
+          $runtimeExit = $LASTEXITCODE
+          if ($runtimeExit -eq 0) { $runtimeHits | Set-Content -Encoding utf8 (Join-Path $logs 'runtime-wav-scan.log'); throw 'runtime WAV dependency found' }
+          if ($runtimeExit -ne 1) { throw \"runtime WAV scan failed with exit $runtimeExit\" }
+          'runtime WAV dependency scan: PASS' | Set-Content -Encoding utf8 (Join-Path $logs 'runtime-wav-scan.log')
+          $pycache = @(Get-ChildItem -Recurse -Force -Directory -Filter __pycache__ -ErrorAction SilentlyContinue)
+          $pyc = @(Get-ChildItem -Recurse -Force -File -Filter *.pyc -ErrorAction SilentlyContinue)
+          if ($pycache.Count -ne 0 -or $pyc.Count -ne 0) { throw \"Python residue: pycache=$($pycache.Count) pyc=$($pyc.Count)\" }
+          @('residue scan: PASS', '__pycache__ count: 0', '.pyc count: 0') | Set-Content -Encoding utf8 (Join-Path $logs 'residue-scan-pre-matrix.log')"""
           updated = text[:start] + replacement + text[end:]
           path.write_text(updated, encoding='utf-8')
           PY
