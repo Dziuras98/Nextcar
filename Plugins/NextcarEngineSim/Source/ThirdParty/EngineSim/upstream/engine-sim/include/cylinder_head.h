@@ -13,21 +13,21 @@ class CylinderBank;
 class CylinderHead : public Part {
     public:
         struct Parameters {
-            CylinderBank *Bank;
+            CylinderBank *bank;
 
-            Function *ExhaustPortFlow;
-            Function *IntakePortFlow;
+            Function *exhaustPortFlow;
+            Function *intakePortFlow;
 
-            Valvetrain *Valvetrain;
+            Valvetrain *valvetrain;
 
-            double CombustionChamberVolume;
+            double combustionChamberVolume;
 
-            double IntakeRunnerVolume;
-            double IntakeRunnerCrossSectionArea;
-            double ExhaustRunnerVolume;
-            double ExhaustRunnerCrossSectionArea;
+            double intakeRunnerVolume;
+            double intakeRunnerCrossSectionArea;
+            double exhaustRunnerVolume;
+            double exhaustRunnerCrossSectionArea;
 
-            bool FlipDisplay = false;
+            bool flipDisplay = false;
         };
 
         struct Cylinder {

@@ -1,7 +1,8 @@
 #ifndef ATG_ENGINE_SIM_COMBUSTION_CHAMBER_H
 #define ATG_ENGINE_SIM_COMBUSTION_CHAMBER_H
 
-#include "scs.h"
+#include "force_generator.h"
+#include "system_state.h"
 
 #include "piston.h"
 #include "gas_system.h"
@@ -9,18 +10,21 @@
 #include "units.h"
 #include "fuel.h"
 
+#include <cstdint>
+
 class Engine;
 class CombustionChamber : public atg_scs::ForceGenerator {
     public:
         struct Parameters {
-            Piston *Piston;
-            CylinderHead *Head;
-            Fuel *Fuel;
-            Function *MeanPistonSpeedToTurbulence;
+            Piston *piston;
+            CylinderHead *head;
+            Fuel *fuel;
+            Function *meanPistonSpeedToTurbulence;
 
-            double StartingPressure;
-            double StartingTemperature;
-            double CrankcasePressure;
+            double startingPressure;
+            double startingTemperature;
+            double crankcasePressure;
+            std::uint32_t randomSeed = 0x4E433033u;
         };
 
         struct FlameEvent {
@@ -67,10 +71,12 @@ class CombustionChamber : public atg_scs::ForceGenerator {
         void ignite();
         void update(double dt);
         void flow(double dt);
+        void setDeterministicSeed(std::uint32_t seed) { m_rngState = seed == 0 ? 1u : seed; }
 
         double lastEventAfr() const;
 
         double getLastIterationExhaustFlow() const { return m_exhaustFlow; }
+        double getCrankcasePressure() const { return m_crankcasePressure; }
 
         void resetLastTimestepExhaustFlow() { m_lastTimestepTotalExhaustFlow = 0; }
         double getLastTimestepExhaustFlow() const { return m_lastTimestepTotalExhaustFlow; }
@@ -93,6 +99,7 @@ class CombustionChamber : public atg_scs::ForceGenerator {
     protected:
         double calculateFrictionForce(double v) const;
         void updateCycleStates();
+        double nextUnitRandom();
 
         double m_intakeFlowRate;
         double m_exhaustFlowRate;
@@ -118,6 +125,7 @@ class CombustionChamber : public atg_scs::ForceGenerator {
         CylinderHead *m_head;
         Engine *m_engine;
         Fuel *m_fuel;
+        std::uint32_t m_rngState = 0x4E433033u;
 };
 
 #endif /* ATG_ENGINE_SIM_COMBUSTION_CHAMBER_H */

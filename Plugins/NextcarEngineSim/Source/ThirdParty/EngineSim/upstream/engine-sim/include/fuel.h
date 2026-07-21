@@ -31,6 +31,7 @@ class Fuel {
 
         void initialize(const Parameters &params);
 
+        const std::string &getName() const { return m_name; }
         inline double getMolecularMass() const { return m_molecularMass; }
         inline double getEnergyDensity() const { return m_energyDensity; }
         inline double getDensity() const { return m_density; }

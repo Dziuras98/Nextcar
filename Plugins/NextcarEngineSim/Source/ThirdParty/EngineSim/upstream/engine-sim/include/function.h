@@ -17,6 +17,7 @@ class Function {
 
         void setInputScale(double s) { m_inputScale = s; }
         void setOutputScale(double s) { m_outputScale = s; }
+        void setFilterRadius(double radius) { m_filterRadius = radius; }
         void addSample(double x, double y);
 
         double sampleTriangle(double x) const;

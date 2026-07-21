@@ -1,0 +1,113 @@
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+    ).Trim()
+    $VisualStudioVersion = (
+        & $VsWhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationVersion
+    ).Trim()
+    if (-not $VisualStudioPath -or -not $VisualStudioVersion.StartsWith('17.')) {
+        throw "Visual Studio 2022 C++ tools not found: $VisualStudioVersion"
+    }
+
+    $DevCmd = Join-Path $VisualStudioPath 'Common7\Tools\VsDevCmd.bat'
+    cmd.exe /s /c "`"$DevCmd`" -arch=x64 -host_arch=x64 >nul && set" |
+        ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+                [Environment]::SetEnvironmentVariable(
+                    $matches[1],
+                    $matches[2],
+                    'Process'
+                )
+            }
+        }
+    if ($LASTEXITCODE -ne 0) {
+        throw 'VsDevCmd.bat failed'
+    }
+
+    $ClOutput = @(cmd.exe /d /c 'cl.exe 2>&1')
+    $MsvcVersion = [string](
+        $ClOutput |
+            Where-Object { ([string]$_) -match 'Compiler Version' } |
+            Select-Object -First 1
+    )
+    if (-not $MsvcVersion) {
+        throw 'MSVC version line not found'
+    }
+
+    Invoke-Logged 'Python py_compile' 'python-pycompile.log' {
+        python -m py_compile `
+            Tools/EngineSimVendor/run_cold_start_calibration.py `
+            Tools/EngineSimVendor/generate_cold_start_profile_header.py `
+            Tools/EngineSimVendor/verify_cold_start_profile.py `
+            Tools/EngineSimVendor/record_cold_start_calibration_evidence.py `
+            Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py
+    } | Out-Null
+    $UnitOutput = Invoke-Logged 'Python unit tests' 'python-unittest.log' {
+        python -m unittest -v `
+            Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py
+    }
+    if (($UnitOutput -join "`n") -notmatch 'Ran 15 tests') {
+        throw 'Python mutation suite did not run all 15 tests'
+    }
+    Invoke-Logged 'Python orchestrator self-test' 'python-self-test.log' {
+        python Tools/EngineSimVendor/run_cold_start_calibration.py self-test
+    } | Out-Null
+    $PythonTests = 'PASS'
+
+    Configure 'build-cold-start-release'
+    Build 'build-cold-start-release' 'Release' 'release'
+    Test-CMake 'build-cold-start-release' 'Release' 'release'
+    $ReleaseResult = 'PASS'
+
+    Configure 'build-cold-start-debug'
+    $DebugFlags = @(
+        Get-Content 'build-cold-start-debug/CMakeCache.txt' |
+            Where-Object { $_ -match '^CMAKE_CXX_FLAGS_DEBUG:' }
+    )
+    if (($DebugFlags -join "`n") -notmatch '/RTC1(?:\s|$)') {
+        throw 'Debug configuration does not contain /RTC1'
+    }
+    Build 'build-cold-start-debug' 'Debug' 'debug'
+    Test-CMake 'build-cold-start-debug' 'Debug' 'debug'
+    $DebugResult = 'PASS'
+
+    Configure 'build-cold-start-asan' @(
+        '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Zi /fsanitize=address',
+        '-DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/DEBUG /INCREMENTAL:NO'
+    )
+    Build 'build-cold-start-asan' 'RelWithDebInfo' 'asan'
+    $AsanDll = @(
+        Get-ChildItem `
+            -Path $env:VCToolsInstallDir `
+            -Filter 'clang_rt.asan_dynamic-x86_64.dll' `
+            -File `
+            -Recurse `
+            -ErrorAction SilentlyContinue
+    ) | Select-Object -Last 1
+    if (-not $AsanDll) {
+        throw 'MSVC AddressSanitizer runtime DLL not found'
+    }
+    $env:PATH = "$($AsanDll.DirectoryName);$env:PATH"
+    $env:ASAN_OPTIONS = 'abort_on_error=true:alloc_dealloc_mismatch=true'
+    Test-CMake 'build-cold-start-asan' 'RelWithDebInfo' 'asan'
+    $AsanResult = 'PASS'
+
+    $ReleaseCalibration = Get-Executable `
+        'build-cold-start-release' `
+        'Release' `
+        'nc003b_cold_start_calibration'
+    $SmokePath = Join-Path $ArtifactPath 'smoke-timeout.json'
+    Invoke-Logged 'calibration smoke' 'calibration-smoke.log' {
+        & $ReleaseCalibration `
+            --output $SmokePath `
+            --candidate-id smoke-timeout `
+            --trial-index 0 `
+            --seed 0x4E433033 `
+            --startup-throttle 0.05 `
+            --disengagement-rpm 100000 `
+            --post-min-rpm 400 `
+            --stability-window 0.5 `
+            --maximum-time 0.016666666666666666
+    } | Out-Null
+    $Smoke = Get-Content -Raw $SmokePath | ConvertFrom-Json

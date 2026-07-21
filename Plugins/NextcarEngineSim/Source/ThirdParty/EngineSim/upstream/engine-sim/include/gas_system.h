@@ -36,9 +36,11 @@ class GasSystem {
         GasSystem() { /* void */ }
         ~GasSystem() { /* void */ }
 
+        static const Mix &defaultMix();
+
         void setGeometry(double width, double height, double dx, double dy);
-        void initialize(double P, double V, double T, const Mix &mix = {}, int degreesOfFreedom = 5);
-        void reset(double P, double T, const Mix &mix = {});
+        void initialize(double P, double V, double T, const Mix &mix = defaultMix(), int degreesOfFreedom = 5);
+        void reset(double P, double T, const Mix &mix = defaultMix());
 
         void setVolume(double V);
         void setN(double n);
@@ -65,14 +67,14 @@ class GasSystem {
             double chokedFlowLimit,
             double chokedFlowRateCached);
         double loseN(double dn, double E_k_per_mol);
-        double gainN(double dn, double E_k_per_mol, const Mix &mix = {});
+        double gainN(double dn, double E_k_per_mol, const Mix &mix = defaultMix());
         void dissipateExcessVelocity();
 
         void updateVelocity(double dt, double beta = 1.0);
         void dissipateVelocity(double dt, double timeConstant);
 
         static double flow(const FlowParameters &params);
-        double flow(double k_flow, double dt, double P_env, double T_env, const Mix &mix = {});
+        double flow(double k_flow, double dt, double P_env, double T_env, const Mix &mix = defaultMix());
 
         double pressureEquilibriumMaxFlow(const GasSystem *b) const;
         double pressureEquilibriumMaxFlow(double P_env, double T_env) const;
@@ -119,6 +121,12 @@ class GasSystem {
         double m_dx = 0.0;
         double m_dy = 0.0;
 };
+
+
+inline const GasSystem::Mix &GasSystem::defaultMix() {
+    static const Mix value{};
+    return value;
+}
 
 inline constexpr double GasSystem::kineticEnergyPerMol(double T, int degreesOfFreedom) {
     return 0.5 * T * constants::R * degreesOfFreedom;

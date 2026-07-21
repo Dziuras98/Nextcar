@@ -2,42 +2,51 @@
 #define ATG_ENGINE_SIM_PISTON_ENGINE_SIMULATOR_H
 
 #include "simulator.h"
-#include "engine.h"
 #include "combustion_chamber.h"
-#include "synthesizer.h"
-#include "starter_motor.h"
-#include "derivative_filter.h"
 #include "delay_filter.h"
-#include "scs.h"
+#include "derivative_filter.h"
+#include "clutch_constraint.h"
+#include "fixed_position_constraint.h"
+#include "line_constraint.h"
+#include "link_constraint.h"
+#include "rotation_friction_constraint.h"
 
 class PistonEngineSimulator : public Simulator {
 public:
     PistonEngineSimulator();
-    virtual ~PistonEngineSimulator() override;
-    void loadSimulation(Engine *engine) override;
-    virtual double getTotalExhaustFlow() const override;
-    void endFrame() override;
-    virtual void destroy() override;
+    ~PistonEngineSimulator() override;
+
+    void loadSimulation(Engine *engine);
+    void startFrame(double dt) override;
+    double getTotalExhaustFlow() const override;
+    int endFrame(int maximumSynchronousFrames) override;
+    void destroy() override;
+
     void setFluidSimulationSteps(int steps) { m_fluidSimulationSteps = steps; }
     int getFluidSimulationSteps() const { return m_fluidSimulationSteps; }
     int getFluidSimulationFrequency() const { return m_fluidSimulationSteps * getSimulationFrequency(); }
-    virtual double getAverageOutputSignal() const override;
+    double getAverageOutputSignal() const override;
+    int getIgnitionEventsThisFrame() const { return m_ignitionEventsThisFrame; }
+
     DerivativeFilter m_derivativeFilter;
 
 protected:
-    virtual void simulateStep_() override;
+    void simulateStep_() override;
+    void writeToSynthesizer() override;
+
+private:
     void placeAndInitialize();
-    void placeCylinder(int i);
-    virtual void writeToSynthesizer() override;
+    void placeCylinder(int index);
+
     DelayFilter *m_delayFilters;
     atg_scs::FixedPositionConstraint *m_crankConstraints;
     atg_scs::ClutchConstraint *m_crankshaftLinks;
     atg_scs::RotationFrictionConstraint *m_crankshaftFrictionConstraints;
     atg_scs::LineConstraint *m_cylinderWallConstraints;
     atg_scs::LinkConstraint *m_linkConstraints;
-    Engine *m_engine;
     double *m_exhaustFlowStagingBuffer;
     int m_fluidSimulationSteps;
+    int m_ignitionEventsThisFrame;
 };
 
 #endif

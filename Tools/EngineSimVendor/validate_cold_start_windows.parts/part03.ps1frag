@@ -1,0 +1,105 @@
+                --output-profile $ProfilePath `
+                --output-header $HeaderPath `
+                --output-evidence $EvidencePath
+        } | Out-Null
+
+        Invoke-Logged 'profile verifier' 'profile-verifier.log' {
+            python Tools/EngineSimVendor/verify_cold_start_profile.py `
+                --profile $ProfilePath `
+                --repo-root $RepositoryRoot
+        } | Out-Null
+
+        Remove-Item -Recurse -Force build-cold-start-release
+        Configure 'build-cold-start-release'
+        Build 'build-cold-start-release' 'Release' 'profile-release'
+        Test-CMake 'build-cold-start-release' 'Release' 'profile-release'
+        Invoke-Logged 'profile direct runtime' 'profile-direct-runtime.log' {
+            & (Get-Executable `
+                'build-cold-start-release' `
+                'Release' `
+                'nc003b_cold_start_profile_tests')
+        } | Out-Null
+
+        $OriginalHashes = @(
+            Get-ChildItem -Path $CalibrationOutput -File -Recurse |
+                Where-Object {
+                    $_.Name -match '^(trial-\d+|negative-(timeout|stall))\.json$'
+                } |
+                Sort-Object FullName |
+                ForEach-Object {
+                    (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+                }
+        )
+        $ReproOutput = Join-Path `
+            $RepositoryRoot `
+            'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_repro'
+        Remove-Item -Recurse -Force $ReproOutput -ErrorAction SilentlyContinue
+        Invoke-Logged 'clean selected reproducibility' 'selected-repro.log' {
+            python Tools/EngineSimVendor/run_cold_start_calibration.py selected `
+                --executable $ReleaseCalibration `
+                --sweep Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_sweep.json `
+                --selected-candidate $SelectedCandidate `
+                --output $ReproOutput `
+                --repo-root $RepositoryRoot `
+                --candidate-sha $CandidateSha `
+                --trials 10
+        } | Out-Null
+        $ReproHashes = @(
+            Get-ChildItem -Path $ReproOutput -File -Recurse |
+                Where-Object {
+                    $_.Name -match '^(trial-\d+|negative-(timeout|stall))\.json$'
+                } |
+                Sort-Object FullName |
+                ForEach-Object {
+                    (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+                }
+        )
+        if (($OriginalHashes -join "`n") -ne ($ReproHashes -join "`n")) {
+            throw 'clean reproducibility trace hashes differ'
+        }
+        Remove-Item -Recurse -Force $ReproOutput
+        $CleanReproducibility = 'PASS'
+    }
+
+    $WarningLines = @()
+    Get-ChildItem $LogPath -Filter '*-build.log' |
+        ForEach-Object {
+            $WarningLines += @(
+                Select-String `
+                    -Path $_.FullName `
+                    -Pattern 'warning C\d+:' |
+                    ForEach-Object { $_.Line.Trim() }
+            )
+        }
+    $ProjectWarnings = @(
+        $WarningLines |
+            Sort-Object -Unique |
+            Where-Object {
+                $_ -match 'NextcarEngineSimCore' -or
+                $_ -match 'Standalone[\\/](calibration|tests)' -or
+                $_ -match 'ColdStartCalibration'
+            }
+    )
+    $ProjectWarningCount = $ProjectWarnings.Count
+    $ProjectWarnings |
+        Set-Content `
+            -Path (Join-Path $ArtifactPath 'project-warnings.txt') `
+            -Encoding utf8
+    if ($ProjectWarningCount -ne 0) {
+        throw "project warning count is $ProjectWarningCount"
+    }
+
+    if ($Phase -eq 'Selected') {
+        $RunMetadataPath = Join-Path `
+            $RepositoryRoot `
+            'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/windows-run-metadata.json'
+        $RunMetadata = Get-Content -Raw $RunMetadataPath | ConvertFrom-Json
+        $RunMetadata.clean_reproducibility = $CleanReproducibility
+        $RunMetadata.project_warning_count = $ProjectWarningCount
+        [System.IO.File]::WriteAllText(
+            $RunMetadataPath,
+            (ConvertTo-Json $RunMetadata -Depth 4) + "`n",
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        $ProfileCandidatePath = Join-Path `
+            $RepositoryRoot `

@@ -1,4 +1,5 @@
 #include "SubaruEJ25AtgVideo2Fixture.h"
+#include "MinimalMuffling02ImpulseResponse.generated.h"
 
 #include "constants.h"
 #include "direct_throttle_linkage.h"
@@ -6,252 +7,304 @@
 #include "units.h"
 
 #include <cmath>
+#include <cstdint>
 
 namespace NextcarEngineSim::Phase0 {
-namespace {
-constexpr double DiskMoment(double Mass, double Radius) { return 0.5 * Mass * Radius * Radius; }
-constexpr double RodMoment(double Mass, double Length) { return Mass * Length * Length / 12.0; }
+SubaruEJ25AtgVideo2Fixture::SubaruEJ25AtgVideo2Fixture()
+    : Snapshot(MakeSubaruEJ25AtgVideo2Snapshot()) {
+    BuildFunctions();
+    BuildEngine();
 }
-
-SubaruEJ25AtgVideo2Fixture::SubaruEJ25AtgVideo2Fixture() { BuildFunctions(); BuildEngine(); }
 SubaruEJ25AtgVideo2Fixture::~SubaruEJ25AtgVideo2Fixture() { Destroy(); }
 
-void SubaruEJ25AtgVideo2Fixture::AddHarmonicCamLobe(Function &Target, double DurationAt50Thou, double Gamma, double Lift, int Steps) {
-    const double Angle = DurationAt50Thou / 4.0;
-    const double S = std::pow(2.0 * units::distance(50.0, units::thou) / Lift, 1.0 / Gamma) - 1.0;
-    const double K = std::acos(S) / Angle;
-    const double Extents = constants::pi / K;
-    const double Step = Extents / (Steps - 5.0);
-    Target.initialize(2 * Steps - 1, Step);
-    for (int Index = 0; Index < Steps; ++Index) {
-        if (Index == 0) {
-            Target.addSample(0.0, Lift);
-        } else {
-            const double X = Index * Step;
-            const double SampleLift = (X >= Extents)
-                ? 0.0
-                : Lift * std::pow(0.5 + 0.5 * std::cos(K * X), Gamma);
-            Target.addSample(X, SampleLift);
-            Target.addSample(-X, SampleLift);
+void SubaruEJ25AtgVideo2Fixture::AddHarmonicCamLobe(
+    Function &target, double durationAt50Thou, double gamma, double lift, int steps) {
+    const double angle = durationAt50Thou / 4.0;
+    const double s = std::pow(2.0 * units::distance(50.0, units::thou) / lift, 1.0 / gamma) - 1.0;
+    const double k = std::acos(s) / angle;
+    const double extents = constants::pi / k;
+    const double step = extents / (steps - 5.0);
+    target.initialize(2 * steps - 1, step);
+    for (int i = 0; i < steps; ++i) {
+        if (i == 0) {
+            target.addSample(0.0, lift);
+            continue;
         }
+        const double x = i * step;
+        const double y = x >= extents ? 0.0 : lift * std::pow(0.5 + 0.5 * std::cos(k * x), gamma);
+        target.addSample(x, y);
+        target.addSample(-x, y);
     }
 }
 
 void SubaruEJ25AtgVideo2Fixture::BuildFunctions() {
-    Turbulence.initialize(10, 5.0);
-    const double TurbulencePoints[][2] = {{0,3},{5,7.5},{10,15},{15,24.75},{20,37.5},{25,46.875},{30,56.25},{35,65.625},{40,75},{45,84.375}};
-    for (const auto &Point : TurbulencePoints) Turbulence.addSample(Point[0], Point[1]);
-
-    IntakeFlow.initialize(10, units::distance(50, units::thou));
-    ExhaustFlow.initialize(10, units::distance(50, units::thou));
-    const double IntakeCfm[] = {0,58,103,156,214,249,268,280,280,281};
-    const double ExhaustCfm[] = {0,37,72,113,160,196,222,235,245,246};
-    for (int Index = 0; Index < 10; ++Index) {
-        const double ValveLift = units::distance(Index * 50.0, units::thou);
-        IntakeFlow.addSample(ValveLift, GasSystem::k_28inH2O(IntakeCfm[Index]));
-        ExhaustFlow.addSample(ValveLift, GasSystem::k_28inH2O(ExhaustCfm[Index]));
+    FuelTurbulence.initialize(
+        static_cast<int>(Snapshot.FuelTurbulenceTable.size()),
+        5.0);
+    for (const auto &point : Snapshot.FuelTurbulenceTable) {
+        FuelTurbulence.addSample(point[0], point[1]);
     }
 
-    AddHarmonicCamLobe(IntakeLobe, units::angle(232, units::deg), 2.0, units::distance(9.78, units::mm), 100);
-    AddHarmonicCamLobe(ExhaustLobe, units::angle(236, units::deg), 2.0, units::distance(9.60, units::mm), 100);
+    MeanPistonSpeedTurbulence.initialize(
+        static_cast<int>(Snapshot.MeanPistonSpeedTurbulenceTable.size()),
+        1.0);
+    for (const auto &point : Snapshot.MeanPistonSpeedTurbulenceTable) {
+        MeanPistonSpeedTurbulence.addSample(point[0], point[1]);
+    }
 
-    TimingCurve.initialize(5, units::rpm(1000));
-    TimingCurve.addSample(units::rpm(0), units::angle(25, units::deg));
-    TimingCurve.addSample(units::rpm(1000), units::angle(25, units::deg));
-    TimingCurve.addSample(units::rpm(2000), units::angle(30, units::deg));
-    TimingCurve.addSample(units::rpm(3000), units::angle(40, units::deg));
-    TimingCurve.addSample(units::rpm(4000), units::angle(40, units::deg));
+    IntakeFlow.initialize(
+        static_cast<int>(Snapshot.IntakeFlowCfm.size()),
+        units::distance(50, units::thou));
+    ExhaustFlow.initialize(
+        static_cast<int>(Snapshot.ExhaustFlowCfm.size()),
+        units::distance(50, units::thou));
+    for (std::size_t i = 0; i < Snapshot.IntakeFlowCfm.size(); ++i) {
+        const double lift = units::distance(static_cast<double>(i) * 50.0, units::thou);
+        IntakeFlow.addSample(lift, GasSystem::k_28inH2O(Snapshot.IntakeFlowCfm[i]));
+        ExhaustFlow.addSample(lift, GasSystem::k_28inH2O(Snapshot.ExhaustFlowCfm[i]));
+    }
+
+    AddHarmonicCamLobe(
+        IntakeLobe,
+        units::angle(Snapshot.IntakeLobe.DurationAt50ThouDeg, units::deg),
+        Snapshot.IntakeLobe.Gamma,
+        units::distance(Snapshot.IntakeLobe.LiftMm, units::mm),
+        Snapshot.IntakeLobe.Steps);
+    AddHarmonicCamLobe(
+        ExhaustLobe,
+        units::angle(Snapshot.ExhaustLobe.DurationAt50ThouDeg, units::deg),
+        Snapshot.ExhaustLobe.Gamma,
+        units::distance(Snapshot.ExhaustLobe.LiftMm, units::mm),
+        Snapshot.ExhaustLobe.Steps);
+
+    TimingCurve.initialize(
+        static_cast<int>(Snapshot.TimingRpm.size()),
+        units::rpm(1000));
+    for (std::size_t i = 0; i < Snapshot.TimingRpm.size(); ++i) {
+        TimingCurve.addSample(
+            units::rpm(Snapshot.TimingRpm[i]),
+            units::angle(Snapshot.TimingAdvanceDeg[i], units::deg));
+    }
 }
 
 void SubaruEJ25AtgVideo2Fixture::BuildEngine() {
-    auto *Throttle = new DirectThrottleLinkage;
-    DirectThrottleLinkage::Parameters ThrottleParams{};
-    ThrottleParams.gamma = 2.0;
-    Throttle->initialize(ThrottleParams);
+    auto *throttle = new DirectThrottleLinkage;
+    DirectThrottleLinkage::Parameters throttleParams{};
+    throttleParams.gamma = Snapshot.ThrottleGamma;
+    throttle->initialize(throttleParams);
 
-    Engine::Parameters EngineParams{};
-    EngineParams.cylinderBanks = 2;
-    EngineParams.cylinderCount = 4;
-    EngineParams.crankshaftCount = 1;
-    EngineParams.exhaustSystemCount = 1;
-    EngineParams.intakeCount = 1;
-    EngineParams.name = "Subaru EJ25";
-    EngineParams.starterTorque = units::torque(70, units::ft_lb);
-    EngineParams.starterSpeed = units::rpm(500);
-    EngineParams.redline = units::rpm(6500);
-    EngineParams.throttle = Throttle;
-    EngineParams.initialSimulationFrequency = SimulationFrequencyHz;
-    EngineParams.initialHighFrequencyGain = 0.01;
-    EngineParams.initialNoise = 1.0;
-    EngineParams.initialJitter = 0.5;
-    EngineInstance.initialize(EngineParams);
+    Engine::Parameters ep{};
+    ep.cylinderBanks = Snapshot.ObjectCounts.CylinderBanks;
+    ep.cylinderCount = Snapshot.ObjectCounts.Cylinders;
+    ep.crankshaftCount = Snapshot.ObjectCounts.Crankshafts;
+    ep.exhaustSystemCount = Snapshot.ObjectCounts.ExhaustSystems;
+    ep.intakeCount = Snapshot.ObjectCounts.Intakes;
+    ep.name = Snapshot.EngineName.data();
+    ep.starterTorque = units::torque(Snapshot.StarterTorqueLbFt, units::ft_lb);
+    ep.starterSpeed = units::rpm(Snapshot.StarterSpeedRpm);
+    ep.redline = units::rpm(Snapshot.RedlineRpm);
+    ep.dynoMinSpeed = units::rpm(Snapshot.DynoMinSpeedRpm);
+    ep.dynoMaxSpeed = units::rpm(Snapshot.DynoMaxSpeedRpm);
+    ep.dynoHoldStep = units::rpm(Snapshot.DynoHoldStepRpm);
+    ep.throttle = throttle;
+    ep.initialSimulationFrequency = Snapshot.SimulationFrequencyHz;
+    ep.initialHighFrequencyGain = Snapshot.HighFrequencyGain;
+    ep.initialNoise = Snapshot.Noise;
+    ep.initialJitter = Snapshot.Jitter;
+    EngineInstance.initialize(ep);
 
-    Fuel::Parameters FuelParams{};
-    FuelParams.maxBurningEfficiency = 0.9;
-    FuelParams.turbulenceToFlameSpeedRatio = &Turbulence;
-    EngineInstance.getFuel()->initialize(FuelParams);
+    Fuel::Parameters fuel{};
+    fuel.name = Snapshot.FuelName.data();
+    fuel.molecularMass = units::mass(Snapshot.FuelMolecularMassG, units::g);
+    fuel.energyDensity =
+        units::energy(Snapshot.FuelEnergyDensityKjPerG, units::kJ)
+        / units::mass(1.0, units::g);
+    fuel.density =
+        units::mass(Snapshot.FuelDensityKgPerL, units::kg)
+        / units::volume(1.0, units::L);
+    fuel.molecularAfr = Snapshot.FuelMolecularAfr;
+    fuel.burningEfficiencyRandomness = Snapshot.FuelBurningRandomness;
+    fuel.lowEfficiencyAttenuation = Snapshot.FuelLowEfficiencyAttenuation;
+    fuel.maxBurningEfficiency = Snapshot.FuelMaxBurningEfficiency;
+    fuel.maxTurbulenceEffect = Snapshot.FuelMaxTurbulenceEffect;
+    fuel.maxDilutionEffect = Snapshot.FuelMaxDilutionEffect;
+    fuel.turbulenceToFlameSpeedRatio = &FuelTurbulence;
+    EngineInstance.getFuel()->initialize(fuel);
 
-    constexpr double Stroke = units::distance(79, units::mm);
-    constexpr double Bore = units::distance(99.5, units::mm);
-    constexpr double RodLength = units::distance(5.142, units::inch);
-    constexpr double RodMass = units::mass(535, units::g);
-    constexpr double CompressionHeight = units::distance(1, units::inch);
-    constexpr double CrankMass = units::mass(9.39, units::kg);
-    constexpr double FlywheelMass = units::mass(6.8, units::kg);
+    const double bore = units::distance(Snapshot.BoreMm, units::mm);
+    const double rodLength = units::distance(Snapshot.RodLengthInch, units::inch);
+    const double rodMass = units::mass(Snapshot.RodMassG, units::g);
+    const double compressionHeight = units::distance(Snapshot.CompressionHeightInch, units::inch);
+    const double crankMass = units::mass(Snapshot.CrankMassKg, units::kg);
+    const double flywheelMass = units::mass(Snapshot.FlywheelMassKg, units::kg);
 
-    Crankshaft::Parameters CrankParams{};
-    CrankParams.mass = CrankMass;
-    CrankParams.flywheelMass = FlywheelMass;
-    CrankParams.crankThrow = Stroke / 2;
-    CrankParams.rodJournals = 4;
-    CrankParams.momentOfInertia = DiskMoment(CrankMass, Stroke / 2)
-        + 2 * DiskMoment(FlywheelMass, units::distance(6, units::inch))
-        + DiskMoment(units::mass(10, units::kg), units::distance(6, units::cm));
-    CrankParams.frictionTorque = units::torque(1, units::ft_lb);
-    CrankParams.tdc = units::angle(180, units::deg);
-    EngineInstance.getCrankshaft(0)->initialize(CrankParams);
-    const double JournalAngles[] = {0,180,0,180};
-    for (int Index = 0; Index < 4; ++Index) {
-        EngineInstance.getCrankshaft(0)->setRodJournalAngle(Index, units::angle(JournalAngles[Index], units::deg));
+    Crankshaft::Parameters crank{};
+    crank.mass = crankMass;
+    crank.flywheelMass = flywheelMass;
+    crank.crankThrow = units::distance(Snapshot.CrankThrowMm, units::mm);
+    crank.rodJournals = static_cast<int>(Snapshot.JournalAnglesDeg.size());
+    crank.momentOfInertia = Snapshot.TotalCrankMomentKgM2;
+    crank.frictionTorque = units::torque(Snapshot.CrankFrictionLbFt, units::ft_lb);
+    crank.pos_x = Snapshot.CrankPositionX;
+    crank.pos_y = Snapshot.CrankPositionY;
+    crank.tdc = units::angle(Snapshot.CrankTdcDeg, units::deg);
+    EngineInstance.getCrankshaft(0)->initialize(crank);
+    for (std::size_t i = 0; i < Snapshot.JournalAnglesDeg.size(); ++i) {
+        EngineInstance.getCrankshaft(0)->setRodJournalAngle(
+            static_cast<int>(i),
+            units::angle(Snapshot.JournalAnglesDeg[i], units::deg));
     }
 
-    for (int BankIndex = 0; BankIndex < 2; ++BankIndex) {
-        CylinderBank::Parameters BankParams{};
-        BankParams.crankshaft = EngineInstance.getCrankshaft(0);
-        BankParams.positionX = 0;
-        BankParams.positionY = 0;
-        BankParams.angle = units::angle(BankIndex == 0 ? 90 : -90, units::deg);
-        BankParams.bore = Bore;
-        BankParams.deckHeight = Stroke / 2 + RodLength + CompressionHeight;
-        BankParams.displayDepth = 0.4;
-        BankParams.cylinderCount = 2;
-        BankParams.index = BankIndex;
-        EngineInstance.getCylinderBank(BankIndex)->initialize(BankParams);
+    for (int i = 0; i < 2; ++i) {
+        CylinderBank::Parameters bank{};
+        bank.crankshaft = EngineInstance.getCrankshaft(0);
+        bank.positionX = 0;
+        bank.positionY = 0;
+        bank.angle = units::angle(Snapshot.BankAnglesDeg[static_cast<std::size_t>(i)], units::deg);
+        bank.bore = bore;
+        bank.deckHeight = units::distance(Snapshot.DeckHeightMm, units::mm);
+        bank.displayDepth = Snapshot.BankDisplayDepth;
+        bank.cylinderCount = 2;
+        bank.index = i;
+        EngineInstance.getCylinderBank(i)->initialize(bank);
     }
 
-    Intake::Parameters IntakeParams{};
-    IntakeParams.volume = units::volume(1.325, units::L);
-    IntakeParams.CrossSectionArea = units::area(20, units::cm2);
-    IntakeParams.InputFlowK = GasSystem::k_carb(400);
-    IntakeParams.RunnerFlowRate = GasSystem::k_carb(100);
-    IntakeParams.RunnerLength = units::distance(12, units::inch);
-    IntakeParams.IdleFlowK = GasSystem::k_carb(0);
-    IntakeParams.IdleThrottlePlatePosition = 0.9978;
-    IntakeParams.VelocityDecay = 1;
-    EngineInstance.getIntake(0)->initialize(IntakeParams);
+    Intake::Parameters intake{};
+    intake.volume = units::volume(Snapshot.IntakePlenumVolumeL, units::L);
+    intake.CrossSectionArea = units::area(Snapshot.IntakePlenumAreaCm2, units::cm2);
+    intake.InputFlowK = GasSystem::k_carb(Snapshot.IntakeFlowCarb);
+    intake.RunnerFlowRate = GasSystem::k_carb(Snapshot.IntakeRunnerFlowCarb);
+    intake.RunnerLength = units::distance(Snapshot.IntakeRunnerLengthInch, units::inch);
+    intake.IdleFlowK = GasSystem::k_carb(Snapshot.IntakeIdleFlowCarb);
+    intake.IdleThrottlePlatePosition = Snapshot.IntakeIdlePlate;
+    intake.VelocityDecay = Snapshot.IntakeVelocityDecay;
+    intake.MolecularAfr = Snapshot.IntakeMolecularAfr;
+    EngineInstance.getIntake(0)->initialize(intake);
 
-    Impulse.initialize("es/sound-library/new/minimal_muffling_02.wav", 0.01);
-    ExhaustSystem::Parameters ExhaustParams{};
-    ExhaustParams.length = units::distance(500, units::mm);
-    ExhaustParams.collectorCrossSectionArea = units::area(1.25 * 1.25, units::inch * units::inch);
-    ExhaustParams.outletFlowRate = GasSystem::k_carb(1000);
-    ExhaustParams.primaryTubeLength = units::distance(40, units::inch);
-    ExhaustParams.primaryFlowRate = GasSystem::k_carb(400);
-    ExhaustParams.velocityDecay = 1;
-    ExhaustParams.audioVolume = 0.5 * 0.02;
-    ExhaustParams.impulseResponse = &Impulse;
-    EngineInstance.getExhaustSystem(0)->initialize(ExhaustParams);
+    Impulse.initialize(
+        NextcarEngineSim::Generated::MinimalMuffling02Pcm,
+        static_cast<int>(NextcarEngineSim::Generated::MinimalMuffling02SampleCount),
+        static_cast<int>(NextcarEngineSim::Generated::MinimalMuffling02SampleRate),
+        Snapshot.ImpulseGain);
+    ExhaustSystem::Parameters exhaust{};
+    exhaust.length = units::distance(Snapshot.ExhaustLengthMm, units::mm);
+    // Script library default: circle_area(2.0 * units.inch).
+    exhaust.collectorCrossSectionArea = units::area(
+        Snapshot.ExhaustCollectorAreaSquareInch,
+        units::inch * units::inch);
+    exhaust.outletFlowRate = GasSystem::k_carb(Snapshot.ExhaustOutletFlowCarb);
+    exhaust.primaryTubeLength =
+        units::distance(Snapshot.ExhaustPrimaryTubeLengthInch, units::inch);
+    exhaust.primaryFlowRate = GasSystem::k_carb(Snapshot.ExhaustPrimaryFlowCarb);
+    exhaust.velocityDecay = Snapshot.ExhaustVelocityDecay;
+    exhaust.audioVolume = Snapshot.ExhaustAudioVolume;
+    exhaust.impulseResponse = &Impulse;
+    EngineInstance.getExhaustSystem(0)->initialize(exhaust);
 
-    const int JournalMap[] = {0,3,1,2};
-    const double BlowbyCfm[] = {0.001,0.002,0.001,0.002};
-    for (int Index = 0; Index < 4; ++Index) {
-        const int Bank = Index / 2;
-        const int Local = Index % 2;
-        ConnectingRod::Parameters RodParams{};
-        RodParams.mass = RodMass;
-        RodParams.momentOfInertia = RodMoment(RodMass, RodLength);
-        RodParams.centerOfMass = 0;
-        RodParams.length = RodLength;
-        RodParams.crankshaft = EngineInstance.getCrankshaft(0);
-        RodParams.piston = EngineInstance.getPiston(Index);
-        RodParams.journal = JournalMap[Index];
-        EngineInstance.getConnectingRod(Index)->initialize(RodParams);
+    for (int i = 0; i < 4; ++i) {
+        ConnectingRod::Parameters rod{};
+        rod.mass = rodMass;
+        rod.momentOfInertia = Snapshot.RodMomentKgM2;
+        rod.centerOfMass = Snapshot.RodCenterOfMass;
+        rod.length = rodLength;
+        rod.slaveThrow = Snapshot.RodSlaveThrow;
+        rod.crankshaft = EngineInstance.getCrankshaft(0);
+        rod.piston = EngineInstance.getPiston(i);
+        rod.journal = Snapshot.JournalMapping[static_cast<std::size_t>(i)];
+        EngineInstance.getConnectingRod(i)->initialize(rod);
 
-        Piston::Parameters PistonParams{};
-        PistonParams.Rod = EngineInstance.getConnectingRod(Index);
-        PistonParams.Bank = EngineInstance.getCylinderBank(Bank);
-        PistonParams.CylinderIndex = Local;
-        PistonParams.BlowbyFlowCoefficient = GasSystem::k_28inH2O(BlowbyCfm[Index]);
-        PistonParams.CompressionHeight = CompressionHeight;
-        PistonParams.WristPinPosition = 0;
-        PistonParams.Displacement = 0;
-        PistonParams.mass = units::mass(414 + 152, units::g);
-        EngineInstance.getPiston(Index)->initialize(PistonParams);
+        Piston::Parameters piston{};
+        piston.rod = EngineInstance.getConnectingRod(i);
+        piston.bank = EngineInstance.getCylinderBank(i / 2);
+        piston.cylinderIndex = i % 2;
+        piston.blowbyFlowCoefficient = GasSystem::k_28inH2O(
+            Snapshot.Blowby28InH2O[static_cast<std::size_t>(i)]);
+        piston.compressionHeight = compressionHeight;
+        piston.wristPinPosition = Snapshot.PistonWristPinPosition;
+        piston.displacement = Snapshot.PistonDisplacement;
+        piston.mass = units::mass(Snapshot.PistonMassG, units::g);
+        EngineInstance.getPiston(i)->initialize(piston);
     }
 
-    const double IntakeCenters[] = {360+117, 360+117+180, 360+117+360, 360+117+540};
-    const double ExhaustCenters[] = {360-112, 360-112+180, 360-112+360, 360-112+540};
-    for (int Bank = 0; Bank < 2; ++Bank) {
-        Camshaft::Parameters IntakeCamParams{};
-        IntakeCamParams.lobes = 2;
-        IntakeCamParams.advance = 0;
-        IntakeCamParams.crankshaft = EngineInstance.getCrankshaft(0);
-        IntakeCamParams.lobeProfile = &IntakeLobe;
-        IntakeCamParams.baseRadius = units::distance(17, units::mm);
-        Camshafts[Bank * 2].initialize(IntakeCamParams);
-        Camshaft::Parameters ExhaustCamParams = IntakeCamParams;
-        ExhaustCamParams.lobeProfile = &ExhaustLobe;
-        Camshafts[Bank * 2 + 1].initialize(ExhaustCamParams);
-
-        for (int Local = 0; Local < 2; ++Local) {
-            const int Global = Bank * 2 + Local;
-            Camshafts[Bank * 2].setLobeCenterline(Local, units::angle(IntakeCenters[Global], units::deg));
-            Camshafts[Bank * 2 + 1].setLobeCenterline(Local, units::angle(ExhaustCenters[Global], units::deg));
+    for (int bankIndex = 0; bankIndex < 2; ++bankIndex) {
+        Camshaft::Parameters cam{};
+        cam.lobes = 2;
+        cam.advance = units::angle(Snapshot.CamAdvanceDeg, units::deg);
+        cam.crankshaft = EngineInstance.getCrankshaft(0);
+        cam.lobeProfile = &IntakeLobe;
+        cam.baseRadius = units::distance(Snapshot.CamBaseRadiusMm, units::mm);
+        Camshafts[static_cast<std::size_t>(bankIndex * 2)].initialize(cam);
+        cam.lobeProfile = &ExhaustLobe;
+        Camshafts[static_cast<std::size_t>(bankIndex * 2 + 1)].initialize(cam);
+        for (int local = 0; local < 2; ++local) {
+            const int global = bankIndex * 2 + local;
+            Camshafts[static_cast<std::size_t>(bankIndex * 2)].setLobeCenterline(
+                local,
+                units::angle(Snapshot.IntakeCenterlinesDeg[static_cast<std::size_t>(global)], units::deg));
+            Camshafts[static_cast<std::size_t>(bankIndex * 2 + 1)].setLobeCenterline(
+                local,
+                units::angle(Snapshot.ExhaustCenterlinesDeg[static_cast<std::size_t>(global)], units::deg));
         }
 
-        StandardValvetrain::Parameters ValvetrainParams{};
-        ValvetrainParams.intakeCamshaft = &Camshafts[Bank * 2];
-        ValvetrainParams.exhaustCamshaft = &Camshafts[Bank * 2 + 1];
-        Valvetrains[Bank].initialize(ValvetrainParams);
+        StandardValvetrain::Parameters vt{};
+        vt.intakeCamshaft = &Camshafts[static_cast<std::size_t>(bankIndex * 2)];
+        vt.exhaustCamshaft = &Camshafts[static_cast<std::size_t>(bankIndex * 2 + 1)];
+        Valvetrains[static_cast<std::size_t>(bankIndex)].initialize(vt);
 
-        CylinderHead::Parameters HeadParams{};
-        HeadParams.Bank = EngineInstance.getCylinderBank(Bank);
-        HeadParams.ExhaustPortFlow = &ExhaustFlow;
-        HeadParams.IntakePortFlow = &IntakeFlow;
-        HeadParams.valvetrain = &Valvetrains[Bank];
-        HeadParams.CombustionChamberVolume = units::volume(67, units::cc);
-        HeadParams.IntakeRunnerVolume = units::volume(149.6, units::cc);
-        HeadParams.IntakeRunnerCrossSectionArea = units::area(1.75 * 1.75, units::inch * units::inch);
-        HeadParams.ExhaustRunnerVolume = units::volume(50, units::cc);
-        HeadParams.ExhaustRunnerCrossSectionArea = units::area(1.25 * 1.25, units::inch * units::inch);
-        HeadParams.FlipDisplay = Bank == 0;
-        EngineInstance.getHead(Bank)->initialize(HeadParams);
-        EngineInstance.getHead(Bank)->setAllIntakes(EngineInstance.getIntake(0));
-        EngineInstance.getHead(Bank)->setAllExhaustSystems(EngineInstance.getExhaustSystem(0));
+        CylinderHead::Parameters head{};
+        head.bank = EngineInstance.getCylinderBank(bankIndex);
+        head.exhaustPortFlow = &ExhaustFlow;
+        head.intakePortFlow = &IntakeFlow;
+        head.valvetrain = &Valvetrains[static_cast<std::size_t>(bankIndex)];
+        head.combustionChamberVolume = units::volume(Snapshot.HeadChamberVolumeCc, units::cc);
+        head.intakeRunnerVolume = units::volume(Snapshot.HeadIntakeRunnerVolumeCc, units::cc);
+        head.intakeRunnerCrossSectionArea = units::area(
+            Snapshot.HeadIntakeRunnerAreaSquareInch,
+            units::inch * units::inch);
+        head.exhaustRunnerVolume = units::volume(Snapshot.HeadExhaustRunnerVolumeCc, units::cc);
+        head.exhaustRunnerCrossSectionArea = units::area(
+            Snapshot.HeadExhaustRunnerAreaSquareInch,
+            units::inch * units::inch);
+        head.flipDisplay = Snapshot.HeadFlipDisplay[static_cast<std::size_t>(bankIndex)];
+        EngineInstance.getHead(bankIndex)->initialize(head);
+        EngineInstance.getHead(bankIndex)->setAllIntakes(EngineInstance.getIntake(0));
+        EngineInstance.getHead(bankIndex)->setAllExhaustSystems(EngineInstance.getExhaustSystem(0));
     }
 
-    EngineInstance.getHead(0)->setHeaderPrimaryLength(0, units::distance(2, units::inch));
-    EngineInstance.getHead(0)->setHeaderPrimaryLength(1, units::distance(3, units::inch));
-    EngineInstance.getHead(1)->setHeaderPrimaryLength(0, units::distance(3, units::inch));
-    EngineInstance.getHead(1)->setHeaderPrimaryLength(1, units::distance(5, units::inch));
-    EngineInstance.getHead(0)->setSoundAttenuation(0, 0.9);
-    EngineInstance.getHead(0)->setSoundAttenuation(1, 1.0);
-    EngineInstance.getHead(1)->setSoundAttenuation(0, 1.1);
-    EngineInstance.getHead(1)->setSoundAttenuation(1, 0.9);
+    for (int i = 0; i < 4; ++i) {
+        EngineInstance.getHead(i / 2)->setHeaderPrimaryLength(
+            i % 2,
+            units::distance(Snapshot.PrimaryLengthsInch[static_cast<std::size_t>(i)], units::inch));
+        EngineInstance.getHead(i / 2)->setSoundAttenuation(
+            i % 2,
+            Snapshot.SoundAttenuations[static_cast<std::size_t>(i)]);
 
-    for (int Index = 0; Index < 4; ++Index) {
-        CombustionChamber::Parameters ChamberParams{};
-        ChamberParams.piston = EngineInstance.getPiston(Index);
-        ChamberParams.head = EngineInstance.getHead(Index / 2);
-        ChamberParams.fuel = EngineInstance.getFuel();
-        ChamberParams.MeanPistonSpeedToTurbulence = &Turbulence;
-        ChamberParams.StartingPressure = units::pressure(1, units::atm);
-        ChamberParams.StartingTemperature = units::celcius(25);
-        ChamberParams.CrankcasePressure = units::pressure(1, units::atm);
-        ChamberParams.RandomSeed = DeterministicSeed + Index;
-        EngineInstance.getChamber(Index)->initialize(ChamberParams);
+        CombustionChamber::Parameters chamber{};
+        chamber.piston = EngineInstance.getPiston(i);
+        chamber.head = EngineInstance.getHead(i / 2);
+        chamber.fuel = EngineInstance.getFuel();
+        chamber.meanPistonSpeedToTurbulence = &MeanPistonSpeedTurbulence;
+        chamber.startingPressure =
+            units::pressure(Snapshot.ChamberStartingPressureAtm, units::atm);
+        chamber.startingTemperature =
+            units::celcius(Snapshot.ChamberStartingTemperatureC);
+        chamber.crankcasePressure =
+            units::pressure(Snapshot.ChamberCrankcasePressureAtm, units::atm);
+        chamber.randomSeed = Snapshot.DeterministicSeeds[static_cast<std::size_t>(i)];
+        EngineInstance.getChamber(i)->initialize(chamber);
     }
 
-    IgnitionModule::Parameters IgnitionParams{};
-    IgnitionParams.cylinderCount = 4;
-    IgnitionParams.crankshaft = EngineInstance.getCrankshaft(0);
-    IgnitionParams.timingCurve = &TimingCurve;
-    IgnitionParams.revLimit = units::rpm(6800);
-    IgnitionParams.limiterDuration = 0.16;
-    EngineInstance.getIgnitionModule()->initialize(IgnitionParams);
-    const double FireAngles[] = {0,180,360,540};
-    for (int Index = 0; Index < 4; ++Index) {
-        EngineInstance.getIgnitionModule()->setFiringOrder(Index, units::angle(FireAngles[Index], units::deg));
+    IgnitionModule::Parameters ignition{};
+    ignition.cylinderCount = 4;
+    ignition.crankshaft = EngineInstance.getCrankshaft(0);
+    ignition.timingCurve = &TimingCurve;
+    ignition.revLimit = units::rpm(Snapshot.IgnitionRevLimitRpm);
+    ignition.limiterDuration = Snapshot.IgnitionLimiterDurationSeconds;
+    EngineInstance.getIgnitionModule()->initialize(ignition);
+    for (std::size_t i = 0; i < Snapshot.FiringOrderDeg.size(); ++i) {
+        EngineInstance.getIgnitionModule()->setFiringOrder(
+            Snapshot.IgnitionCylinderMapping[i],
+            units::angle(Snapshot.FiringOrderDeg[i], units::deg));
     }
     EngineInstance.calculateDisplacement();
 }
@@ -259,14 +312,15 @@ void SubaruEJ25AtgVideo2Fixture::BuildEngine() {
 void SubaruEJ25AtgVideo2Fixture::Destroy() {
     if (IsDestroyed) return;
     EngineInstance.destroy();
-    for (auto &CamshaftInstance : Camshafts) CamshaftInstance.destroy();
+    for (auto &camshaft : Camshafts) camshaft.destroy();
     TimingCurve.destroy();
     ExhaustLobe.destroy();
     IntakeLobe.destroy();
     ExhaustFlow.destroy();
     IntakeFlow.destroy();
-    Turbulence.destroy();
+    MeanPistonSpeedTurbulence.destroy();
+    FuelTurbulence.destroy();
     IsDestroyed = true;
 }
 
-}
+} // namespace NextcarEngineSim::Phase0

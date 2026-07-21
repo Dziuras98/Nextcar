@@ -1,0 +1,96 @@
+    if ($Smoke.result -ne 'Timeout') {
+        throw "smoke returned $($Smoke.result), expected Timeout"
+    }
+    if (
+        -not $Smoke.cleanup.starter_disabled -or
+        -not $Smoke.cleanup.ignition_disabled -or
+        -not $Smoke.cleanup.simulator_destroyed -or
+        -not $Smoke.cleanup.fixture_destroyed
+    ) {
+        throw 'smoke cleanup is incomplete'
+    }
+
+    if ($Phase -eq 'Discovery') {
+        $DiscoveryOutput = Join-Path $ArtifactPath 'discovery'
+        Invoke-Logged 'discovery sweep' 'discovery-sweep.log' {
+            python Tools/EngineSimVendor/run_cold_start_calibration.py discovery `
+                --executable $ReleaseCalibration `
+                --sweep Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_sweep.json `
+                --output $DiscoveryOutput `
+                --candidate-sha $CandidateSha
+        } | Out-Null
+        Copy-Item `
+            Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_sweep.json `
+            (Join-Path $ArtifactPath 'subaru_ej25_cold_start_sweep.json')
+    }
+    else {
+        if (-not $SelectedCandidatePath) {
+            throw 'Selected phase requires -SelectedCandidatePath'
+        }
+        $SelectedCandidate = (Resolve-Path $SelectedCandidatePath).Path
+        $CalibrationOutput = Join-Path `
+            $RepositoryRoot `
+            'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration'
+        Remove-Item -Recurse -Force $CalibrationOutput -ErrorAction SilentlyContinue
+
+        Invoke-Logged 'selected trials' 'selected-trials.log' {
+            python Tools/EngineSimVendor/run_cold_start_calibration.py selected `
+                --executable $ReleaseCalibration `
+                --sweep Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_sweep.json `
+                --selected-candidate $SelectedCandidate `
+                --output $CalibrationOutput `
+                --repo-root $RepositoryRoot `
+                --candidate-sha $CandidateSha `
+                --trials 10
+        } | Out-Null
+        $SelectedTrialsResult = '10/10 PASS'
+        $TimeoutResult = 'PASS'
+        $StallResult = 'PASS'
+
+        $RunMetadataPath = Join-Path $CalibrationOutput 'windows-run-metadata.json'
+        $RunMetadata = [ordered]@{
+            schema_version = 1
+            candidate_source_sha = $CandidateSha
+            run_id = $env:GITHUB_RUN_ID
+            artifact_id = 'pending-at-upload'
+            artifact_name = "NC-003B-cold-start-selected-profile-$CandidateSha"
+            runner_image = "windows-2022/$env:ImageVersion"
+            visual_studio_version = $VisualStudioVersion
+            msvc_version = (Compact $MsvcVersion)
+            vc_tools_version = $env:VCToolsVersion.Trim()
+            windows_sdk_version = $env:WindowsSDKVersion.Trim('\')
+            cmake_version = $CMakeVersion
+            python_version = $PythonVersion
+            git_version = $GitVersion
+            python_tests = $PythonTests
+            release_result = $ReleaseResult
+            debug_result = $DebugResult
+            asan_result = $AsanResult
+            selected_trials_result = $SelectedTrialsResult
+            timeout_result = $TimeoutResult
+            stall_result = $StallResult
+            clean_reproducibility = 'PENDING'
+            project_warning_count = -1
+        }
+        [System.IO.File]::WriteAllText(
+            $RunMetadataPath,
+            (ConvertTo-Json $RunMetadata -Depth 4) + "`n",
+            [System.Text.UTF8Encoding]::new($false)
+        )
+
+        $ProfilePath = Join-Path `
+            $RepositoryRoot `
+            'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
+        $HeaderPath = Join-Path `
+            $RepositoryRoot `
+            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h'
+        $EvidencePath = Join-Path `
+            $RepositoryRoot `
+            'Tools/EngineSimVendor/COLD_START_CALIBRATION.md'
+
+        Invoke-Logged 'finalize profile/header/evidence' 'finalize-profile.log' {
+            python Tools/EngineSimVendor/record_cold_start_calibration_evidence.py `
+                --profile-candidate (Join-Path $CalibrationOutput 'profile-candidate.json') `
+                --selected-summary (Join-Path $CalibrationOutput 'selected-summary.json') `
+                --run-metadata $RunMetadataPath `
+                --repo-root $RepositoryRoot `

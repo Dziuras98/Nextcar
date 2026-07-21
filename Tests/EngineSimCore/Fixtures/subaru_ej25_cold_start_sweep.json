@@ -1,0 +1,55 @@
+{
+  "deterministic_seed": 1313026099,
+  "discovery_trace_count": 30,
+  "engine_sim_commit": "85f7c3b959a908ed5232ede4f1a4ac7eafe6b630",
+  "engine_sim_tree": "0756dea0444ada160540685dd1d28fcd3ef4aac5",
+  "evaluated_candidate_count": 1080,
+  "fixture_id": "SubaruEJ25AtgVideo2",
+  "fixture_semantic_contract_sha256": "3ba447789024d613cdceb2382d917e9d6ce340cbeecb621d4f71133e55578f00",
+  "generated_ir_sha256": "ce0702aa501d94f35b5f804efcd1b21688b9f9cacaa0fa2fc7f459c03a98e540",
+  "ir_wav_sha256": "df0b8be829d28ae64e5b2818a1942a3b3e5733186bdf262cad4c2af038995d48",
+  "maximum_startup_simulation_seconds": [
+    2.0,
+    4.0,
+    8.0
+  ],
+  "post_starter_minimum_rpm": [
+    400,
+    500,
+    600,
+    700
+  ],
+  "sample_rate_hz": 44100,
+  "schema_version": 1,
+  "selection_requirements": {
+    "minimum_disengagement_separation_rpm": 1.0,
+    "minimum_post_starter_rpm_margin": 100.0,
+    "minimum_selected_trials": 10,
+    "minimum_timeout_margin_seconds": 1.0,
+    "required_success_fraction": 1.0
+  },
+  "simulation_frequency_hz": 20000,
+  "simulation_slice_seconds": 0.008333333333333333,
+  "solver_commit": "e009f4ff1c9c4c5874e865e893cdb62e208fb2b3",
+  "stability_window_seconds": [
+    0.5,
+    1.0,
+    2.0
+  ],
+  "starter_disengagement_rpm": [
+    500,
+    650,
+    800,
+    950,
+    1100,
+    1300
+  ],
+  "startup_throttle": [
+    0.05,
+    0.1,
+    0.2,
+    0.35,
+    0.5
+  ],
+  "validated_parity_source_sha": "542d3261efc3ef48c78f337d990793aea55dd7fb"
+}
