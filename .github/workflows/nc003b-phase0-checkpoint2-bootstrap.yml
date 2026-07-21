@@ -20,7 +20,6 @@ env:
   CHECKPOINT2_TREE: b616b2ae12a51b4df83ba05858ce96cbbdce75e6
   CANDIDATE_BRANCH: manager/nc-003b-phase0-final-closure-candidate
   TARGET_BRANCH: manager/nc-003b-phase0-reconstruction
-  SELECTED_ARTIFACT_SHA256: f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b
 
 jobs:
   apply-verify-publish:
@@ -36,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/nc003b-cp2
+          mkdir -p /tmp/nc003b-cp2/logs
           cat .github/bootstrap/cp2part-* > /tmp/nc003b-cp2/nondeletes.patch.gz.b64
           test "$(sha256sum /tmp/nc003b-cp2/nondeletes.patch.gz.b64 | cut -d' ' -f1)" = "48d974d576faea84ebcecc3d61bc5c32c551b4458e57b06d6af5114d67e800ac"
           base64 --decode /tmp/nc003b-cp2/nondeletes.patch.gz.b64 > /tmp/nc003b-cp2/nondeletes.patch.gz
@@ -100,7 +99,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/nc003b-cp2/logs
           python -B scripts/validate_repository.py | tee /tmp/nc003b-cp2/logs/repository-validation.log
           git diff --check HEAD^ HEAD | tee /tmp/nc003b-cp2/logs/git-diff-check.log
           python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py | tee /tmp/nc003b-cp2/logs/snapshot-verifier.log
@@ -121,32 +119,32 @@ jobs:
           cmp "$HEADER" /tmp/nc003b-cp2/ir-generated.h
           echo "IR generator byte-identical: PASS" | tee /tmp/nc003b-cp2/logs/ir-generator.log
 
-      - name: Download and verify accepted selected-profile artifact
+      - name: Download accepted selected-profile artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99
+          path: /tmp/nc003b-cp2/selected-profile
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 29814599329
+
+      - name: Verify accepted selected-profile artifact contents
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl --fail --location --silent --show-error \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8488882253/zip" \
-            --output /tmp/nc003b-cp2/selected-profile.zip
-          test "$(sha256sum /tmp/nc003b-cp2/selected-profile.zip | cut -d' ' -f1)" = "${SELECTED_ARTIFACT_SHA256}"
-          mkdir /tmp/nc003b-cp2/selected-profile
-          unzip -q /tmp/nc003b-cp2/selected-profile.zip -d /tmp/nc003b-cp2/selected-profile
           python -B - <<'PY'
           from pathlib import Path
           import hashlib, json
           root = Path('/tmp/nc003b-cp2/selected-profile')
           entries = json.loads((root / 'hash-manifest.json').read_text(encoding='utf-8'))
+          assert len(entries) == 40
           for item in entries:
               p = root / item['path']
               assert p.is_file(), item['path']
               data = p.read_bytes()
               assert len(data) == item['size'], item['path']
               assert hashlib.sha256(data).hexdigest() == item['sha256'], item['path']
+          assert len([p for p in root.rglob('*') if p.is_file()]) == 41
           PY
           cmp /tmp/nc003b-cp2/selected-profile/subaru_ej25_cold_start_profile.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json
           cmp /tmp/nc003b-cp2/selected-profile/SubaruEJ25ColdStartProfile.generated.h Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h
@@ -156,7 +154,7 @@ jobs:
           done
           cmp /tmp/nc003b-cp2/selected-profile/selected-calibration/negative-timeout.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/negative-timeout.json
           cmp /tmp/nc003b-cp2/selected-profile/selected-calibration/negative-stall.json Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/negative-stall.json
-          echo "selected-profile artifact SHA-256 and hash-manifest: PASS" | tee /tmp/nc003b-cp2/logs/selected-profile-artifact.log
+          echo "selected-profile artifact content and hash-manifest: PASS" | tee /tmp/nc003b-cp2/logs/selected-profile-artifact.log
 
       - name: Run cold-start mutation, verifier, and generator validation
         shell: bash
