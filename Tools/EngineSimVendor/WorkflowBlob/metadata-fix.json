@@ -1,0 +1,8 @@
+{
+  "accepted_blob_sha": "4d8e4880ed0673988631d375e27cf72f807a71a1",
+  "accepted_workflow_fix_sha": "a25c6af112e667c47ee77aaba33c5cd9d992ea6a",
+  "fixed_sha256": "e55bc2333cfeeec18370acc4e225a402e661e8345c329537aecb22e369bcac9c",
+  "safe_blob_path": "Tools/EngineSimVendor/WorkflowBlob/nc003b-phase0-final-closure-windows.yml",
+  "target_path": ".github/workflows/nc003b-phase0-final-closure-windows.yml",
+  "validation_parent_sha": "a7380f926abba4dcef3a1000e7cfd0101d15a08d"
+}

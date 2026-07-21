@@ -1,0 +1,628 @@
+name: NC-003B Phase 0 final closure Windows
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+      expected_tree:
+        required: true
+        type: string
+      expected_ahead:
+        required: true
+        type: number
+      artifact_name:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  TARGET_SHA: 9bb6464123228f1d9638d467e7160a7cb2aa98c8
+  CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+  EXPECTED_TREE: ${{ inputs.expected_tree }}
+
+jobs:
+  autocrlf-proof:
+    runs-on: windows-2022
+    steps:
+      - name: Configure autocrlf checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf true
+          git config --global core.eol native
+
+      - name: Checkout exact candidate with autocrlf true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: autocrlf-checkout
+          show-progress: false
+
+      - name: Prove snapshot bytes blobs attributes and EOL
+        shell: pwsh
+        working-directory: autocrlf-checkout
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proof = Join-Path $env:RUNNER_TEMP 'nc003b-autocrlf-proof'
+          New-Item -ItemType Directory -Force -Path $proof | Out-Null
+          if ((git rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) { throw 'unexpected SHA' }
+          if ((git rev-parse 'HEAD^{tree}').Trim() -ne $env:EXPECTED_TREE) { throw 'unexpected tree' }
+          python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py 2>&1 |
+            Tee-Object -FilePath (Join-Path $proof 'snapshot-verifier-autocrlf.log')
+          if ($LASTEXITCODE -ne 0) { throw 'snapshot verifier failed' }
+          @'
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+          snapshot = Path('Tools/EngineSimVendor/FixtureSourceSnapshot')
+          index = json.loads((snapshot / 'SNAPSHOT.json').read_text(encoding='utf-8'))
+          assert index['file_count'] == 4
+          output = {
+              'schema_version': 1,
+              'core_autocrlf': 'true',
+              'candidate_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'candidate_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+              'files': [],
+          }
+          for item in index['files']:
+              path = Path('Tools/EngineSimVendor/FixtureSourceSnapshot/engine-sim') / item['path']
+              data = path.read_bytes()
+              digest = hashlib.sha256(data).hexdigest()
+              blob = subprocess.check_output(['git', 'hash-object', '--no-filters', '--', path.as_posix()], text=True).strip()
+              attrs = subprocess.check_output(['git', 'check-attr', 'text', 'diff', '--', path.as_posix()], text=True).splitlines()
+              eol = subprocess.check_output(['git', 'ls-files', '--eol', '--', path.as_posix()], text=True).strip()
+              assert digest == item['sha256']
+              assert blob == item['git_blob']
+              assert any(line.endswith(': text: unset') for line in attrs)
+              assert any(line.endswith(': diff: unset') for line in attrs)
+              assert 'i/lf' in eol and 'w/lf' in eol and 'attr/-text' in eol
+              output['files'].append({'path': path.as_posix(), 'sha256': digest, 'git_blob': blob, 'attributes': attrs, 'eol': eol})
+          root = Path(r'${{ runner.temp }}\nc003b-autocrlf-proof')
+          (root / 'autocrlf-proof.json').write_text(json.dumps(output, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          (root / 'autocrlf-summary.txt').write_text(
+              'core.autocrlf=true\n'
+              'snapshot SHA-256: 4/4 PASS\n'
+              'snapshot Git blob: 4/4 PASS\n'
+              'git check-attr text: unset 4/4 PASS\n'
+              'git check-attr diff: unset 4/4 PASS\n'
+              'git ls-files --eol i/lf w/lf attr/-text: 4/4 PASS\n',
+              encoding='utf-8',
+          )
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw 'autocrlf proof failed' }
+
+      - name: Upload autocrlf proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nc003b-autocrlf-proof-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}\nc003b-autocrlf-proof
+          if-no-files-found: error
+          retention-days: 2
+
+  boundary-proof:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Configure exact LF checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout exact candidate in fresh boundary worktree
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 4
+          persist-credentials: false
+          show-progress: false
+
+      - name: Prove immutable candidate boundaries
+        shell: python
+        run: |
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          candidate = '${{ inputs.candidate_sha }}'
+          expected_tree = '${{ inputs.expected_tree }}'
+          expected_ahead = int('${{ inputs.expected_ahead }}')
+          target = '9bb6464123228f1d9638d467e7160a7cb2aa98c8'
+          proof = Path(r'${{ runner.temp }}\nc003b-boundary-proof')
+          proof.mkdir(parents=True, exist_ok=True)
+
+          def git_bytes(*args):
+              return subprocess.check_output(['git', *args])
+
+          def write_json(name, value):
+              (proof / name).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+
+          sha = git_bytes('rev-parse', 'HEAD').decode('ascii').strip()
+          tree = git_bytes('rev-parse', 'HEAD^{tree}').decode('ascii').strip()
+          behind, ahead = map(int, git_bytes('rev-list', '--left-right', '--count', f'{target}...{candidate}').decode('ascii').split())
+          status = git_bytes('status', '--porcelain').decode('utf-8')
+          tracked_sourceinputs = [p for p in git_bytes('ls-files', '-z', '--', 'Tools/EngineSimVendor/SourceInputs').split(b'\0') if p]
+          assert sha == candidate and tree == expected_tree
+          assert behind == 0 and ahead == expected_ahead
+          assert status == ''
+          assert not Path('Tools/EngineSimVendor/SourceInputs').exists()
+          assert not tracked_sourceinputs
+          assert not Path('Tools/EngineSimVendor/RECONSTRUCTION_AUDIT.md').exists()
+          assert not Path('Tools/EngineSimVendor/WIP_CHECKPOINT.md').exists()
+
+          (proof / 'candidate-and-ancestry.txt').write_text(
+              f'candidate_sha={sha}\ncandidate_tree={tree}\ninput_target_sha={target}\nahead={ahead}\nbehind={behind}\nforce=false\n',
+              encoding='utf-8',
+          )
+          (proof / 'SourceInputs-absence-proof.txt').write_text(
+              'SourceInputs directory: absent\ntracked SourceInputs count: 0\nRECONSTRUCTION_AUDIT.md: absent\nWIP_CHECKPOINT.md: absent\n',
+              encoding='utf-8',
+          )
+
+          old = json.loads(git_bytes('show', f'{target}:Tools/EngineSimVendor/SOURCE_MANIFEST.json').decode('utf-8'))
+          new = json.loads(Path('Tools/EngineSimVendor/SOURCE_MANIFEST.json').read_text(encoding='utf-8'))
+          assert old['schema_version'] == 1 and new['schema_version'] == 1
+          assert len(old['files']) == 45 and len(new['files']) == 58
+          assert new['files'][:45] == old['files']
+          additions = new['files'][45:]
+          assert len(additions) == 13
+          write_json('manifest-semantic-diff.json', {
+              'schema_version': 1,
+              'existing_records_preserved': '45/45',
+              'new_records': 13,
+              'final_record_count': 58,
+              'new_records_payload': additions,
+          })
+
+          paths = []
+          path_decode_errors = []
+          for raw in git_bytes('ls-files', '-z').split(b'\0'):
+              if not raw:
+                  continue
+              try:
+                  paths.append(Path(raw.decode('utf-8')))
+              except UnicodeDecodeError as exc:
+                  path_decode_errors.append({'raw_hex': raw.hex(), 'error': str(exc)})
+
+          read_errors = []
+          skipped = []
+          def read_text(path):
+              try:
+                  data = path.read_bytes()
+              except OSError as exc:
+                  read_errors.append({'path': path.as_posix(), 'error': str(exc)})
+                  return None
+              if b'\0' in data:
+                  skipped.append({'path': path.as_posix(), 'reason': 'binary-nul'})
+                  return None
+              try:
+                  return data.decode('utf-8')
+              except UnicodeDecodeError:
+                  skipped.append({'path': path.as_posix(), 'reason': 'non-utf8'})
+                  return None
+
+          network_needles = ('RUNNER_BOOTSTRAP_REQUEST', 'bootstrap_on_runner.ps1', 'git credential fill')
+          network_hits = []
+          validator_declarations = []
+          for path in paths:
+              if path.suffix.lower() in {'.md', '.markdown'}:
+                  continue
+              text = read_text(path)
+              if text is None:
+                  continue
+              for line_number, line in enumerate(text.splitlines(), 1):
+                  declaration = path.as_posix() == 'scripts/validate_repository.py' and line.lstrip().startswith('forbidden_names = {')
+                  for needle in network_needles:
+                      if needle in line:
+                          record = {'path': path.as_posix(), 'line': line_number, 'pattern': needle}
+                          (validator_declarations if declaration else network_hits).append(record)
+          write_json('network-scan.json', {
+              'schema_version': 1,
+              'hit_count': len(network_hits),
+              'hits': network_hits,
+              'non_dependency_validator_declarations': validator_declarations,
+              'read_errors': read_errors,
+              'path_decode_errors': path_decode_errors,
+              'skipped_binary_or_non_utf8': skipped,
+          })
+          assert not network_hits
+
+          runtime_root = 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/'
+          generated_root = runtime_root + 'Private/Generated/'
+          runtime_patterns = (
+              ('LoadWave', re.compile(r'LoadWave')),
+              ('loadWave', re.compile(r'loadWave')),
+              ('std::ifstream wav', re.compile(r'std::ifstream[^\r\n;]*\.wav', re.IGNORECASE)),
+              ('fopen wav', re.compile(r'fopen\s*\([^\r\n;]*\.wav', re.IGNORECASE)),
+          )
+          runtime_hits = []
+          for path in paths:
+              posix = path.as_posix()
+              if not posix.startswith(runtime_root) or posix.startswith(generated_root):
+                  continue
+              text = read_text(path)
+              if text is None:
+                  continue
+              for line_number, line in enumerate(text.splitlines(), 1):
+                  for name, pattern in runtime_patterns:
+                      if pattern.search(line):
+                          runtime_hits.append({'path': posix, 'line': line_number, 'pattern': name})
+          write_json('runtime-wav-scan.json', {
+              'schema_version': 1,
+              'hit_count': len(runtime_hits),
+              'hits': runtime_hits,
+              'read_errors': read_errors,
+              'path_decode_errors': path_decode_errors,
+              'skipped_binary_or_non_utf8': skipped,
+          })
+          assert not runtime_hits
+
+          pycache = sorted(p.as_posix() for p in Path('.').rglob('__pycache__') if p.is_dir() and '.git' not in p.parts)
+          pyc = sorted(p.as_posix() for p in Path('.').rglob('*.pyc') if p.is_file() and '.git' not in p.parts)
+          write_json('residue-scan.json', {
+              'schema_version': 1,
+              '__pycache___count': len(pycache),
+              'pyc_count': len(pyc),
+              '__pycache__': pycache,
+              'pyc': pyc,
+          })
+          assert not pycache and not pyc
+
+          write_json('boundary-proof.json', {
+              'schema_version': 1,
+              'candidate_sha': sha,
+              'candidate_tree': tree,
+              'expected_target_sha': target,
+              'behind': behind,
+              'ahead': ahead,
+              'expected_ahead': expected_ahead,
+              'git_status_clean': True,
+              'sourceinputs_directory_absent': True,
+              'tracked_sourceinputs_count': 0,
+              'reconstruction_audit_absent': True,
+              'wip_checkpoint_absent': True,
+              'manifest_schema': 1,
+              'old_file_count': 45,
+              'new_file_count': 58,
+              'first_45_records_equal': True,
+              'appended_records': 13,
+              'network_hits': 0,
+              'runtime_wav_hits': 0,
+              '__pycache___count': 0,
+              'pyc_count': 0,
+              'read_errors': read_errors,
+          })
+
+      - name: Upload isolated boundary proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nc003b-boundary-proof-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}\nc003b-boundary-proof
+          if-no-files-found: error
+          retention-days: 2
+
+  windows-matrix:
+    needs:
+      - autocrlf-proof
+      - boundary-proof
+    runs-on: windows-2022
+    steps:
+      - name: Configure exact LF checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 4
+          persist-credentials: false
+          show-progress: false
+
+      - name: Verify exact SHA tree and ancestry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) { throw 'unexpected SHA' }
+          if ((git rev-parse 'HEAD^{tree}').Trim() -ne $env:EXPECTED_TREE) { throw 'unexpected tree' }
+          git cat-file -e "$env:TARGET_SHA^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'input target unavailable' }
+          $counts = ((git rev-list --left-right --count "$env:TARGET_SHA...$env:CANDIDATE_SHA").Trim() -split '\s+')
+          if ([int]$counts[0] -ne 0 -or [int]$counts[1] -ne [int]'${{ inputs.expected_ahead }}') { throw 'unexpected ancestry' }
+          if (git status --porcelain) { throw 'checkout is not clean' }
+          $stage = Join-Path $env:RUNNER_TEMP 'nc003b-pre-matrix'
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'logs') | Out-Null
+          @(
+            "candidate_sha=$env:CANDIDATE_SHA",
+            "candidate_tree=$env:EXPECTED_TREE",
+            "input_target_sha=$env:TARGET_SHA",
+            "ahead=${{ inputs.expected_ahead }}",
+            'behind=0',
+            'force=false'
+          ) | Set-Content -Encoding utf8 (Join-Path $stage 'candidate-and-ancestry.txt')
+
+      - name: Run repository snapshot fixture and IR validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $logs = Join-Path $env:RUNNER_TEMP 'nc003b-pre-matrix\logs'
+          python -B scripts/validate_repository.py 2>&1 | Tee-Object -FilePath (Join-Path $logs 'repository-validation.log')
+          if ($LASTEXITCODE -ne 0) { throw 'repository validation failed' }
+          git diff --check $env:TARGET_SHA $env:CANDIDATE_SHA 2>&1 | Tee-Object -FilePath (Join-Path $logs 'git-diff-check.log')
+          if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed' }
+          python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py 2>&1 | Tee-Object -FilePath (Join-Path $logs 'snapshot-verifier.log')
+          if ($LASTEXITCODE -ne 0) { throw 'snapshot verifier failed' }
+          python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py 2>&1 | Tee-Object -FilePath (Join-Path $logs 'snapshot-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'snapshot tests failed' }
+          python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1 | Tee-Object -FilePath (Join-Path $logs 'fixture-mutation-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'fixture mutation tests failed' }
+          python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py 2>&1 | Tee-Object -FilePath (Join-Path $logs 'fixture-verifier.log')
+          if ($LASTEXITCODE -ne 0) { throw 'fixture verifier failed' }
+          python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py 2>&1 | Tee-Object -FilePath (Join-Path $logs 'ir-mutation-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'IR mutation tests failed' }
+          $wav = 'Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav'
+          $header = 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h'
+          python -B Tools/EngineSimVendor/verify_impulse_response.py --wav $wav --header $header --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . 2>&1 | Tee-Object -FilePath (Join-Path $logs 'ir-verifier.log')
+          if ($LASTEXITCODE -ne 0) { throw 'IR verifier failed' }
+          $generated = Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'
+          python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $generated 2>&1 | Tee-Object -FilePath (Join-Path $logs 'ir-generator.log')
+          if ($LASTEXITCODE -ne 0) { throw 'IR generator failed' }
+          if ((Get-FileHash -Algorithm SHA256 $generated).Hash -ne (Get-FileHash -Algorithm SHA256 $header).Hash) { throw 'IR generated header differs' }
+          'IR generator byte-identical: PASS' | Add-Content -Encoding utf8 (Join-Path $logs 'ir-generator.log')
+
+      - name: Download accepted selected-profile artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99
+          path: ${{ runner.temp }}\selected-profile
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 29814599329
+
+      - name: Verify accepted artifact and derive selected input
+        shell: python
+        run: |
+          import hashlib
+          import json
+          from pathlib import Path
+          root = Path(r'${{ runner.temp }}\selected-profile')
+          entries = json.loads((root / 'hash-manifest.json').read_text(encoding='utf-8'))
+          assert len(entries) == 40
+          for item in entries:
+              data = (root / item['path']).read_bytes()
+              assert len(data) == item['size']
+              assert hashlib.sha256(data).hexdigest() == item['sha256']
+          assert len([p for p in root.rglob('*') if p.is_file()]) == 41
+          summary = json.loads((root / 'selected-calibration/selected-summary.json').read_text(encoding='utf-8'))
+          profile = json.loads((root / 'subaru_ej25_cold_start_profile.json').read_text(encoding='utf-8'))
+          selected = summary['selected_candidate']
+          assert selected['candidate_id'] == profile['selected_candidate_id']
+          assert selected['maximum_startup_simulation_seconds'] == profile['maximum_startup_simulation_seconds']
+          assert selected['post_starter_minimum_rpm'] == profile['post_starter_minimum_rpm']
+          assert selected['stability_window_seconds'] == profile['stability_window_seconds']
+          assert selected['starter_disengagement_rpm'] == profile['starter_disengagement_criterion']['rpm']
+          assert selected['startup_throttle'] == profile['startup_throttle']
+          wrapper = {
+              'schema_version': summary['schema_version'],
+              'candidate_source_sha': summary['candidate_source_sha'],
+              'selected_candidate': selected,
+          }
+          Path(r'${{ runner.temp }}\selected-candidate-input.json').write_text(json.dumps(wrapper, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          assert hashlib.sha256((root / 'subaru_ej25_cold_start_profile.json').read_bytes()).digest() == hashlib.sha256(Path('Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json').read_bytes()).digest()
+          assert hashlib.sha256((root / 'SubaruEJ25ColdStartProfile.generated.h').read_bytes()).digest() == hashlib.sha256(Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h').read_bytes()).digest()
+          stage = Path(r'${{ runner.temp }}\nc003b-pre-matrix')
+          (stage / 'selected-profile-provenance.txt').write_text(
+              'source_run_id=29814599329\n'
+              'source_artifact_id=8488882253\n'
+              'source_artifact_name=NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99\n'
+              'independently_verified_zip_sha256=f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b\n'
+              'hash-manifest verification=PASS\nselected candidate extraction=PASS\n',
+              encoding='utf-8',
+          )
+
+      - name: Prove checkout remains clean before matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (git status --porcelain) { throw 'pre-matrix checkout is not clean' }
+          if (Test-Path nc003b-final-closure-artifact) { throw 'artifact root exists before matrix' }
+
+      - name: Run full VS2022 MSVC v143 closure matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 `
+            -CandidateSha $env:CANDIDATE_SHA `
+            -Phase Selected `
+            -SelectedCandidatePath '${{ runner.temp }}\selected-candidate-input.json' `
+            -ArtifactRoot 'nc003b-final-closure-artifact'
+          $exitCode = $LASTEXITCODE
+          "exit_code=$exitCode" | Set-Content -Encoding utf8 '${{ runner.temp }}\nc003b-pre-matrix\matrix-step-exit-code.txt'
+          exit 0
+
+      - name: Gate semantic matrix status
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          root = Path('nc003b-final-closure-artifact')
+          status = json.loads((root / 'validation-status.json').read_text(encoding='utf-8-sig'))
+          print(json.dumps(status, indent=2, sort_keys=True))
+          expected = {
+              'status': 'PASS',
+              'release_result': 'PASS',
+              'debug_result': 'PASS',
+              'asan_result': 'PASS',
+              'selected_trials_result': '10/10 PASS',
+              'timeout_result': 'PASS',
+              'stall_result': 'PASS',
+              'clean_reproducibility': 'PASS',
+          }
+          for key, value in expected.items():
+              if status.get(key) != value:
+                  raise RuntimeError(f'{key}: expected {value!r}, got {status.get(key)!r}; failure={status.get("failure")!r}')
+          if int(status.get('project_warning_count', -1)) != 0:
+              raise RuntimeError(f'project_warning_count={status.get("project_warning_count")!r}')
+
+      - name: Assemble pre-matrix evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -Recurse -Force '${{ runner.temp }}\nc003b-pre-matrix\*' 'nc003b-final-closure-artifact'
+
+      - name: Download autocrlf proof into closure artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: nc003b-autocrlf-proof-${{ inputs.candidate_sha }}
+          path: nc003b-final-closure-artifact\autocrlf-proof
+
+      - name: Download boundary proof into closure artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: nc003b-boundary-proof-${{ inputs.candidate_sha }}
+          path: nc003b-final-closure-artifact\boundary-proof
+
+      - name: Finalize closure artifact
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import shutil
+          from pathlib import Path
+          root = Path('nc003b-final-closure-artifact')
+          status_path = root / 'validation-status.json'
+          status = json.loads(status_path.read_text(encoding='utf-8-sig'))
+          metadata = root / 'selected-calibration/windows-run-metadata.json'
+          if not metadata.is_file():
+              raise RuntimeError(f'missing {metadata}')
+          toolchain_path = root / 'toolchain-versions.json'
+          shutil.copyfile(metadata, toolchain_path)
+          toolchain = json.loads(toolchain_path.read_text(encoding='utf-8-sig'))
+          toolchain.update({
+              'candidate_source_sha': '${{ inputs.candidate_sha }}',
+              'run_id': int('${{ github.run_id }}'),
+              'artifact_name': '${{ inputs.artifact_name }}',
+              'artifact_id': 'assigned-after-upload',
+          })
+          toolchain_path.write_text(json.dumps(toolchain, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          assert toolchain['candidate_source_sha'] == '${{ inputs.candidate_sha }}'
+          assert toolchain['run_id'] == int('${{ github.run_id }}')
+          assert toolchain['artifact_name'] == '${{ inputs.artifact_name }}'
+          assert toolchain['artifact_id'] == 'assigned-after-upload'
+          status.update({
+              'candidate_tree': '${{ inputs.expected_tree }}',
+              'input_target_sha': '9bb6464123228f1d9638d467e7160a7cb2aa98c8',
+              'repository_validation': 'PASS',
+              'git_diff_check': 'PASS',
+              'snapshot_verifier': 'PASS',
+              'snapshot_tests': '7/7 PASS',
+              'fixture_mutation_tests': '24/24 PASS',
+              'fixture_parity': '118/118 PASS',
+              'fixture_semantic_contract_sha256': '3ba447789024d613cdceb2382d917e9d6ce340cbeecb621d4f71133e55578f00',
+              'ir_mutation_tests': '11/11 PASS',
+              'ir_verifier': 'PASS',
+              'ir_generator_determinism': 'PASS',
+              'cold_start_mutation_tests': '15/15 PASS',
+              'cold_start_verifier': 'PASS',
+              'cold_start_generator_determinism': 'PASS',
+              'profile_header_consistency': 'PASS',
+              'ctest': 'PASS',
+              'direct_runtime': 'PASS',
+              'sourceinputs_absence': 'PASS',
+              'autocrlf_true_proof': 'PASS',
+              'boundary_proof': 'PASS',
+              'network_dependency_scan': 'PASS',
+              'runtime_wav_dependency_scan': 'PASS',
+              'residue_scan': 'PASS',
+          })
+          status_path.write_text(json.dumps(status, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          manifest = root / 'hash-manifest.json'
+          entries = []
+          for path in sorted(p for p in root.rglob('*') if p.is_file() and p != manifest):
+              data = path.read_bytes()
+              entries.append({'path': path.relative_to(root).as_posix(), 'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)})
+          manifest.write_text(json.dumps(entries, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          for item in json.loads(manifest.read_text(encoding='utf-8')):
+              data = (root / item['path']).read_bytes()
+              assert len(data) == item['size']
+              assert hashlib.sha256(data).hexdigest() == item['sha256']
+
+      - name: Prove post-matrix cleanup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $safe = Join-Path $env:RUNNER_TEMP 'nc003b-final-closure-artifact'
+          Copy-Item -Recurse -Force 'nc003b-final-closure-artifact' $safe
+          git reset --hard $env:CANDIDATE_SHA
+          git clean -fdx
+          $pycache = @(Get-ChildItem -Recurse -Force -Directory -Filter __pycache__ -ErrorAction SilentlyContinue)
+          $pyc = @(Get-ChildItem -Recurse -Force -File -Filter *.pyc -ErrorAction SilentlyContinue)
+          if ($pycache.Count -ne 0 -or $pyc.Count -ne 0) { throw 'Python residue remains' }
+          if (Test-Path Tools/EngineSimVendor/SourceInputs) { throw 'SourceInputs reappeared' }
+          if (Test-Path .github/workflows/nc003b-phase0-final-closure-windows.yml) { throw 'temporary workflow exists in candidate tree' }
+          if (@(git ls-files -- .github/workflows/nc003b-phase0-final-closure-windows.yml).Count -ne 0) { throw 'temporary workflow tracked in candidate' }
+          if (git status --porcelain) { throw 'post-matrix checkout is not clean' }
+          @(
+            'post-matrix cleanup: PASS',
+            'git status clean: PASS',
+            'SourceInputs absence: PASS',
+            '__pycache__ directories: 0',
+            '.pyc files: 0',
+            'temporary workflow absent from candidate tree: PASS'
+          ) | Set-Content -Encoding utf8 (Join-Path $safe 'final-residue-scan.txt')
+
+      - name: Seal post-cleanup artifact manifest
+        shell: python
+        run: |
+          import hashlib
+          import json
+          from pathlib import Path
+          root = Path(r'${{ runner.temp }}\nc003b-final-closure-artifact')
+          status_path = root / 'validation-status.json'
+          status = json.loads(status_path.read_text(encoding='utf-8-sig'))
+          status['post_matrix_cleanup'] = 'PASS'
+          status_path.write_text(json.dumps(status, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          manifest = root / 'hash-manifest.json'
+          entries = []
+          for path in sorted(p for p in root.rglob('*') if p.is_file() and p != manifest):
+              data = path.read_bytes()
+              entries.append({'path': path.relative_to(root).as_posix(), 'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)})
+          manifest.write_text(json.dumps(entries, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          for item in json.loads(manifest.read_text(encoding='utf-8')):
+              data = (root / item['path']).read_bytes()
+              assert len(data) == item['size']
+              assert hashlib.sha256(data).hexdigest() == item['sha256']
+
+      - name: Upload final closure artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}\nc003b-final-closure-artifact
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload failed matrix diagnostic
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nc003b-final-closure-failure-${{ inputs.candidate_sha }}
+          path: |
+            nc003b-final-closure-artifact
+            ${{ runner.temp }}\nc003b-pre-matrix
+            ${{ runner.temp }}\nc003b-final-closure-artifact
+          if-no-files-found: warn
+          retention-days: 2
