@@ -57,24 +57,30 @@ jobs:
               'utf8'
             );
 
-      - name: PowerShell canary
-        shell: powershell
+      - name: Checkout bootstrap
+        uses: actions/checkout@v4
+        with:
+          ref: agent/nc-003b-phase0-source-normalization-bootstrap
+          path: bootstrap
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: PowerShell execution-policy canary
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
+          @echo off
+          powershell.exe ^
+            -NoLogo ^
+            -NoProfile ^
+            -NonInteractive ^
+            -ExecutionPolicy Bypass ^
+            -File "%GITHUB_WORKSPACE%\bootstrap\.github\nc003b-bootstrap\powershell-canary.ps1" > "%EVIDENCE%\powershell-canary-command.txt" 2>&1
+          set "NC003B_PS_EXIT=%ERRORLEVEL%"
+          type "%EVIDENCE%\powershell-canary-command.txt"
+          exit /b %NC003B_PS_EXIT%
 
-          $path = Join-Path `
-            $env:RUNNER_TEMP `
-            'nc003b-powershell-canary.txt'
-
-          [System.IO.File]::WriteAllText(
-            $path,
-            'POWERSHELL_EXECUTED',
-            [System.Text.UTF8Encoding]::new($false)
-          )
-
-          Write-Host 'POWERSHELL_CANARY=CREATED'
-
-      - name: Verify PowerShell canary independently
+      - name: Verify canary independently
         if: always()
         uses: actions/github-script@v7
         with:
@@ -93,14 +99,22 @@ jobs:
               process.env.EVIDENCE,
               'final-status.txt'
             );
+            const commandLog = path.join(
+              process.env.EVIDENCE,
+              'powershell-canary-command.txt'
+            );
+            const commandText = fs.existsSync(commandLog)
+              ? fs.readFileSync(commandLog, 'utf8')
+              : '';
+            const groupPolicyOverride = /PSSecurityException|running scripts is disabled/i
+              .test(commandText);
             if (!fs.existsSync(canary)) {
               fs.writeFileSync(result, 'MISSING\n', 'utf8');
-              fs.writeFileSync(
-                status,
-                `STOP — PowerShell canary: file missing: ${canary}\n`,
-                'utf8'
-              );
-              core.setFailed(`PowerShell canary missing: ${canary}`);
+              const stop = groupPolicyOverride
+                ? 'STOP — runner Group Policy overrides process ExecutionPolicy Bypass\n'
+                : 'STOP — PowerShell execution-policy canary failed\n';
+              fs.writeFileSync(status, stop, 'utf8');
+              core.setFailed(stop.trim());
               return;
             }
             const content = fs.readFileSync(canary, 'utf8');
@@ -112,22 +126,13 @@ jobs:
               );
               fs.writeFileSync(
                 status,
-                'STOP — PowerShell canary: exact content mismatch\n',
+                'STOP — PowerShell execution-policy canary failed\n',
                 'utf8'
               );
-              core.setFailed('PowerShell canary content mismatch');
+              core.setFailed('PowerShell execution-policy canary failed');
               return;
             }
             fs.writeFileSync(result, 'POWERSHELL_EXECUTED\n', 'utf8');
-
-      - name: Checkout bootstrap
-        uses: actions/checkout@v4
-        with:
-          ref: agent/nc-003b-phase0-source-normalization-bootstrap
-          path: bootstrap
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
 
       - name: Checkout exact worktree
         uses: actions/checkout@v4
@@ -166,15 +171,22 @@ jobs:
               '.github',
               'nc003b-bootstrap'
             );
-            const orchestration = path.join(
-              support,
-              'run-source-normalization.ps1'
-            );
-            const validator = path.join(
-              support,
+            const files = {
+              validator: path.join(support, 'validate_repository.py'),
+              orchestration: path.join(support, 'run-source-normalization.ps1'),
+              canary: path.join(support, 'powershell-canary.ps1'),
+              publication: path.join(support, 'publish-result-branch.ps1')
+            };
+            const expectedEntries = [
+              'powershell-canary.ps1',
+              'publish-result-branch.ps1',
+              'run-source-normalization.ps1',
               'validate_repository.py'
-            );
-            const sha256 = b => crypto.createHash('sha256').update(b).digest('hex');
+            ];
+            const sha256 = b => crypto
+              .createHash('sha256')
+              .update(b)
+              .digest('hex');
             const gitBlob = b => crypto
               .createHash('sha1')
               .update(Buffer.concat([
@@ -190,107 +202,135 @@ jobs:
               );
               core.setFailed(message);
             };
-            for (const required of [workflow, orchestration, validator]) {
+            for (const required of [workflow, ...Object.values(files)]) {
               if (!fs.existsSync(required) || !fs.statSync(required).isFile()) {
                 fail(`required source missing: ${required}`);
                 return;
               }
             }
             const entries = fs.readdirSync(support, { withFileTypes: true });
-            const unexpected = entries.filter(entry =>
-              !entry.isFile() || !['.py', '.ps1'].includes(path.extname(entry.name).toLowerCase())
-            );
-            if (unexpected.length) {
-              fail(`unexpected bootstrap entries: ${unexpected.map(x => x.name).join(',')}`);
+            const actualEntries = entries.map(entry => entry.name).sort();
+            if (
+              entries.some(entry => !entry.isFile()) ||
+              JSON.stringify(actualEntries) !== JSON.stringify(expectedEntries)
+            ) {
+              fail(`unexpected bootstrap entries: ${actualEntries.join(',')}`);
               return;
             }
+
             const workflowText = fs.readFileSync(workflow, 'utf8');
-            const orchestrationBytes = fs.readFileSync(orchestration);
-            const validatorBytes = fs.readFileSync(validator);
-            const orchestrationText = orchestrationBytes.toString('utf8');
-            const stripPowerShellStrings = source => source
-              .replace(/'(?:''|[^'])*'/gs, "''")
-              .replace(/"(?:`.|[^"`]*)"/gs, '""');
-            const executablePowerShell = stripPowerShellStrings(orchestrationText);
-            const joined = workflowText + '\n' + executablePowerShell + '\n' + validatorBytes.toString('utf8');
+            const bytes = Object.fromEntries(
+              Object.entries(files).map(([name, file]) => [name, fs.readFileSync(file)])
+            );
+            const text = Object.fromEntries(
+              Object.entries(bytes).map(([name, value]) => [name, value.toString('utf8')])
+            );
             const token = (...parts) => parts.join('');
-            const workflowForbidden = [
-              token('env:', ' {P:'),
-              token('gun', 'zip', 'Sync'),
-              token('z', 'lib'),
-              token('From', 'Base', '64String'),
-              token("'base", "64'"),
-              token('Script', 'Block::Create'),
-              token('Invoke', '-Expression'),
-              token('shell: power', 'shell.exe'),
-              token('-Fi', 'le {0}'),
-              token('-Com', 'mand'),
-              token('p', 'wsh')
-            ];
             const shellLines = workflowText
               .split(/\r?\n/)
               .map(line => line.trim())
               .filter(line => line.startsWith('shell:'));
-            if (shellLines.some(line => line !== 'shell: powershell')) {
-              fail(`non-builtin PowerShell shell remains: ${shellLines.join(',')}`);
+            if (
+              shellLines.length !== 3 ||
+              shellLines.some(line => line !== 'shell: cmd')
+            ) {
+              fail(`non-cmd shell remains: ${shellLines.join(',')}`);
               return;
             }
-            for (const item of workflowForbidden) {
-              if (workflowText.includes(item)) {
-                fail(`workflow contains forbidden reconstruction token: ${item}`);
-                return;
-              }
-            }
-            const hasEncodedDecoder = [
+
+            const transparentText = [
+              workflowText,
+              text.canary,
+              text.publication,
+              text.validator
+            ].join('\n');
+            const forbiddenTokens = [
               token('From', 'Base', '64String'),
               token('b64', 'decode('),
-              token('Buffer.from(process.env.', "'base" + "64'")
-            ].some(item => joined.includes(item));
-            const hasBootstrapInflater = [
               token('gun', 'zip', 'Sync'),
               token('z', 'lib.', 'gun', 'zip'),
-              token('g', 'zip.', 'decompress(')
-            ].some(item => joined.includes(item));
-            if (hasEncodedDecoder || hasBootstrapInflater) {
-              fail('encoded executable-source reconstruction remains');
-              return;
-            }
-            for (const item of [
+              token('g', 'zip.', 'decompress('),
+              token('Encoded', 'Command'),
               token('Script', 'Block]::Create'),
               token('Script', 'Block::Create'),
               token('Invoke', '-Expression'),
-              token('exec', '(compile')
-            ]) {
-              if (executablePowerShell.includes(item)) {
-                fail(`dynamic PowerShell execution remains: ${item}`);
+              token('exec', '(compile'),
+              token('-Fi', 'le {0}'),
+              token('shell:', ' powershell'),
+              token('shell:', ' pwsh')
+            ];
+            for (const item of forbiddenTokens) {
+              if (transparentText.includes(item)) {
+                fail(`forbidden executable-source token: ${item}`);
                 return;
               }
             }
             if (
-              orchestrationBytes.length !== 16449 ||
-              sha256(orchestrationBytes) !== '7f8196da3934e89ed0c21aaa9d0be34e4b6a5825366483c81d0820e110a21d02' ||
-              gitBlob(orchestrationBytes) !== 'c01833669acbfb3762b0afa267dffbb10b109966'
+              transparentText.includes(token('powershell.exe ', '-Com', 'mand')) ||
+              transparentText.includes(token('powershell.exe ', '-Encoded', 'Command'))
+            ) {
+              fail('forbidden PowerShell command transport');
+              return;
+            }
+            if (
+              /git\s+push[^\r\n]*(?:--force(?:-with-lease)?|\s-f(?:\s|$))/i
+                .test(transparentText)
+            ) {
+              fail('force push remains');
+              return;
+            }
+            const dynamicSourceCreation = [
+              /writeFileSync\([^)]*['"][^'"]+\.(?:ps1|py)['"]/is,
+              /WriteAllText\([^)]*['"][^'"]+\.(?:ps1|py)['"]/is,
+              /Set-Content[^\r\n]*\.(?:ps1|py)(?:['"]|\s|$)/i,
+              /Out-File[^\r\n]*\.(?:ps1|py)(?:['"]|\s|$)/i
+            ].some(pattern => pattern.test(transparentText));
+            if (dynamicSourceCreation) {
+              fail('dynamic creation of executable source remains');
+              return;
+            }
+            const workflowLines = workflowText
+              .split(/\r?\n/)
+              .map(line => line.trim());
+            const bypassCount = workflowLines
+              .filter(line => line === '-ExecutionPolicy Bypass ^')
+              .length;
+            const fileCount = workflowLines
+              .filter(line =>
+                line.startsWith('-File "%GITHUB_WORKSPACE%\\bootstrap\\.github\\nc003b-bootstrap\\') &&
+                line.includes('.ps1"')
+              )
+              .length;
+            if (bypassCount !== 3 || fileCount !== 3) {
+              fail(`unexpected process wrapper count: bypass=${bypassCount}, file=${fileCount}`);
+              return;
+            }
+
+            if (
+              bytes.orchestration.length !== 16449 ||
+              sha256(bytes.orchestration) !== '7f8196da3934e89ed0c21aaa9d0be34e4b6a5825366483c81d0820e110a21d02' ||
+              gitBlob(bytes.orchestration) !== 'c01833669acbfb3762b0afa267dffbb10b109966'
             ) {
               fail('orchestration source identity mismatch');
               return;
             }
             if (
-              validatorBytes.length !== 11105 ||
-              sha256(validatorBytes) !== 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d' ||
-              gitBlob(validatorBytes) !== '65c309558f1e50a8258caaef61e38087f2382392'
+              bytes.validator.length !== 11105 ||
+              sha256(bytes.validator) !== 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d' ||
+              gitBlob(bytes.validator) !== '65c309558f1e50a8258caaef61e38087f2382392'
             ) {
               fail('validator support identity mismatch');
               return;
             }
+
             const report = [
               'bootstrap source transparency: PASS',
               `workflow_blob=${gitBlob(Buffer.from(workflowText, 'utf8'))}`,
-              `orchestration_bytes=${orchestrationBytes.length}`,
-              `orchestration_sha256=${sha256(orchestrationBytes)}`,
-              `orchestration_blob=${gitBlob(orchestrationBytes)}`,
-              `validator_bytes=${validatorBytes.length}`,
-              `validator_sha256=${sha256(validatorBytes)}`,
-              `validator_blob=${gitBlob(validatorBytes)}`,
+              ...Object.entries(bytes).flatMap(([name, value]) => [
+                `${name}_bytes=${value.length}`,
+                `${name}_sha256=${sha256(value)}`,
+                `${name}_blob=${gitBlob(value)}`
+              ]),
               ''
             ].join('\n');
             fs.writeFileSync(
@@ -300,27 +340,17 @@ jobs:
             );
 
       - name: Normalize and validate exact head
-        shell: powershell
+        shell: cmd
         working-directory: ${{ github.workspace }}\work
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $script = Join-Path `
-            '${{ github.workspace }}\bootstrap' `
-            '.github\nc003b-bootstrap\run-source-normalization.ps1'
-
-          if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
-              throw "Orchestration script missing: $script"
-          }
-
-          & $script
-
-          if (
-            Test-Path -LiteralPath variable:\LASTEXITCODE
-            -and $LASTEXITCODE -ne 0
-          ) {
-              exit $LASTEXITCODE
-          }
+          @echo off
+          powershell.exe ^
+            -NoLogo ^
+            -NoProfile ^
+            -NonInteractive ^
+            -ExecutionPolicy Bypass ^
+            -File "%GITHUB_WORKSPACE%\bootstrap\.github\nc003b-bootstrap\run-source-normalization.ps1"
+          exit /b %ERRORLEVEL%
 
       - name: Record unresolved failure
         if: failure()
@@ -340,63 +370,77 @@ jobs:
               );
             }
 
-      - name: Upload evidence
-        if: always()
+      - name: Upload validated evidence before publication
+        id: validation_upload
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: NC-003B-Phase0-source-normalization-${{ github.run_id }}
+          name: NC-003B-Phase0-source-normalization-validation-${{ github.run_id }}
           path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish result branch
+        id: publish
         if: success()
-        shell: powershell
+        shell: cmd
         working-directory: ${{ github.workspace }}\work
         run: |
-          $ErrorActionPreference = 'Stop'
+          @echo off
+          powershell.exe ^
+            -NoLogo ^
+            -NoProfile ^
+            -NonInteractive ^
+            -ExecutionPolicy Bypass ^
+            -File "%GITHUB_WORKSPACE%\bootstrap\.github\nc003b-bootstrap\publish-result-branch.ps1"
+          exit /b %ERRORLEVEL%
 
-          if (@(git status --short).Count -ne 0) {
-              throw 'Working tree dirty before result push'
-          }
+      - name: Record failure after publication stage
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const evidence = process.env.EVIDENCE;
+            fs.mkdirSync(evidence, { recursive: true });
+            const status = path.join(evidence, 'final-status.txt');
+            const current = fs.existsSync(status)
+              ? fs.readFileSync(status, 'utf8').trim()
+              : '';
+            const publishOutcome = '${{ steps.publish.outcome }}';
+            const validationUploadOutcome = '${{ steps.validation_upload.outcome }}';
+            if (publishOutcome === 'failure') {
+              if (!current.startsWith('STOP — result publication:')) {
+                fs.writeFileSync(
+                  status,
+                  'STOP — result publication failed after validated evidence upload\n',
+                  'utf8'
+                );
+              }
+              return;
+            }
+            if (validationUploadOutcome === 'failure') {
+              fs.writeFileSync(
+                status,
+                'STOP — validated evidence upload failed\n',
+                'utf8'
+              );
+              return;
+            }
+            if (!current.startsWith('STOP —')) {
+              fs.writeFileSync(
+                status,
+                'STOP — workflow failed before result publication completed\n',
+                'utf8'
+              );
+            }
 
-          $existing = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
-          if ($LASTEXITCODE -ne 0) {
-              throw 'Result branch probe failed'
-          }
-          if ($existing.Count -ne 0) {
-              throw 'Result branch appeared before controlled push'
-          }
-
-          git push origin "HEAD:refs/heads/$env:RESULT_BRANCH"
-          if ($LASTEXITCODE -ne 0) {
-              throw 'Result branch push failed'
-          }
-
-          $remote = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
-          if (
-            $remote.Count -ne 1 `
-            -or ($remote[0] -split '\s+')[0] -ne $env:FINAL_HEAD
-          ) {
-              throw 'Remote result branch identity mismatch'
-          }
-
-          $remoteTree = (git rev-parse "$($env:FINAL_HEAD)^{tree}").Trim()
-          if ($remoteTree -ne $env:FINAL_TREE) {
-              throw 'Remote result tree identity mismatch'
-          }
-
-          @(
-            "head=$env:FINAL_HEAD"
-            "tree=$env:FINAL_TREE"
-            'force=false'
-            "run_id=$env:GITHUB_RUN_ID"
-          ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'published-branch.txt')
-
-          @(
-            'PUBLISHED — WINDOWS EXACT-HEAD VALIDATED'
-            "head=$env:FINAL_HEAD"
-            "tree=$env:FINAL_TREE"
-            'force=false'
-            "run_id=$env:GITHUB_RUN_ID"
-          ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NC-003B-Phase0-source-normalization-final-${{ github.run_id }}
+          path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
+          if-no-files-found: error
+          retention-days: 30
