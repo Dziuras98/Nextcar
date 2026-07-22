@@ -507,11 +507,24 @@ jobs:
           $statusPath = Join-Path $evidence 'final-status.txt'
           if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) { "STOP — $env:CURRENT_STAGE: step failed before detailed status was recorded" | Set-Content -Encoding utf8 $statusPath }
 
+      - name: Stage evidence for upload
+        if: always()
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $staged = Join-Path $env:GITHUB_WORKSPACE 'nc003b-source-normalization-artifact'
+          Remove-Item -LiteralPath $staged -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $staged | Out-Null
+          if ($env:EVIDENCE -and (Test-Path -LiteralPath $env:EVIDENCE -PathType Container)) {
+            Copy-Item -Path (Join-Path $env:EVIDENCE '*') -Destination $staged -Recurse -Force
+          } else {
+            "STOP — evidence directory missing" | Set-Content -Encoding utf8 (Join-Path $staged 'final-status.txt')
+          }
+
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: NC-003B-Phase0-source-normalization-${{ github.run_id }}
-          path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
+          path: nc003b-source-normalization-artifact
           if-no-files-found: error
           retention-days: 30
