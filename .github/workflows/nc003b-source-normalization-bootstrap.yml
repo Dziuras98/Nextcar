@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Verify runner identity
-        shell: powershell
+        shell: 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           $evidence = Join-Path $env:RUNNER_TEMP 'Artifacts\NC-003B-Phase0-source-normalization'
@@ -82,7 +82,7 @@ jobs:
           persist-credentials: true
 
       - name: Mark accepted evidence download
-        shell: powershell
+        shell: 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"'
         run: |
           "CURRENT_STAGE=download accepted exact-head closure artifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -96,7 +96,7 @@ jobs:
           run-id: 29873058430
 
       - name: Locate exact Agent G source
-        shell: powershell
+        shell: 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           "CURRENT_STAGE=locate exact Agent G source" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -160,7 +160,7 @@ jobs:
           }
 
       - name: Normalize validate and prepare publication
-        shell: powershell
+        shell: 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           function Get-Sha256([string]$Path) { return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
@@ -480,7 +480,7 @@ jobs:
 
       - name: Publish result branch
         if: success()
-        shell: powershell
+        shell: 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           "CURRENT_STAGE=publish result branch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -500,54 +500,12 @@ jobs:
 
       - name: Record unresolved failure
         if: failure()
-        shell: powershell
+        shell: 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"'
         run: |
           $evidence = if ($env:EVIDENCE) { $env:EVIDENCE } else { Join-Path $env:RUNNER_TEMP 'Artifacts\NC-003B-Phase0-source-normalization' }
           New-Item -ItemType Directory -Force $evidence | Out-Null
           $statusPath = Join-Path $evidence 'final-status.txt'
           if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) { "STOP — $env:CURRENT_STAGE: step failed before detailed status was recorded" | Set-Content -Encoding utf8 $statusPath }
-
-      - name: Publish control-plane run report
-        if: always()
-        shell: powershell
-        env:
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $bootstrap = 'agent/nc-003b-phase0-source-normalization-bootstrap'
-          $reportTree = Join-Path $env:RUNNER_TEMP 'nc003b-control-report'
-          try {
-            $remote = @(git ls-remote --heads origin "refs/heads/$bootstrap")
-            if ($LASTEXITCODE -ne 0 -or $remote.Count -ne 1) { throw 'cannot resolve bootstrap ref' }
-            $remoteHead = ($remote[0] -split '\s+')[0]
-            if ($remoteHead -ne $env:GITHUB_SHA) { throw "bootstrap moved from trigger $env:GITHUB_SHA to $remoteHead" }
-            git fetch --no-tags origin $env:GITHUB_SHA
-            if ($LASTEXITCODE -ne 0) { throw 'cannot fetch trigger commit' }
-            Remove-Item -LiteralPath $reportTree -Recurse -Force -ErrorAction SilentlyContinue
-            git worktree add --detach $reportTree $env:GITHUB_SHA
-            if ($LASTEXITCODE -ne 0) { throw 'cannot create control-report worktree' }
-            $statusPath = Join-Path $env:EVIDENCE 'final-status.txt'
-            $finalText = if (Test-Path -LiteralPath $statusPath -PathType Leaf) { (Get-Content -Raw -LiteralPath $statusPath).Trim() } else { "STOP — $env:CURRENT_STAGE: final-status.txt missing" }
-            $report = [ordered]@{
-              run_id = $env:GITHUB_RUN_ID
-              run_attempt = $env:GITHUB_RUN_ATTEMPT
-              trigger_sha = $env:GITHUB_SHA
-              job_status = $env:JOB_STATUS
-              final_status = $finalText
-              result_branch = $env:RESULT_BRANCH
-            } | ConvertTo-Json -Compress
-            $workflowPath = Join-Path $reportTree '.github\workflows\nc003b-source-normalization-bootstrap.yml'
-            [System.IO.File]::AppendAllText($workflowPath, "`n# CONTROL_REPORT $report`n", (New-Object System.Text.UTF8Encoding($false)))
-            git -C $reportTree config user.name 'github-actions[bot]'
-            git -C $reportTree config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git -C $reportTree add -- '.github/workflows/nc003b-source-normalization-bootstrap.yml'
-            git -C $reportTree commit -m "[skip ci] Record NC-003B source-normalization run $env:GITHUB_RUN_ID"
-            if ($LASTEXITCODE -ne 0) { throw 'control-report commit failed' }
-            git -C $reportTree push origin "HEAD:refs/heads/$bootstrap"
-            if ($LASTEXITCODE -ne 0) { throw 'control-report push failed' }
-          } finally {
-            if (Test-Path -LiteralPath $reportTree -PathType Container) { git worktree remove --force $reportTree; git worktree prune }
-          }
 
       - name: Upload evidence
         if: always()
