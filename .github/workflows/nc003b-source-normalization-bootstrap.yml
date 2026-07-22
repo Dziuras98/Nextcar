@@ -1,57 +1,402 @@
 name: NC-003B Phase 0 source normalization bootstrap
+
 on:
   push:
-    branches: [agent/nc-003b-phase0-source-normalization-bootstrap]
-permissions: {contents: write, actions: read}
-concurrency: {group: nc003b-source-normalization-bootstrap, cancel-in-progress: true}
+    branches:
+      - agent/nc-003b-phase0-source-normalization-bootstrap
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: nc003b-source-normalization-bootstrap
+  cancel-in-progress: true
+
 env:
   PYTHONDONTWRITEBYTECODE: "1"
   BASELINE_SHA: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
   BASELINE_TREE: 64a4af00ed06bdaa57553960685e670a472b55ba
   RESULT_BRANCH: agent/nc-003b-phase0-source-normalization
+
 jobs:
   normalize-and-validate:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 120
     steps:
-    - uses: actions/github-script@v7
-      with:
-        script: const fs=require('fs'),p=require('path'),o=require('os'),e=p.join(process.env.RUNNER_TEMP,'Artifacts','NC-003B-Phase0-source-normalization');fs.rmSync(e,{recursive:true,force:true});fs.mkdirSync(e,{recursive:true});fs.appendFileSync(process.env.GITHUB_ENV,'EVIDENCE='+e+o.EOL)
-    - name: PowerShell canary
-      shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
-      run: "[IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'nc003b-powershell-canary.txt'),'POWERSHELL_EXECUTED',[Text.UTF8Encoding]::new($false))"
-    - uses: actions/github-script@v7
-      with:
-        script: const fs=require('fs'),p=require('path'),f=p.join(process.env.RUNNER_TEMP,'nc003b-powershell-canary.txt');if(!fs.existsSync(f)||fs.readFileSync(f,'utf8')!=='POWERSHELL_EXECUTED')core.setFailed('PowerShell canary failed');else fs.writeFileSync(p.join(process.env.EVIDENCE,'powershell-canary.txt'),'POWERSHELL_EXECUTED\n')
-    - uses: actions/checkout@v4
-      with: {ref: agent/nc-003b-phase0-source-normalization-bootstrap, path: bootstrap, fetch-depth: 1, clean: true, persist-credentials: false}
-    - uses: actions/checkout@v4
-      with: {ref: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6, path: work, fetch-depth: 0, clean: true, persist-credentials: true}
-    - uses: actions/download-artifact@v4
-      with:
-        name: NC-003B-Phase0-final-closure-3c67a53a1c2a8d940736e21218cfd89a0b9870b6
-        path: ${{ runner.temp }}\accepted-closure
-        github-token: ${{ github.token }}
-        repository: ${{ github.repository }}
-        run-id: 29873058430
-    - uses: actions/github-script@v7
-      env: {P: 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, S: 7f8196da3934e89ed0c21aaa9d0be34e4b6a5825366483c81d0820e110a21d02}
-      with:
-        script: const fs=require('fs'),p=require('path'),z=require('zlib'),c=require('crypto'),b=z.gunzipSync(Buffer.from(process.env.P,'base64')),h=c.createHash('sha256').update(b).digest('hex');if(h!==process.env.S)core.setFailed('orchestration script SHA mismatch');else fs.writeFileSync(p.join(process.env.RUNNER_TEMP,'nc003b.ps1'),b)
-    - name: Normalize and validate exact head
-      working-directory: ${{ github.workspace }}\work
-      shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
-      run: "& (Join-Path $env:RUNNER_TEMP 'nc003b.ps1');if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"
-    - name: Upload evidence
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: NC-003B-Phase0-source-normalization-${{ github.run_id }}
-        path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
-        if-no-files-found: error
-        retention-days: 30
-    - name: Publish result branch
-      if: success()
-      working-directory: ${{ github.workspace }}\work
-      shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
-      run: $ErrorActionPreference='Stop';if(@(git status --short).Count){throw 'dirty before push'};$r=@(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH");if($LASTEXITCODE -or $r.Count){throw 'result appeared/probe failed'};git push origin "HEAD:refs/heads/$env:RESULT_BRANCH";if($LASTEXITCODE){throw 'push'};$r=@(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH");if($r.Count -ne 1 -or ($r[0] -split '\s+')[0] -ne $env:FINAL_HEAD){throw 'remote identity'};Write-Host 'PUBLISHED — WINDOWS EXACT-HEAD VALIDATED';Write-Host "head=$env:FINAL_HEAD tree=$env:FINAL_TREE force=false run=$env:GITHUB_RUN_ID"
+      - name: Initialize evidence control plane
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const os = require('os');
+            const evidence = path.join(
+              process.env.RUNNER_TEMP,
+              'Artifacts',
+              'NC-003B-Phase0-source-normalization'
+            );
+            fs.rmSync(evidence, { recursive: true, force: true });
+            fs.mkdirSync(evidence, { recursive: true });
+            const control = [
+              `run_id=${process.env.GITHUB_RUN_ID}`,
+              `run_attempt=${process.env.GITHUB_RUN_ATTEMPT}`,
+              `bootstrap_sha=${process.env.GITHUB_SHA}`,
+              `runner_name=${process.env.RUNNER_NAME}`,
+              `timestamp=${new Date().toISOString()}`,
+              ''
+            ].join(os.EOL);
+            fs.writeFileSync(
+              path.join(evidence, 'control-plane-started.txt'),
+              control,
+              'utf8'
+            );
+            fs.appendFileSync(
+              process.env.GITHUB_ENV,
+              `EVIDENCE=${evidence}${os.EOL}`,
+              'utf8'
+            );
+
+      - name: PowerShell canary
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $path = Join-Path `
+            $env:RUNNER_TEMP `
+            'nc003b-powershell-canary.txt'
+
+          [System.IO.File]::WriteAllText(
+            $path,
+            'POWERSHELL_EXECUTED',
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          Write-Host 'POWERSHELL_CANARY=CREATED'
+
+      - name: Verify PowerShell canary independently
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const canary = path.join(
+              process.env.RUNNER_TEMP,
+              'nc003b-powershell-canary.txt'
+            );
+            const result = path.join(
+              process.env.EVIDENCE,
+              'powershell-canary.txt'
+            );
+            const status = path.join(
+              process.env.EVIDENCE,
+              'final-status.txt'
+            );
+            if (!fs.existsSync(canary)) {
+              fs.writeFileSync(result, 'MISSING\n', 'utf8');
+              fs.writeFileSync(
+                status,
+                `STOP — PowerShell canary: file missing: ${canary}\n`,
+                'utf8'
+              );
+              core.setFailed(`PowerShell canary missing: ${canary}`);
+              return;
+            }
+            const content = fs.readFileSync(canary, 'utf8');
+            if (content !== 'POWERSHELL_EXECUTED') {
+              fs.writeFileSync(
+                result,
+                `CONTENT_MISMATCH=${JSON.stringify(content)}\n`,
+                'utf8'
+              );
+              fs.writeFileSync(
+                status,
+                'STOP — PowerShell canary: exact content mismatch\n',
+                'utf8'
+              );
+              core.setFailed('PowerShell canary content mismatch');
+              return;
+            }
+            fs.writeFileSync(result, 'POWERSHELL_EXECUTED\n', 'utf8');
+
+      - name: Checkout bootstrap
+        uses: actions/checkout@v4
+        with:
+          ref: agent/nc-003b-phase0-source-normalization-bootstrap
+          path: bootstrap
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout exact worktree
+        uses: actions/checkout@v4
+        with:
+          ref: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
+          path: work
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Download accepted closure evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: NC-003B-Phase0-final-closure-3c67a53a1c2a8d940736e21218cfd89a0b9870b6
+          path: ${{ runner.temp }}\accepted-closure
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 29873058430
+
+      - name: Verify transparent bootstrap sources
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const crypto = require('crypto');
+            const root = path.join(process.env.GITHUB_WORKSPACE, 'bootstrap');
+            const workflow = path.join(
+              root,
+              '.github',
+              'workflows',
+              'nc003b-source-normalization-bootstrap.yml'
+            );
+            const support = path.join(
+              root,
+              '.github',
+              'nc003b-bootstrap'
+            );
+            const orchestration = path.join(
+              support,
+              'run-source-normalization.ps1'
+            );
+            const validator = path.join(
+              support,
+              'validate_repository.py'
+            );
+            const sha256 = b => crypto.createHash('sha256').update(b).digest('hex');
+            const gitBlob = b => crypto
+              .createHash('sha1')
+              .update(Buffer.concat([
+                Buffer.from(`blob ${b.length}\0`, 'utf8'),
+                b
+              ]))
+              .digest('hex');
+            const fail = message => {
+              fs.writeFileSync(
+                path.join(process.env.EVIDENCE, 'final-status.txt'),
+                `STOP — bootstrap source transparency: ${message}\n`,
+                'utf8'
+              );
+              core.setFailed(message);
+            };
+            for (const required of [workflow, orchestration, validator]) {
+              if (!fs.existsSync(required) || !fs.statSync(required).isFile()) {
+                fail(`required source missing: ${required}`);
+                return;
+              }
+            }
+            const entries = fs.readdirSync(support, { withFileTypes: true });
+            const unexpected = entries.filter(entry =>
+              !entry.isFile() || !['.py', '.ps1'].includes(path.extname(entry.name).toLowerCase())
+            );
+            if (unexpected.length) {
+              fail(`unexpected bootstrap entries: ${unexpected.map(x => x.name).join(',')}`);
+              return;
+            }
+            const workflowText = fs.readFileSync(workflow, 'utf8');
+            const orchestrationBytes = fs.readFileSync(orchestration);
+            const validatorBytes = fs.readFileSync(validator);
+            const orchestrationText = orchestrationBytes.toString('utf8');
+            const stripPowerShellStrings = source => source
+              .replace(/'(?:''|[^'])*'/gs, "''")
+              .replace(/"(?:`.|[^"`]*)"/gs, '""');
+            const executablePowerShell = stripPowerShellStrings(orchestrationText);
+            const joined = workflowText + '\n' + executablePowerShell + '\n' + validatorBytes.toString('utf8');
+            const token = (...parts) => parts.join('');
+            const workflowForbidden = [
+              token('env:', ' {P:'),
+              token('gun', 'zip', 'Sync'),
+              token('z', 'lib'),
+              token('From', 'Base', '64String'),
+              token("'base", "64'"),
+              token('Script', 'Block::Create'),
+              token('Invoke', '-Expression'),
+              token('shell: power', 'shell.exe'),
+              token('-Fi', 'le {0}'),
+              token('-Com', 'mand'),
+              token('p', 'wsh')
+            ];
+            const shellLines = workflowText
+              .split(/\r?\n/)
+              .map(line => line.trim())
+              .filter(line => line.startsWith('shell:'));
+            if (shellLines.some(line => line !== 'shell: powershell')) {
+              fail(`non-builtin PowerShell shell remains: ${shellLines.join(',')}`);
+              return;
+            }
+            for (const item of workflowForbidden) {
+              if (workflowText.includes(item)) {
+                fail(`workflow contains forbidden reconstruction token: ${item}`);
+                return;
+              }
+            }
+            const hasEncodedDecoder = [
+              token('From', 'Base', '64String'),
+              token('b64', 'decode('),
+              token('Buffer.from(process.env.', "'base" + "64'")
+            ].some(item => joined.includes(item));
+            const hasBootstrapInflater = [
+              token('gun', 'zip', 'Sync'),
+              token('z', 'lib.', 'gun', 'zip'),
+              token('g', 'zip.', 'decompress(')
+            ].some(item => joined.includes(item));
+            if (hasEncodedDecoder || hasBootstrapInflater) {
+              fail('encoded executable-source reconstruction remains');
+              return;
+            }
+            for (const item of [
+              token('Script', 'Block]::Create'),
+              token('Script', 'Block::Create'),
+              token('Invoke', '-Expression'),
+              token('exec', '(compile')
+            ]) {
+              if (executablePowerShell.includes(item)) {
+                fail(`dynamic PowerShell execution remains: ${item}`);
+                return;
+              }
+            }
+            if (
+              orchestrationBytes.length !== 16449 ||
+              sha256(orchestrationBytes) !== '7f8196da3934e89ed0c21aaa9d0be34e4b6a5825366483c81d0820e110a21d02' ||
+              gitBlob(orchestrationBytes) !== 'c01833669acbfb3762b0afa267dffbb10b109966'
+            ) {
+              fail('orchestration source identity mismatch');
+              return;
+            }
+            if (
+              validatorBytes.length !== 11105 ||
+              sha256(validatorBytes) !== 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d' ||
+              gitBlob(validatorBytes) !== '65c309558f1e50a8258caaef61e38087f2382392'
+            ) {
+              fail('validator support identity mismatch');
+              return;
+            }
+            const report = [
+              'bootstrap source transparency: PASS',
+              `workflow_blob=${gitBlob(Buffer.from(workflowText, 'utf8'))}`,
+              `orchestration_bytes=${orchestrationBytes.length}`,
+              `orchestration_sha256=${sha256(orchestrationBytes)}`,
+              `orchestration_blob=${gitBlob(orchestrationBytes)}`,
+              `validator_bytes=${validatorBytes.length}`,
+              `validator_sha256=${sha256(validatorBytes)}`,
+              `validator_blob=${gitBlob(validatorBytes)}`,
+              ''
+            ].join('\n');
+            fs.writeFileSync(
+              path.join(process.env.EVIDENCE, 'bootstrap-source-transparency.txt'),
+              report,
+              'utf8'
+            );
+
+      - name: Normalize and validate exact head
+        shell: powershell
+        working-directory: ${{ github.workspace }}\work
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $script = Join-Path `
+            '${{ github.workspace }}\bootstrap' `
+            '.github\nc003b-bootstrap\run-source-normalization.ps1'
+
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
+              throw "Orchestration script missing: $script"
+          }
+
+          & $script
+
+          if (
+            Test-Path -LiteralPath variable:\LASTEXITCODE
+            -and $LASTEXITCODE -ne 0
+          ) {
+              exit $LASTEXITCODE
+          }
+
+      - name: Record unresolved failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const evidence = process.env.EVIDENCE;
+            fs.mkdirSync(evidence, { recursive: true });
+            const status = path.join(evidence, 'final-status.txt');
+            if (!fs.existsSync(status)) {
+              fs.writeFileSync(
+                status,
+                'STOP — workflow failed before detailed status was recorded\n',
+                'utf8'
+              );
+            }
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NC-003B-Phase0-source-normalization-${{ github.run_id }}
+          path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish result branch
+        if: success()
+        shell: powershell
+        working-directory: ${{ github.workspace }}\work
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (@(git status --short).Count -ne 0) {
+              throw 'Working tree dirty before result push'
+          }
+
+          $existing = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Result branch probe failed'
+          }
+          if ($existing.Count -ne 0) {
+              throw 'Result branch appeared before controlled push'
+          }
+
+          git push origin "HEAD:refs/heads/$env:RESULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Result branch push failed'
+          }
+
+          $remote = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
+          if (
+            $remote.Count -ne 1 `
+            -or ($remote[0] -split '\s+')[0] -ne $env:FINAL_HEAD
+          ) {
+              throw 'Remote result branch identity mismatch'
+          }
+
+          $remoteTree = (git rev-parse "$($env:FINAL_HEAD)^{tree}").Trim()
+          if ($remoteTree -ne $env:FINAL_TREE) {
+              throw 'Remote result tree identity mismatch'
+          }
+
+          @(
+            "head=$env:FINAL_HEAD"
+            "tree=$env:FINAL_TREE"
+            'force=false'
+            "run_id=$env:GITHUB_RUN_ID"
+          ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'published-branch.txt')
+
+          @(
+            'PUBLISHED — WINDOWS EXACT-HEAD VALIDATED'
+            "head=$env:FINAL_HEAD"
+            "tree=$env:FINAL_TREE"
+            'force=false'
+            "run_id=$env:GITHUB_RUN_ID"
+          ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
