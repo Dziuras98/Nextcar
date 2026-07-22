@@ -26,8 +26,18 @@ jobs:
               job_id: Number(process.env.JOB_ID),
               request: { parseSuccessResponseBody: false }
             });
-            const raw = typeof response.data === 'string' ? response.data : Buffer.from(response.data).toString('utf8');
-            const lines = raw.replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/);
+            const chunks = [];
+            if (response.data && typeof response.data.getReader === 'function') {
+              const reader = response.data.getReader();
+              while (true) {
+                const part = await reader.read();
+                if (part.done) break;
+                chunks.push(Buffer.from(part.value));
+              }
+            } else {
+              chunks.push(typeof response.data === 'string' ? Buffer.from(response.data) : Buffer.from(response.data));
+            }
+            const lines = Buffer.concat(chunks).toString('utf8').replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/);
             const pattern = /(upload-artifact|No files were found|CreateArtifact|storage quota|quota|##\[error\]|Stage evidence|path:|GITHUB_WORKSPACE|nc003b-source-normalization-artifact)/i;
             core.info('=== DETAILS ===');
             for (const line of lines.filter(line => pattern.test(line)).slice(-80)) core.info(line.slice(0, 2000));
