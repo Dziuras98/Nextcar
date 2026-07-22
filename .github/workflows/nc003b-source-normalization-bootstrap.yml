@@ -1,4 +1,4 @@
-name: NC-003B source normalization diagnostics
+name: NC-003B source normalization blob preparation
 
 on:
   push:
@@ -6,30 +6,37 @@ on:
       - agent/nc-003b-phase0-source-normalization-bootstrap
 
 permissions:
-  actions: read
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  prepare-blob:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 10
     steps:
-      - name: Print artifact failure details
+      - name: Create patched workflow blob
         uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          JOB_ID: "88996554848"
+          SOURCE_BLOB: "9606adab7825b4d2c964969c0d6a43ceb4540a04"
         with:
           script: |
-            const response = await fetch(`https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/actions/jobs/${process.env.JOB_ID}/logs`, {
-              redirect: 'follow',
-              headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
+            const source = await github.rest.git.getBlob({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              file_sha: process.env.SOURCE_BLOB
             });
-            if (!response.ok) throw new Error(`job log fetch failed: ${response.status}`);
-            const lines = (await response.text()).replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/);
-            const pattern = /(CreateArtifact|upload-artifact|Failed to upload|Unable to upload|artifact.*error|storage quota|quota|##\[error\]|FINAL_HEAD=|FINAL_TREE=|PUBLISHED —|\* \[new branch\]|refs\/heads\/agent\/nc-003b-phase0-source-normalization)/i;
-            core.info('=== ARTIFACT FAILURE DETAILS ===');
-            for (const line of lines.filter(line => pattern.test(line)).slice(-50)) core.info(line.slice(0, 2000));
-            core.info('=== FINAL 40 LINES ===');
-            for (const line of lines.slice(-40)) core.info(line.slice(0, 2000));
-            core.setFailed('diagnostic output complete');
+            const original = Buffer.from(source.data.content.replace(/\n/g, ''), 'base64').toString('utf8');
+            const needle = '          path: nc003b-source-normalization-artifact';
+            const replacement = '          path: ' + '$' + '{{ github.workspace }}\\nc003b-source-normalization-artifact';
+            const occurrences = original.split(needle).length - 1;
+            if (occurrences !== 1) throw new Error(`expected one upload path, found ${occurrences}`);
+            const patched = original.replace(needle, replacement);
+            const blob = await github.rest.git.createBlob({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              content: patched,
+              encoding: 'utf-8'
+            });
+            core.info(`SOURCE_BLOB=${process.env.SOURCE_BLOB}`);
+            core.info(`PATCHED_BLOB=${blob.data.sha}`);
+            core.info(`PATCHED_BYTES=${Buffer.byteLength(patched, 'utf8')}`);
+            core.setFailed('blob prepared; control plane must attach it');
