@@ -9,6 +9,10 @@ permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: nc003b-source-normalization-bootstrap
+  cancel-in-progress: true
+
 env:
   PYTHONDONTWRITEBYTECODE: "1"
   BASELINE_SHA: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
@@ -171,3 +175,39 @@ jobs:
           path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
           if-no-files-found: error
           retention-days: 30
+
+      - name: Checkout bootstrap marker
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          ref: agent/nc-003b-phase0-source-normalization-bootstrap
+          path: bootstrap-marker
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Record bootstrap run identity
+        if: always()
+        shell: pwsh
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $markerRoot = Join-Path $env:GITHUB_WORKSPACE 'bootstrap-marker'
+          Push-Location $markerRoot
+          try {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            $workflow = '.github/workflows/nc003b-source-normalization-bootstrap.yml'
+            $content = @(Get-Content $workflow | Where-Object { $_ -notmatch '^# controller-run:' })
+            $content += "# controller-run: $env:GITHUB_RUN_ID status=$env:JOB_STATUS bootstrap_sha=$env:GITHUB_SHA"
+            [System.IO.File]::WriteAllLines((Resolve-Path $workflow), $content, [System.Text.UTF8Encoding]::new($false))
+            git add -- $workflow
+            git commit -m "[skip ci] Record NC-003B bootstrap run $env:GITHUB_RUN_ID"
+            if ($LASTEXITCODE -ne 0) { throw 'run marker commit failed' }
+            git push origin 'HEAD:refs/heads/agent/nc-003b-phase0-source-normalization-bootstrap'
+            if ($LASTEXITCODE -ne 0) { throw 'run marker push failed' }
+          }
+          finally {
+            Pop-Location
+          }
