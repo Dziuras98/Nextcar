@@ -17,6 +17,7 @@ jobs:
       - name: Read failed job log and publish control report
         uses: actions/github-script@v7
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           JOB_ID: "88996554848"
           RUN_ID: "29941594797"
           TARGET_BRANCH: agent/nc-003b-phase0-source-normalization-bootstrap
