@@ -13,37 +13,39 @@ jobs:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 10
     steps:
-      - name: List persisted evidence paths
+      - name: Inspect staging and evidence directories
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
-            function walk(root, limit = 200) {
+            function files(root) {
               const rows = [];
               if (!fs.existsSync(root)) return rows;
               const stack = [root];
-              while (stack.length && rows.length < limit) {
+              while (stack.length && rows.length < 500) {
                 const current = stack.pop();
                 let stat;
                 try { stat = fs.statSync(current); } catch { continue; }
-                rows.push(`${stat.isDirectory() ? 'D' : 'F'} ${stat.size} ${current}`);
+                if (stat.isFile()) rows.push({path: current, size: stat.size});
                 if (stat.isDirectory()) {
                   let names = [];
                   try { names = fs.readdirSync(current); } catch { continue; }
-                  for (const name of names.reverse()) stack.push(path.join(current, name));
+                  for (const name of names) stack.push(path.join(current, name));
                 }
               }
               return rows;
             }
             const roots = [
-              process.env.GITHUB_WORKSPACE,
               path.join(process.env.GITHUB_WORKSPACE, 'nc003b-source-normalization-artifact'),
-              path.join(process.env.RUNNER_TEMP, 'Artifacts', 'NC-003B-Phase0-source-normalization'),
-              process.env.RUNNER_TEMP
+              path.join(process.env.RUNNER_TEMP, 'Artifacts', 'NC-003B-Phase0-source-normalization')
             ];
             for (const root of roots) {
-              core.info(`=== ROOT ${root} exists=${fs.existsSync(root)} ===`);
-              for (const row of walk(root)) core.info(row.slice(0, 2000));
+              const list = files(root);
+              core.info(`ROOT=${root}`);
+              core.info(`EXISTS=${fs.existsSync(root)}`);
+              core.info(`FILE_COUNT=${list.length}`);
+              core.info(`TOTAL_BYTES=${list.reduce((sum, item) => sum + item.size, 0)}`);
+              for (const item of list.slice(0, 80)) core.info(`FILE ${item.size} ${item.path}`);
             }
             core.setFailed('evidence path diagnostic complete');
