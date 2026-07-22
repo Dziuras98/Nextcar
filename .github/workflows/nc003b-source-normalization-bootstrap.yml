@@ -1,4 +1,4 @@
-name: NC-003B evidence path diagnostics
+name: NC-003B source normalization blob preparation
 
 on:
   push:
@@ -6,46 +6,65 @@ on:
       - agent/nc-003b-phase0-source-normalization-bootstrap
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  prepare-blob:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 10
     steps:
-      - name: Inspect staging and evidence directories
+      - name: Create zipped-evidence workflow blob
         uses: actions/github-script@v7
+        env:
+          SOURCE_BLOB: "1a004f6203c6828b4abf4d4c72748808f64c6d01"
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
-            function files(root) {
-              const rows = [];
-              if (!fs.existsSync(root)) return rows;
-              const stack = [root];
-              while (stack.length && rows.length < 500) {
-                const current = stack.pop();
-                let stat;
-                try { stat = fs.statSync(current); } catch { continue; }
-                if (stat.isFile()) rows.push({path: current, size: stat.size});
-                if (stat.isDirectory()) {
-                  let names = [];
-                  try { names = fs.readdirSync(current); } catch { continue; }
-                  for (const name of names) stack.push(path.join(current, name));
-                }
-              }
-              return rows;
-            }
-            const roots = [
-              path.join(process.env.GITHUB_WORKSPACE, 'nc003b-source-normalization-artifact'),
-              path.join(process.env.RUNNER_TEMP, 'Artifacts', 'NC-003B-Phase0-source-normalization')
-            ];
-            for (const root of roots) {
-              const list = files(root);
-              core.info(`ROOT=${root}`);
-              core.info(`EXISTS=${fs.existsSync(root)}`);
-              core.info(`FILE_COUNT=${list.length}`);
-              core.info(`TOTAL_BYTES=${list.reduce((sum, item) => sum + item.size, 0)}`);
-              for (const item of list.slice(0, 80)) core.info(`FILE ${item.size} ${item.path}`);
-            }
-            core.setFailed('evidence path diagnostic complete');
+            const source = await github.rest.git.getBlob({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              file_sha: process.env.SOURCE_BLOB
+            });
+            const original = Buffer.from(source.data.content.replace(/\n/g, ''), 'base64').toString('utf8');
+            const stagePattern = /      - name: Stage evidence for upload[\s\S]*?(?=      - name: Upload evidence)/;
+            const stageReplacement = [
+              '      - name: Stage evidence for upload',
+              '        if: always()',
+              '        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". \'{0}\'"',
+              '        run: |',
+              "          `$ErrorActionPreference = 'Stop'",
+              "          `$staged = Join-Path `$env:RUNNER_TEMP 'nc003b-source-normalization-artifact'",
+              "          `$zip = Join-Path `$env:RUNNER_TEMP 'NC-003B-Phase0-source-normalization.zip'",
+              '          Remove-Item -LiteralPath $staged -Recurse -Force -ErrorAction SilentlyContinue',
+              '          Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue',
+              '          New-Item -ItemType Directory -Force $staged | Out-Null',
+              "          if (-not `$env:EVIDENCE -or -not (Test-Path -LiteralPath `$env:EVIDENCE -PathType Container)) { throw 'evidence directory missing' }",
+              '          $sourceItems = @(Get-ChildItem -LiteralPath $env:EVIDENCE -Force)',
+              "          if (`$sourceItems.Count -eq 0) { throw 'evidence directory empty' }",
+              '          foreach ($item in $sourceItems) { Copy-Item -LiteralPath $item.FullName -Destination $staged -Recurse -Force }',
+              '          $stagedFiles = @(Get-ChildItem -LiteralPath $staged -File -Recurse -Force)',
+              "          if (`$stagedFiles.Count -eq 0) { throw 'staged evidence contains no files' }",
+              '          Compress-Archive -Path (Join-Path $staged \'*\') -DestinationPath $zip -CompressionLevel Optimal -Force',
+              "          if (-not (Test-Path -LiteralPath `$zip -PathType Leaf) -or (Get-Item -LiteralPath `$zip).Length -le 0) { throw 'evidence ZIP missing or empty' }",
+              '          "staged_file_count=$($stagedFiles.Count)" | Set-Content -Encoding utf8 (Join-Path $staged \'artifact-staging.txt\')',
+              '          "zip_bytes=$((Get-Item -LiteralPath $zip).Length)" | Add-Content -Encoding utf8 (Join-Path $staged \'artifact-staging.txt\')',
+              '          Get-ChildItem -LiteralPath $staged -File -Recurse -Force | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Write-Host',
+              '          Get-Item -LiteralPath $zip | Select-Object FullName,Length | Format-List | Out-String | Write-Host',
+              '',
+            ].join('\n');
+            if (!stagePattern.test(original)) throw new Error('stage block not found');
+            let patched = original.replace(stagePattern, stageReplacement);
+            const oldPath = '          path: ' + '$' + '{{ github.workspace }}\\nc003b-source-normalization-artifact';
+            const newPath = '          path: ' + '$' + '{{ runner.temp }}\\NC-003B-Phase0-source-normalization.zip';
+            const occurrences = patched.split(oldPath).length - 1;
+            if (occurrences !== 1) throw new Error(`expected one absolute upload path, found ${occurrences}`);
+            patched = patched.replace(oldPath, newPath);
+            const blob = await github.rest.git.createBlob({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              content: patched,
+              encoding: 'utf-8'
+            });
+            core.info(`SOURCE_BLOB=${process.env.SOURCE_BLOB}`);
+            core.info(`PATCHED_BLOB=${blob.data.sha}`);
+            core.info(`PATCHED_BYTES=${Buffer.byteLength(patched, 'utf8')}`);
+            core.setFailed('blob prepared; control plane must attach it');
