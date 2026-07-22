@@ -95,6 +95,70 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 29873058430
 
+      - name: Locate exact Agent G source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "CURRENT_STAGE=locate exact Agent G source" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          try {
+            $validatorSha = 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d'
+            $packageSha = 'd66a6cfb928f0db2da6b03d350440523490e56f0eac26c42dcdea956746295d7'
+            $packageName = 'NC-003B-Phase0-boundary-normalization-transfer.tar.gz'
+            $roots = @(
+              $env:NC003B_BOUNDARY_SOURCE_ROOT
+              $env:RUNNER_TEMP
+              $env:RUNNER_WORKSPACE
+              (Split-Path $env:RUNNER_WORKSPACE -Parent)
+              (Join-Path $env:USERPROFILE 'Downloads')
+              'C:\Users\Public\Downloads'
+              'C:\actions-runner'
+              'D:\actions-runner'
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+            $direct = $null
+            foreach ($root in $roots) {
+              if (Test-Path -LiteralPath $root -PathType Leaf) { continue }
+              $direct = Get-ChildItem -LiteralPath $root -Filter 'validate_repository.py' -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.Length -eq 11105 -and (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() -eq $validatorSha } |
+                Select-Object -First 1
+              if ($direct) { break }
+            }
+            if (-not $direct) {
+              $package = $null
+              foreach ($root in $roots) {
+                if (Test-Path -LiteralPath $root -PathType Leaf) {
+                  $item = Get-Item -LiteralPath $root
+                  if ($item.Name -eq $packageName -and (Get-FileHash -Algorithm SHA256 -LiteralPath $item.FullName).Hash.ToLowerInvariant() -eq $packageSha) { $package = $item; break }
+                  continue
+                }
+                $package = Get-ChildItem -LiteralPath $root -Filter $packageName -File -Recurse -ErrorAction SilentlyContinue |
+                  Where-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() -eq $packageSha } |
+                  Select-Object -First 1
+                if ($package) { break }
+              }
+              if ($package) {
+                $extractRoot = Join-Path $env:RUNNER_TEMP 'NC-003B-Agent-G-exact'
+                Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+                New-Item -ItemType Directory -Force $extractRoot | Out-Null
+                & tar.exe -xzf $package.FullName -C $extractRoot
+                if ($LASTEXITCODE -ne 0) { throw 'exact Agent G package extraction failed' }
+                $direct = Get-ChildItem -LiteralPath $extractRoot -Filter 'validate_repository.py' -File -Recurse -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Length -eq 11105 -and (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() -eq $validatorSha } |
+                  Select-Object -First 1
+              }
+            }
+            if (-not $direct) { throw 'exact Agent G validator/package unavailable on runner' }
+            $sourceRoot = Split-Path $direct.FullName -Parent
+            "NC003B_BOUNDARY_SOURCE_ROOT=$sourceRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            @(
+              "validator_source=$($direct.FullName)"
+              "validator_bytes=$($direct.Length)"
+              "validator_sha256=$validatorSha"
+            ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'agent-g-source.txt')
+          } catch {
+            "STOP — locate exact Agent G source: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
+            throw
+          }
+
       - name: Normalize validate and prepare publication
         shell: powershell
         run: |
@@ -329,7 +393,7 @@ jobs:
             $fixtureParity = Add-Captured 'fixture parity' 'fixture-tests.txt' { python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py }
             if (($fixtureTests -join "`n") -notmatch 'Ran 24 tests' -or ($fixtureParity -join "`n") -notmatch '118/118') { throw 'fixture test/parity count mismatch' }
             $irTests = Invoke-Captured 'IR mutation tests' 'ir-tests.txt' { python -B -m unittest -v Tools/EngineSimVendor/tests/test_impulse_response_tools.py }
-            $irVerify = Add-Captured 'IR verifier' 'ir-tests.txt' { python -B Tools/EngineSimVendor/verify_impulse_response.py --wav Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav --header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . }
+            Add-Captured 'IR verifier' 'ir-tests.txt' { python -B Tools/EngineSimVendor/verify_impulse_response.py --wav Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav --header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . } | Out-Null
             if (($irTests -join "`n") -notmatch 'Ran 11 tests') { throw 'IR suite did not run 11 tests' }
             $irOutput = Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'
             Add-Captured 'IR generator' 'ir-tests.txt' { python -B Tools/EngineSimVendor/generate_impulse_response_header.py --wav Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav --output $irOutput } | Out-Null
