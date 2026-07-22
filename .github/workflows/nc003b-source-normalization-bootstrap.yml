@@ -14,7 +14,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 10
     steps:
-      - name: Print failed job log tail
+      - name: Print artifact failure details
         uses: actions/github-script@v7
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -23,18 +23,13 @@ jobs:
           script: |
             const response = await fetch(`https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/actions/jobs/${process.env.JOB_ID}/logs`, {
               redirect: 'follow',
-              headers: {
-                Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-                Accept: 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2022-11-28'
-              }
+              headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
             });
             if (!response.ok) throw new Error(`job log fetch failed: ${response.status}`);
             const lines = (await response.text()).replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/);
-            const pattern = /(FINAL_HEAD|FINAL_TREE|PUBLISHED|git push|new branch|remote:|upload artifact|upload-artifact|artifact|##\[error\]|failed|failure|refs\/heads\/agent\/nc-003b-phase0-source-normalization)/i;
-            const selected = lines.filter(line => pattern.test(line));
-            core.info('=== SELECTED ===');
-            for (const line of selected.slice(-120)) core.info(line.slice(0, 2000));
-            core.info('=== TAIL ===');
-            for (const line of lines.slice(-100)) core.info(line.slice(0, 2000));
+            const pattern = /(CreateArtifact|upload-artifact|Failed to upload|Unable to upload|artifact.*error|storage quota|quota|##\[error\]|FINAL_HEAD=|FINAL_TREE=|PUBLISHED —|\* \[new branch\]|refs\/heads\/agent\/nc-003b-phase0-source-normalization)/i;
+            core.info('=== ARTIFACT FAILURE DETAILS ===');
+            for (const line of lines.filter(line => pattern.test(line)).slice(-50)) core.info(line.slice(0, 2000));
+            core.info('=== FINAL 40 LINES ===');
+            for (const line of lines.slice(-40)) core.info(line.slice(0, 2000));
             core.setFailed('diagnostic output complete');
