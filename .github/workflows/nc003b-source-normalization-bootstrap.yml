@@ -1,0 +1,154 @@
+name: NC-003B Phase 0 source normalization bootstrap
+
+on:
+  push:
+    branches:
+      - agent/nc-003b-phase0-source-normalization-bootstrap
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  BASELINE_SHA: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
+  BASELINE_TREE: 64a4af00ed06bdaa57553960685e670a472b55ba
+  RESULT_BRANCH: agent/nc-003b-phase0-source-normalization
+  EVIDENCE: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
+
+jobs:
+  normalize-and-validate:
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 90
+    steps:
+      - name: Verify runner identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force $env:EVIDENCE|Out-Null
+          try {
+            $vw="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            $vs=if(Test-Path $vw){(& $vw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()}else{''}
+            $vsv=if($vs){(& $vw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion).Trim()}else{''}
+            $v143f=if($vs){Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.V143.default.txt'}else{''}
+            $v143=if($v143f -and (Test-Path $v143f)){(Get-Content -Raw $v143f).Trim()}else{''}
+            $sdk=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue).KitsRoot10
+            $sdks=if($sdk -and (Test-Path "$sdk\Include")){@(Get-ChildItem "$sdk\Include" -Directory|% Name)}else{@()}
+            @("RUNNER_OS=$env:RUNNER_OS","RUNNER_ARCH=$env:RUNNER_ARCH","COMPUTERNAME=$env:COMPUTERNAME","required_labels=self-hosted,Windows,X64,unreal-5.8","PowerShell version=$($PSVersionTable.PSVersion)","Python version=$(& python --version 2>&1)","CMake version=$((& cmake --version|Select-Object -First 1))","vswhere result=$((& $vw -latest -products * -format json 2>&1)-join ' ')","Visual Studio installation=$vs","Visual Studio version=$vsv","MSVC toolset=$v143","Windows SDK=$sdk $($sdks-join ',')")|Set-Content -Encoding utf8 "$env:EVIDENCE\runner-identity.txt"
+            Get-Content "$env:EVIDENCE\runner-identity.txt"
+            if($env:RUNNER_OS-ne'Windows'-or$env:RUNNER_ARCH-ne'X64'){throw 'runner OS/arch mismatch'}
+            if(-not$vs-or-not$vsv.StartsWith('17.')){throw 'VS2022 missing'}
+            if(-not$v143-or-not(Test-Path (Join-Path $vs "VC\Tools\MSVC\$v143"))){throw 'MSVC v143 missing'}
+            if(-not$sdk-or$sdks.Count-eq 0){throw 'Windows SDK missing'}
+          } catch {"STOP — runner identity: $($_.Exception.Message)"|Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt";throw}
+
+      - name: Checkout exact baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Download accepted selected-profile artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99
+          path: ${{ runner.temp }}\selected-profile
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 29814599329
+
+      - name: Normalize and validate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';$PSNativeCommandUseErrorActionPreference=$false;$stage='init'
+          function stop($m){throw $m};function sha($p){(Get-FileHash -Algorithm SHA256 $p).Hash.ToLower()};function blob($p){(git hash-object --no-filters -- $p).Trim()}
+          function run($n,$f,[scriptblock]$c){$o=@(& $c 2>&1);$x=$LASTEXITCODE;$o|Tee-Object "$env:EVIDENCE\$f"|Out-Host;if($x){stop "$n exit $x"};,$o}
+          try {
+            $stage='baseline';git config core.autocrlf false;git config core.eol lf;git reset --hard $env:BASELINE_SHA|Out-Null
+            $h=(git rev-parse HEAD).Trim();$t=(git rev-parse 'HEAD^{tree}').Trim();@("head=$h","tree=$t","status=$((git status --short)-join ' ')")|Set-Content -Encoding utf8 "$env:EVIDENCE\baseline-identity.txt"
+            if($h-ne$env:BASELINE_SHA-or$t-ne$env:BASELINE_TREE-or@(git status --short).Count){stop 'baseline SHA/tree/clean mismatch'}
+            if(@(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH").Count){stop 'remote result branch already exists'}
+            git switch -c $env:RESULT_BRANCH|Out-Null;git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            $A=@('Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/verify_cold_start_profile.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/_cold_start_sources/generate_cold_start_profile_header.py.gz','Tools/EngineSimVendor/_cold_start_sources/record_cold_start_calibration_evidence.py.gz','Tools/EngineSimVendor/_cold_start_sources/run_cold_start_calibration.py.gz','Tools/EngineSimVendor/_cold_start_sources/verify_cold_start_profile.py.gz','Tools/EngineSimVendor/_cold_start_sources/test_cold_start_profile_verifier.py.gz')
+            $G=@('Tools/EngineSimVendor/validate_cold_start_windows.ps1','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp','scripts/validate_repository.py','Tools/EngineSimVendor/validate_cold_start_windows.parts/part00.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part01.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part02.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part03.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part04.ps1frag','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part01.inc','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part02.inc')
+            $stage='A transform'
+            @'
+          import gzip,hashlib,subprocess
+          from pathlib import Path
+          rows=[('generate_cold_start_profile_header','6efb3d29734c2d41c96d16e914ab460cd212769d611ba08cf2677377d933659d','4ec6534979528b440b532b72ec33e6ea27d7e3c0'),('record_cold_start_calibration_evidence','f1ee52d8d2df40df5dad19aaf97bf796cf4ef32c1bd5b60700fec4ef48c99357','04ba4e3eedc5ec53af7af7c5ea0468e29eb3ba01'),('run_cold_start_calibration','b70387026d05679f5760e1cc1927197c8a14ca91fdac3af1ffbf3aa9a081264b','5117fc9f7c7799a7f4a034cd8653bc8bc45d36f6'),('verify_cold_start_profile','92b4ebdb922b409cf8c583fc7c7d7cb56a16dd70606c2080673ef6dc77e7d57d','b858f4b5a46a53d03036909b2099b0f6f55887ee')]
+          root=Path('Tools/EngineSimVendor/_cold_start_sources')
+          for n,s,b in rows:
+           a=root/(n+'.py.gz');p=Path('Tools/EngineSimVendor')/(n+'.py');d=gzip.decompress(a.read_bytes());p.write_bytes(d);a.unlink();assert hashlib.sha256(d).hexdigest()==s;assert subprocess.check_output(['git','hash-object','--no-filters','--',str(p)],text=True).strip()==b
+          a=root/'test_cold_start_profile_verifier.py.gz';d=gzip.decompress(a.read_bytes());L=d.splitlines(keepends=True);r=b''.join(L[173:184]);assert b'_cold_start_sources' in r and r.count(b'.py.gz')==2;d=b''.join(L[:173]+L[184:]);p=Path('Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py');p.write_bytes(d);a.unlink();assert hashlib.sha256(d).hexdigest()=='3be9f2edeb76eea09b844911202619b497af7aab04018af06569cf4067cd5036';assert subprocess.check_output(['git','hash-object','--no-filters','--',str(p)],text=True).strip()=='f8bb81c8a1bcfef2126bbff2cac717dd6db1e055';root.rmdir()
+          '@|python -B -
+            if($LASTEXITCODE){stop 'A transform failed'};if(@(git status --short).Count-ne 10){stop 'A path count'};git add -A -- $A;git commit -m 'WIP Phase 0: normalize cold-start Python sources'|Out-Null;$ca=(git rev-parse HEAD).Trim();$ta=(git rev-parse 'HEAD^{tree}').Trim();if(@(git diff-tree --no-commit-id --name-only -r HEAD).Count-ne 10){stop 'A commit scope'}
+            $stage='G transform';@'
+          from pathlib import Path
+          Path('Tools/EngineSimVendor/validate_cold_start_windows.ps1').write_bytes(b''.join(Path(f'Tools/EngineSimVendor/validate_cold_start_windows.parts/part{i:02}.ps1frag').read_bytes() for i in range(5)))
+          b=Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration');(b/'ColdStartCalibrationHarness.cpp').write_bytes(b''.join((b/f'ColdStartCalibrationHarness.part{i:02}.inc').read_bytes() for i in range(3)))
+          '@|python -B -
+            $ps='Tools/EngineSimVendor/validate_cold_start_windows.ps1';$cpp='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp'
+            if((Get-Item $ps).Length-ne22230-or(sha $ps)-ne'10ee201b5136864012a3e975989d8ed9ded47dbf7813e1c9d0e11e82900d4f13'-or(blob $ps)-ne'29973abfc14829d2f7cb00f273f288dfef8b146f'){stop 'PowerShell identity'}
+            if((Get-Item $cpp).Length-ne19971-or(sha $cpp)-ne'bb67a62743ef28e41fdfe977b7aad2ab5dbdd799c50447bd7bcaf426e1d2b83d'-or(blob $cpp)-ne'ac5003693875afbcc0513075d04a2490bbbc806a'){stop 'C++ identity'}
+            $want='aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d';$src=$null;$roots=@($env:NC003B_BOUNDARY_PACKAGE,$env:RUNNER_TEMP,$env:RUNNER_WORKSPACE,(Split-Path $env:RUNNER_WORKSPACE -Parent),"$env:USERPROFILE\Downloads",'C:\Users\Public\Downloads','C:\actions-runner','D:\actions-runner')|?{$_-and(Test-Path $_)}
+            foreach($r in $roots){if((Test-Path $r)-and-not(Get-Item $r).PSIsContainer){continue};$src=Get-ChildItem $r -Filter validate_repository.py -File -Recurse -ErrorAction SilentlyContinue|?{$_.Length-eq11105-and(sha $_.FullName)-eq$want}|select -First 1;if($src){break}}
+            if(-not$src){$pkg=$null;foreach($r in $roots){if((Test-Path $r)-and-not(Get-Item $r).PSIsContainer){if((Split-Path $r -Leaf)-eq'NC-003B-Phase0-boundary-normalization-transfer.tar.gz'-and(sha $r)-eq'd66a6cfb928f0db2da6b03d350440523490e56f0eac26c42dcdea956746295d7'){$pkg=Get-Item $r;break}}else{$pkg=Get-ChildItem $r -Filter NC-003B-Phase0-boundary-normalization-transfer.tar.gz -File -Recurse -ErrorAction SilentlyContinue|?{(sha $_.FullName)-eq'd66a6cfb928f0db2da6b03d350440523490e56f0eac26c42dcdea956746295d7'}|select -First 1;if($pkg){break}}};if($pkg){$x="$env:RUNNER_TEMP\Gpkg";Remove-Item $x -Recurse -Force -ErrorAction SilentlyContinue;New-Item -ItemType Directory $x|Out-Null;tar -xzf $pkg.FullName -C $x;if($LASTEXITCODE){stop 'G package extract'};$src=Get-ChildItem $x -Filter validate_repository.py -File -Recurse|?{$_.Length-eq11105-and(sha $_.FullName)-eq$want}|select -First 1}}
+            if(-not$src){stop 'exact Agent G validator unavailable'};Copy-Item $src.FullName scripts/validate_repository.py -Force;if((blob scripts/validate_repository.py)-ne'65c309558f1e50a8258caaef61e38087f2382392'){stop 'validator blob'}
+            Remove-Item Tools/EngineSimVendor/validate_cold_start_windows.parts -Recurse -Force;Remove-Item ($cpp-replace'\.cpp$','.part00.inc'),($cpp-replace'\.cpp$','.part01.inc'),($cpp-replace'\.cpp$','.part02.inc') -Force
+            if(@(git status --short).Count-ne11){stop 'G path count'};git add -A -- $G;git commit -m 'WIP Phase 0: normalize boundary source files'|Out-Null;$cg=(git rev-parse HEAD).Trim();$tg=(git rev-parse 'HEAD^{tree}').Trim();if(@(git diff-tree --no-commit-id --name-only -r HEAD).Count-ne11){stop 'G commit scope'}
+            $ns=@(git diff --name-status $env:BASELINE_SHA HEAD);$m=@($ns|?{$_-match'^M\s'}).Count;$d=@($ns|?{$_-match'^D\s'}).Count;if($m-ne8-or$d-ne13-or$ns.Count-ne21){stop "scope $m/$d/$($ns.Count)"};if(Test-Path .github/workflows/nc003b-source-normalization-bootstrap.yml){stop 'workflow leaked'}
+            @("baseline=$env:BASELINE_SHA/$env:BASELINE_TREE","A=$ca/$ta","G=$cg/$tg","final=$cg/$tg")|Set-Content -Encoding utf8 "$env:EVIDENCE\commit-identities.txt";$ns|Set-Content -Encoding utf8 "$env:EVIDENCE\changed-paths.txt"
+            @("python_generate=$(sha 'Tools/EngineSimVendor/generate_cold_start_profile_header.py')","python_record=$(sha 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py')","python_run=$(sha 'Tools/EngineSimVendor/run_cold_start_calibration.py')","python_verify=$(sha 'Tools/EngineSimVendor/verify_cold_start_profile.py')","python_test=$(sha 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')","powershell=$(sha $ps)","cpp=$(sha $cpp)","validator=$(sha scripts/validate_repository.py)")|Set-Content -Encoding utf8 "$env:EVIDENCE\final-hashes.txt"
+            @("python_generate=$(blob 'Tools/EngineSimVendor/generate_cold_start_profile_header.py')","python_record=$(blob 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py')","python_run=$(blob 'Tools/EngineSimVendor/run_cold_start_calibration.py')","python_verify=$(blob 'Tools/EngineSimVendor/verify_cold_start_profile.py')","python_test=$(blob 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')","powershell=$(blob $ps)","cpp=$(blob $cpp)","validator=$(blob scripts/validate_repository.py)")|Set-Content -Encoding utf8 "$env:EVIDENCE\final-git-blobs.txt"
+            $stage='validator';run validator repository-validation.txt {python -B scripts/validate_repository.py}|Out-Null
+            @'
+          import subprocess,sys
+          from pathlib import Path
+          cases=[('Tools/EngineSimVendor/test.py.gz',b'x','Closure residue remains'),('Tools/EngineSimVendor/test.ps1frag',b'x','Closure residue remains'),('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/Example.part00.inc',b'x','Closure residue remains'),('Tools/EngineSimVendor/test_dynamic.py',b'import gzip\nexec(compile(gzip.decompress(b""),"x","exec"))\n','Dynamic Python launcher remains'),('Tools/EngineSimVendor/test_dynamic.ps1',b'[ScriptBlock]::Create("x")\n','Dynamic PowerShell ScriptBlock launcher remains')]
+          log=[]
+          for n,b,e in cases:
+           p=Path(n);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b);r=subprocess.run([sys.executable,'-B','scripts/validate_repository.py'],capture_output=True,text=True);p.unlink();o=r.stdout+r.stderr;log.append(f'{n}: {r.returncode}: {o}');assert r.returncode and e in o
+          p=Path('Tools/EngineSimVendor/validate_cold_start_windows.parts');p.mkdir();r=subprocess.run([sys.executable,'-B','scripts/validate_repository.py'],capture_output=True,text=True);p.rmdir();assert r.returncode and 'Closure residue remains' in r.stderr
+          p=Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/Ordinary.inc');p.write_text('int ordinary;\n');r=subprocess.run([sys.executable,'-B','scripts/validate_repository.py'],capture_output=True,text=True);p.unlink();assert r.returncode==0
+          Path(__import__('os').environ['EVIDENCE'],'validator-mutations.txt').write_text('\n'.join(log)+'\nordinary unrelated .inc: PASS\n')
+          '@|python -B -
+            if($LASTEXITCODE){stop 'validator mutations'};$tok=$null;$err=$null;[void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $ps),[ref]$tok,[ref]$err);"parser_errors=$($err.Count)"|Set-Content -Encoding utf8 "$env:EVIDENCE\powershell-ast.txt";if($err.Count){stop 'PowerShell AST'}
+            $stage='Python/snapshot/fixture/IR';run py_compile python-tests.txt {python -B -m py_compile Tools/EngineSimVendor/*.py Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py scripts/validate_repository.py}|Out-Null;Get-ChildItem -Recurse -Directory -Filter __pycache__|Remove-Item -Recurse -Force
+            $u=run cold-tests cold-start-tests.txt {python -B -m unittest -v Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py};if(($u-join' ')-notmatch'Ran 15 tests'){stop '15 tests'}
+            run snapshot snapshot-tests.txt {python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py;python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py}|Out-Null
+            run fixture fixture-tests.txt {python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py;python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py}|Out-Null
+            run ir ir-tests.txt {python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py;python -B Tools/EngineSimVendor/verify_impulse_response.py --wav Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav --header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root .}|Out-Null
+            $tmp="$env:RUNNER_TEMP\cold.h";run cold-generator cold-start-generator.txt {python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output $tmp}|Out-Null;if((sha $tmp)-ne(sha Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h)){stop 'header determinism'}
+            $vo=@(python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root . 2>&1);$vc=$LASTEXITCODE;$vo|Set-Content -Encoding utf8 "$env:EVIDENCE\expected-metadata-drift.txt";if(-not$vc-or($vo-join' ')-notmatch'generator SHA mismatch'-or@($vo|?{$_-match'(FAIL|mismatch|error)'-and$_-notmatch'generator SHA mismatch'}).Count){stop 'unexpected verifier result'}
+            git diff --check $env:BASELINE_SHA HEAD|Set-Content -Encoding utf8 "$env:EVIDENCE\git-diff-check.txt";if($LASTEXITCODE){stop 'diff check'}
+            $stage='Windows matrix';$ar="$env:RUNNER_TEMP\selected-profile";$sum=Get-Content -Raw "$ar\selected-calibration\selected-summary.json"|ConvertFrom-Json;$inp=[ordered]@{schema_version=$sum.schema_version;candidate_source_sha=$sum.candidate_source_sha;selected_candidate=$sum.selected_candidate};$ip="$env:RUNNER_TEMP\selected.json";[IO.File]::WriteAllText($ip,(ConvertTo-Json $inp -Depth 8)+"`n",[Text.UTF8Encoding]::new($false))
+            $wt="$env:RUNNER_TEMP\nc003b-matrix";git worktree add --detach $wt $cg|Out-Null;Push-Location $wt;& pwsh -NoProfile -File .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $cg -Phase Selected -SelectedCandidatePath $ip -ArtifactRoot matrix;$mx=$LASTEXITCODE;Copy-Item matrix "$env:EVIDENCE\matrix" -Recurse -Force;Pop-Location;git worktree remove --force $wt;git worktree prune;if($mx){stop "matrix exit $mx"};$s=Get-Content -Raw "$env:EVIDENCE\matrix\validation-status.json"|ConvertFrom-Json;if($s.status-ne'PASS'-or$s.release_result-ne'PASS'-or$s.debug_result-ne'PASS'-or$s.asan_result-ne'PASS'-or$s.selected_trials_result-ne'10/10 PASS'-or$s.timeout_result-ne'PASS'-or$s.stall_result-ne'PASS'-or$s.clean_reproducibility-ne'PASS'-or[int]$s.project_warning_count-ne0){stop 'matrix semantic status'}
+            'MSVC x64 Release: PASS'|Set-Content "$env:EVIDENCE\msvc-release.txt";'MSVC x64 Debug /RTC1: PASS'|Set-Content "$env:EVIDENCE\msvc-debug-rtc1.txt";'MSVC x64 AddressSanitizer: PASS'|Set-Content "$env:EVIDENCE\msvc-asan.txt";'CTest: PASS'|Set-Content "$env:EVIDENCE\ctest.txt";'direct runtime: PASS'|Set-Content "$env:EVIDENCE\runtime.txt";'selected trials: 10/10 PASS'|Set-Content "$env:EVIDENCE\trials.txt";@('timeout: PASS','stall: PASS')|Set-Content "$env:EVIDENCE\timeout-stall.txt";'project warnings = 0'|Set-Content "$env:EVIDENCE\warnings.txt";'clean reproducibility: PASS'|Set-Content "$env:EVIDENCE\clean-reproducibility.txt"
+            Get-ChildItem -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force;if(@(git status --short).Count){stop 'dirty final tree'};if((git rev-list --count "$env:BASELINE_SHA..HEAD").Trim()-ne'2'){stop 'commit count'};if(@(git ls-tree -r --name-only HEAD|?{$_-eq'.github/workflows/nc003b-source-normalization-bootstrap.yml'}).Count){stop 'workflow history'}
+            "FINAL_HEAD=$cg"|Out-File $env:GITHUB_ENV -Append;"FINAL_TREE=$tg"|Out-File $env:GITHUB_ENV -Append;"VALIDATED — PENDING PUSH`nhead=$cg`ntree=$tg"|Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt"
+          } catch {"STOP — $stage: $($_.Exception.Message)"|Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt";Write-Error "STOP — $stage: $($_.Exception.Message)";exit 1}
+
+      - name: Upload pre-publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NC-003B-Phase0-source-normalization-prepublish-${{ github.run_id }}
+          path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish result branch
+        if: success()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';try{if(@(git status --short).Count){throw'dirty'};if(@(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH").Count){throw'remote branch appeared'};git push origin "HEAD:refs/heads/$env:RESULT_BRANCH";if($LASTEXITCODE){throw'push failed'};$r=@(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH");if($r.Count-ne1-or($r[0]-split'\s+')[0]-ne$env:FINAL_HEAD){throw'remote identity'};"PUBLISHED — WINDOWS EXACT-HEAD VALIDATED`nhead=$env:FINAL_HEAD`ntree=$env:FINAL_TREE`nforce=false"|Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt";$r|Set-Content "$env:EVIDENCE\published-branch.txt"}catch{"STOP — publication: $($_.Exception.Message)"|Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt";throw}
+
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NC-003B-Phase0-source-normalization-${{ github.run_id }}
+          path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
+          if-no-files-found: error
+          retention-days: 30
