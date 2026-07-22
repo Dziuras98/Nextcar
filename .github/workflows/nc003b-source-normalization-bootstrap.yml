@@ -14,7 +14,6 @@ env:
   BASELINE_SHA: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
   BASELINE_TREE: 64a4af00ed06bdaa57553960685e670a472b55ba
   RESULT_BRANCH: agent/nc-003b-phase0-source-normalization
-  EVIDENCE: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
 
 jobs:
   normalize-and-validate:
@@ -24,22 +23,42 @@ jobs:
       - name: Verify runner identity
         shell: pwsh
         run: |
-          $ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force $env:EVIDENCE|Out-Null
+          $ErrorActionPreference = 'Stop'
+          $env:EVIDENCE = Join-Path $env:RUNNER_TEMP 'Artifacts\NC-003B-Phase0-source-normalization'
+          "EVIDENCE=$env:EVIDENCE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force $env:EVIDENCE | Out-Null
           try {
-            $vw="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            $vs=if(Test-Path $vw){(& $vw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()}else{''}
-            $vsv=if($vs){(& $vw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion).Trim()}else{''}
-            $v143f=if($vs){Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.V143.default.txt'}else{''}
-            $v143=if($v143f -and (Test-Path $v143f)){(Get-Content -Raw $v143f).Trim()}else{''}
-            $sdk=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue).KitsRoot10
-            $sdks=if($sdk -and (Test-Path "$sdk\Include")){@(Get-ChildItem "$sdk\Include" -Directory|% Name)}else{@()}
-            @("RUNNER_OS=$env:RUNNER_OS","RUNNER_ARCH=$env:RUNNER_ARCH","COMPUTERNAME=$env:COMPUTERNAME","required_labels=self-hosted,Windows,X64,unreal-5.8","PowerShell version=$($PSVersionTable.PSVersion)","Python version=$(& python --version 2>&1)","CMake version=$((& cmake --version|Select-Object -First 1))","vswhere result=$((& $vw -latest -products * -format json 2>&1)-join ' ')","Visual Studio installation=$vs","Visual Studio version=$vsv","MSVC toolset=$v143","Windows SDK=$sdk $($sdks-join ',')")|Set-Content -Encoding utf8 "$env:EVIDENCE\runner-identity.txt"
+            $vw = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            $vs = if (Test-Path $vw) { (& $vw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim() } else { '' }
+            $vsv = if ($vs) { (& $vw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion).Trim() } else { '' }
+            $v143f = if ($vs) { Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.V143.default.txt' } else { '' }
+            $v143 = if ($v143f -and (Test-Path $v143f)) { (Get-Content -Raw $v143f).Trim() } else { '' }
+            $sdk = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue).KitsRoot10
+            $sdks = if ($sdk -and (Test-Path "$sdk\Include")) { @(Get-ChildItem "$sdk\Include" -Directory | ForEach-Object Name) } else { @() }
+            @(
+              "RUNNER_OS=$env:RUNNER_OS",
+              "RUNNER_ARCH=$env:RUNNER_ARCH",
+              "COMPUTERNAME=$env:COMPUTERNAME",
+              "required_labels=self-hosted,Windows,X64,unreal-5.8",
+              "PowerShell version=$($PSVersionTable.PSVersion)",
+              "Python version=$(& python --version 2>&1)",
+              "CMake version=$((& cmake --version | Select-Object -First 1))",
+              "vswhere result=$((& $vw -latest -products * -format json 2>&1) -join ' ')",
+              "Visual Studio installation=$vs",
+              "Visual Studio version=$vsv",
+              "MSVC toolset=$v143",
+              "Windows SDK=$sdk $($sdks -join ',')"
+            ) | Set-Content -Encoding utf8 "$env:EVIDENCE\runner-identity.txt"
             Get-Content "$env:EVIDENCE\runner-identity.txt"
-            if($env:RUNNER_OS-ne'Windows'-or$env:RUNNER_ARCH-ne'X64'){throw 'runner OS/arch mismatch'}
-            if(-not$vs-or-not$vsv.StartsWith('17.')){throw 'VS2022 missing'}
-            if(-not$v143-or-not(Test-Path (Join-Path $vs "VC\Tools\MSVC\$v143"))){throw 'MSVC v143 missing'}
-            if(-not$sdk-or$sdks.Count-eq 0){throw 'Windows SDK missing'}
-          } catch {"STOP — runner identity: $($_.Exception.Message)"|Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt";throw}
+            if ($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'X64') { throw 'runner OS/arch mismatch' }
+            if (-not $vs -or -not $vsv.StartsWith('17.')) { throw 'VS2022 missing' }
+            if (-not $v143 -or -not (Test-Path (Join-Path $vs "VC\Tools\MSVC\$v143"))) { throw 'MSVC v143 missing' }
+            if (-not $sdk -or $sdks.Count -eq 0) { throw 'Windows SDK missing' }
+          }
+          catch {
+            "STOP — runner identity: $($_.Exception.Message)" | Set-Content -Encoding utf8 "$env:EVIDENCE\final-status.txt"
+            throw
+          }
 
       - name: Checkout exact baseline
         uses: actions/checkout@v4
