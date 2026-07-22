@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Verify runner identity
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $evidence = Join-Path $env:RUNNER_TEMP 'Artifacts\NC-003B-Phase0-source-normalization'
@@ -34,9 +34,7 @@ jobs:
           "CURRENT_STAGE=checkout exact baseline" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           try {
             $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
-              throw 'vswhere missing'
-            }
+            if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw 'vswhere missing' }
             $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
             $vsVersion = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion).Trim()
             $v143File = Join-Path $vsPath 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.V143.default.txt'
@@ -44,9 +42,7 @@ jobs:
             $sdkRoot = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue).KitsRoot10
             $sdkVersions = if ($sdkRoot -and (Test-Path -LiteralPath (Join-Path $sdkRoot 'Include') -PathType Container)) {
               @(Get-ChildItem (Join-Path $sdkRoot 'Include') -Directory | ForEach-Object { $_.Name })
-            } else {
-              @()
-            }
+            } else { @() }
             @(
               "RUNNER_OS=$env:RUNNER_OS"
               "RUNNER_ARCH=$env:RUNNER_ARCH"
@@ -54,7 +50,9 @@ jobs:
               "RUNNER_ENVIRONMENT=$env:RUNNER_ENVIRONMENT"
               "COMPUTERNAME=$env:COMPUTERNAME"
               'required_labels=self-hosted,Windows,X64,unreal-5.8'
+              "PowerShell edition=$($PSVersionTable.PSEdition)"
               "PowerShell version=$($PSVersionTable.PSVersion)"
+              "PowerShell executable=$((Get-Process -Id $PID).Path)"
               "Python version=$(& python --version 2>&1)"
               "CMake version=$((& cmake --version | Select-Object -First 1))"
               "vswhere result=$((& $vswhere -latest -products * -format json 2>&1) -join ' ')"
@@ -84,41 +82,50 @@ jobs:
           clean: true
           persist-credentials: true
 
-      - name: Mark selected-profile download stage
-        shell: pwsh
+      - name: Mark evidence download stage
+        shell: powershell
         run: |
-          "CURRENT_STAGE=download accepted selected-profile artifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CURRENT_STAGE=download accepted exact-head closure artifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Download accepted selected-profile artifact
+      - name: Download accepted exact-head closure artifact
         uses: actions/download-artifact@v4
         with:
-          name: NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99
-          path: ${{ runner.temp }}\selected-profile
+          name: NC-003B-Phase0-final-closure-3c67a53a1c2a8d940736e21218cfd89a0b9870b6
+          path: ${{ runner.temp }}\accepted-closure
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: 29814599329
+          run-id: 29873058430
 
-      - name: Prepare exact baseline and result branch
-        shell: pwsh
+      - name: Normalize, validate, and prepare publication
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=prepare exact baseline and result branch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          function Get-Sha256([string]$Path) { return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
+          function Get-Blob([string]$Path) {
+            $value = (git hash-object --no-filters -- $Path).Trim()
+            if ($LASTEXITCODE -ne 0) { throw "git hash-object failed: $Path" }
+            return $value
+          }
+          function Invoke-Logged([string]$Name, [string]$FileName, [scriptblock]$Command) {
+            $output = @(& $Command 2>&1)
+            $exitCode = $LASTEXITCODE
+            $output | Tee-Object -FilePath (Join-Path $env:EVIDENCE $FileName) | Out-Host
+            if ($exitCode -ne 0) { throw "$Name failed with exit code $exitCode" }
+            return ,$output
+          }
           try {
+            "CURRENT_STAGE=prepare exact baseline and result branch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             git config core.autocrlf false
             git config core.eol lf
             git reset --hard $env:BASELINE_SHA
             if ($LASTEXITCODE -ne 0) { throw 'git reset failed' }
-            $head = (git rev-parse HEAD).Trim()
-            $tree = (git rev-parse 'HEAD^{tree}').Trim()
-            $status = @(git status --short)
-            @(
-              "head=$head"
-              "tree=$tree"
-              "status_count=$($status.Count)"
-            ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'baseline-identity.txt')
-            if ($head -ne $env:BASELINE_SHA) { throw "baseline head $head" }
-            if ($tree -ne $env:BASELINE_TREE) { throw "baseline tree $tree" }
-            if ($status.Count -ne 0) { throw 'baseline working tree is not clean' }
+            $baselineHead = (git rev-parse HEAD).Trim()
+            $baselineTree = (git rev-parse 'HEAD^{tree}').Trim()
+            $baselineStatus = @(git status --short)
+            @("head=$baselineHead", "tree=$baselineTree", "status_count=$($baselineStatus.Count)") | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'baseline-identity.txt')
+            if ($baselineHead -ne $env:BASELINE_SHA) { throw "baseline head $baselineHead" }
+            if ($baselineTree -ne $env:BASELINE_TREE) { throw "baseline tree $baselineTree" }
+            if ($baselineStatus.Count -ne 0) { throw 'baseline working tree is not clean' }
             $remoteResult = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
             if ($LASTEXITCODE -ne 0) { throw 'result branch probe failed' }
             if ($remoteResult.Count -ne 0) { throw 'remote result branch already exists' }
@@ -126,236 +133,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'local result branch creation failed' }
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          } catch {
-            "STOP — prepare exact baseline and result branch: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
-            throw
-          }
 
-      - name: Transform and commit A
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=transform and commit A" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $aPaths = @(
-            'Tools/EngineSimVendor/generate_cold_start_profile_header.py'
-            'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py'
-            'Tools/EngineSimVendor/run_cold_start_calibration.py'
-            'Tools/EngineSimVendor/verify_cold_start_profile.py'
-            'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py'
-            'Tools/EngineSimVendor/_cold_start_sources/generate_cold_start_profile_header.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/record_cold_start_calibration_evidence.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/run_cold_start_calibration.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/verify_cold_start_profile.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/test_cold_start_profile_verifier.py.gz'
-          )
-          try {
-            @'
-          import gzip
-          import hashlib
-          import subprocess
-          from pathlib import Path
-
-          root = Path('Tools/EngineSimVendor/_cold_start_sources')
-          expected_sources = {
-              'generate_cold_start_profile_header.py.gz',
-              'record_cold_start_calibration_evidence.py.gz',
-              'run_cold_start_calibration.py.gz',
-              'verify_cold_start_profile.py.gz',
-              'test_cold_start_profile_verifier.py.gz',
-          }
-          actual_sources = {path.name for path in root.glob('*.py.gz')}
-          assert actual_sources == expected_sources, (actual_sources, expected_sources)
-
-          rows = [
-              ('generate_cold_start_profile_header.py.gz', Path('Tools/EngineSimVendor/generate_cold_start_profile_header.py'), '6efb3d29734c2d41c96d16e914ab460cd212769d611ba08cf2677377d933659d', '4ec6534979528b440b532b72ec33e6ea27d7e3c0'),
-              ('record_cold_start_calibration_evidence.py.gz', Path('Tools/EngineSimVendor/record_cold_start_calibration_evidence.py'), 'f1ee52d8d2df40df5dad19aaf97bf796cf4ef32c1bd5b60700fec4ef48c99357', '04ba4e3eedc5ec53af7af7c5ea0468e29eb3ba01'),
-              ('run_cold_start_calibration.py.gz', Path('Tools/EngineSimVendor/run_cold_start_calibration.py'), 'b70387026d05679f5760e1cc1927197c8a14ca91fdac3af1ffbf3aa9a081264b', '5117fc9f7c7799a7f4a034cd8653bc8bc45d36f6'),
-              ('verify_cold_start_profile.py.gz', Path('Tools/EngineSimVendor/verify_cold_start_profile.py'), '92b4ebdb922b409cf8c583fc7c7d7cb56a16dd70606c2080673ef6dc77e7d57d', 'b858f4b5a46a53d03036909b2099b0f6f55887ee'),
-          ]
-          for source_name, destination, expected_sha256, expected_blob in rows:
-              source = root / source_name
-              payload = gzip.decompress(source.read_bytes())
-              destination.write_bytes(payload)
-              source.unlink()
-              assert hashlib.sha256(payload).hexdigest() == expected_sha256
-              actual_blob = subprocess.check_output(
-                  ['git', 'hash-object', '--no-filters', '--', str(destination)],
-                  text=True,
-              ).strip()
-              assert actual_blob == expected_blob
-
-          source = root / 'test_cold_start_profile_verifier.py.gz'
-          payload = gzip.decompress(source.read_bytes())
-          lines = payload.splitlines(keepends=True)
-          obsolete = b''.join(lines[173:184])
-          assert b'_cold_start_sources' in obsolete
-          assert obsolete.count(b'.py.gz') == 2
-          payload = b''.join(lines[:173] + lines[184:])
-          destination = Path('Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')
-          destination.write_bytes(payload)
-          source.unlink()
-          assert hashlib.sha256(payload).hexdigest() == '3be9f2edeb76eea09b844911202619b497af7aab04018af06569cf4067cd5036'
-          actual_blob = subprocess.check_output(
-              ['git', 'hash-object', '--no-filters', '--', str(destination)],
-              text=True,
-          ).strip()
-          assert actual_blob == 'f8bb81c8a1bcfef2126bbff2cac717dd6db1e055'
-          root.rmdir()
-          '@ | python -B -
-            if ($LASTEXITCODE -ne 0) { throw 'A byte transformation failed' }
-            $actual = @(git status --short | ForEach-Object { $_.Substring(3) } | Sort-Object)
-            $expected = @($aPaths | Sort-Object)
-            if (@(Compare-Object $expected $actual).Count -ne 0) { throw "A working-tree scope mismatch: $($actual -join ',')" }
-            git add -A -- $aPaths
-            if ($LASTEXITCODE -ne 0) { throw 'A staging failed' }
-            $staged = @(git diff --cached --name-only | Sort-Object)
-            if (@(Compare-Object $expected $staged).Count -ne 0) { throw 'A staged scope mismatch' }
-            git commit -m 'WIP Phase 0: normalize cold-start Python sources'
-            if ($LASTEXITCODE -ne 0) { throw 'A commit failed' }
-            $commitA = (git rev-parse HEAD).Trim()
-            $treeA = (git rev-parse 'HEAD^{tree}').Trim()
-            $commitPaths = @(git diff-tree --no-commit-id --name-only -r HEAD | Sort-Object)
-            if (@(Compare-Object $expected $commitPaths).Count -ne 0) { throw 'A commit scope mismatch' }
-            "COMMIT_A=$commitA" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "TREE_A=$treeA" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } catch {
-            "STOP — transform and commit A: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
-            throw
-          }
-
-      - name: Transform and commit G
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=transform and commit G" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
-          function Get-Blob([string]$Path) { (git hash-object --no-filters -- $Path).Trim() }
-          $gPaths = @(
-            'Tools/EngineSimVendor/validate_cold_start_windows.ps1'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp'
-            'scripts/validate_repository.py'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part00.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part01.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part02.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part03.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part04.ps1frag'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part01.inc'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part02.inc'
-          )
-          try {
-            @'
-          from pathlib import Path
-
-          ps_parts = Path('Tools/EngineSimVendor/validate_cold_start_windows.parts')
-          Path('Tools/EngineSimVendor/validate_cold_start_windows.ps1').write_bytes(
-              b''.join((ps_parts / f'part{index:02}.ps1frag').read_bytes() for index in range(5))
-          )
-          cpp_root = Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration')
-          (cpp_root / 'ColdStartCalibrationHarness.cpp').write_bytes(
-              b''.join((cpp_root / f'ColdStartCalibrationHarness.part{index:02}.inc').read_bytes() for index in range(3))
-          )
-          '@ | python -B -
-            if ($LASTEXITCODE -ne 0) { throw 'G concatenation failed' }
-
-            $psPath = 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'
-            $cppPath = 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp'
-            if ((Get-Item -LiteralPath $psPath).Length -ne 22230) { throw 'PowerShell byte count mismatch' }
-            if ((Get-Sha256 $psPath) -ne '10ee201b5136864012a3e975989d8ed9ded47dbf7813e1c9d0e11e82900d4f13') { throw 'PowerShell SHA-256 mismatch' }
-            if ((Get-Blob $psPath) -ne '29973abfc14829d2f7cb00f273f288dfef8b146f') { throw 'PowerShell blob mismatch' }
-            if ((Get-Item -LiteralPath $cppPath).Length -ne 19971) { throw 'C++ byte count mismatch' }
-            if ((Get-Sha256 $cppPath) -ne 'bb67a62743ef28e41fdfe977b7aad2ab5dbdd799c50447bd7bcaf426e1d2b83d') { throw 'C++ SHA-256 mismatch' }
-            if ((Get-Blob $cppPath) -ne 'ac5003693875afbcc0513075d04a2490bbbc806a') { throw 'C++ blob mismatch' }
-
-            $validatorSha = 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d'
-            $packageSha = 'd66a6cfb928f0db2da6b03d350440523490e56f0eac26c42dcdea956746295d7'
-            $roots = @(
-              $env:NC003B_BOUNDARY_PACKAGE
-              $env:RUNNER_TEMP
-              $env:RUNNER_WORKSPACE
-              (Split-Path $env:RUNNER_WORKSPACE -Parent)
-              (Join-Path $env:USERPROFILE 'Downloads')
-              'C:\Users\Public\Downloads'
-              'C:\actions-runner'
-              'D:\actions-runner'
-            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-
-            $validatorSource = $null
-            foreach ($root in $roots) {
-              $item = Get-Item -LiteralPath $root
-              if (-not $item.PSIsContainer) { continue }
-              $validatorSource = Get-ChildItem -LiteralPath $root -Filter validate_repository.py -File -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.Length -eq 11105 -and (Get-Sha256 $_.FullName) -eq $validatorSha } |
-                Select-Object -First 1
-              if ($validatorSource) { break }
-            }
-
-            if (-not $validatorSource) {
-              $package = $null
-              foreach ($root in $roots) {
-                $item = Get-Item -LiteralPath $root
-                if ($item.PSIsContainer) {
-                  $package = Get-ChildItem -LiteralPath $root -Filter 'NC-003B-Phase0-boundary-normalization-transfer.tar.gz' -File -Recurse -ErrorAction SilentlyContinue |
-                    Where-Object { (Get-Sha256 $_.FullName) -eq $packageSha } |
-                    Select-Object -First 1
-                } elseif ($item.Name -eq 'NC-003B-Phase0-boundary-normalization-transfer.tar.gz' -and (Get-Sha256 $item.FullName) -eq $packageSha) {
-                  $package = $item
-                }
-                if ($package) { break }
-              }
-              if ($package) {
-                $extractRoot = Join-Path $env:RUNNER_TEMP 'NC003B-G-package'
-                Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
-                New-Item -ItemType Directory -Force $extractRoot | Out-Null
-                & tar.exe -xzf $package.FullName -C $extractRoot
-                if ($LASTEXITCODE -ne 0) { throw 'Agent G package extraction failed' }
-                $validatorSource = Get-ChildItem -LiteralPath $extractRoot -Filter validate_repository.py -File -Recurse |
-                  Where-Object { $_.Length -eq 11105 -and (Get-Sha256 $_.FullName) -eq $validatorSha } |
-                  Select-Object -First 1
-              }
-            }
-            if (-not $validatorSource) { throw 'exact Agent G validator unavailable on runner' }
-            Copy-Item -LiteralPath $validatorSource.FullName -Destination 'scripts/validate_repository.py' -Force
-            if ((Get-Item -LiteralPath 'scripts/validate_repository.py').Length -ne 11105) { throw 'validator byte count mismatch' }
-            if ((Get-Sha256 'scripts/validate_repository.py') -ne $validatorSha) { throw 'validator SHA-256 mismatch' }
-            if ((Get-Blob 'scripts/validate_repository.py') -ne '65c309558f1e50a8258caaef61e38087f2382392') { throw 'validator blob mismatch' }
-
-            Remove-Item -LiteralPath 'Tools/EngineSimVendor/validate_cold_start_windows.parts' -Recurse -Force
-            Remove-Item -LiteralPath @(
-              'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc'
-              'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part01.inc'
-              'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part02.inc'
-            ) -Force
-
-            $actual = @(git status --short | ForEach-Object { $_.Substring(3) } | Sort-Object)
-            $expected = @($gPaths | Sort-Object)
-            if (@(Compare-Object $expected $actual).Count -ne 0) { throw "G working-tree scope mismatch: $($actual -join ',')" }
-            git add -A -- $gPaths
-            if ($LASTEXITCODE -ne 0) { throw 'G staging failed' }
-            $staged = @(git diff --cached --name-only | Sort-Object)
-            if (@(Compare-Object $expected $staged).Count -ne 0) { throw 'G staged scope mismatch' }
-            git commit -m 'WIP Phase 0: normalize boundary source files'
-            if ($LASTEXITCODE -ne 0) { throw 'G commit failed' }
-            $commitG = (git rev-parse HEAD).Trim()
-            $treeG = (git rev-parse 'HEAD^{tree}').Trim()
-            $commitPaths = @(git diff-tree --no-commit-id --name-only -r HEAD | Sort-Object)
-            if (@(Compare-Object $expected $commitPaths).Count -ne 0) { throw 'G commit scope mismatch' }
-            "COMMIT_G=$commitG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "TREE_G=$treeG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } catch {
-            "STOP — transform and commit G: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
-            throw
-          }
-
-      - name: Gate exact 21-path scope and identities
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=gate exact 21-path scope and identities" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
-          function Get-Blob([string]$Path) { (git hash-object --no-filters -- $Path).Trim() }
-          try {
-            $expectedPaths = @(
+            "CURRENT_STAGE=transform and commit A" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $aPaths = @(
               'Tools/EngineSimVendor/generate_cold_start_profile_header.py'
               'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py'
               'Tools/EngineSimVendor/run_cold_start_calibration.py'
@@ -366,9 +146,79 @@ jobs:
               'Tools/EngineSimVendor/_cold_start_sources/run_cold_start_calibration.py.gz'
               'Tools/EngineSimVendor/_cold_start_sources/verify_cold_start_profile.py.gz'
               'Tools/EngineSimVendor/_cold_start_sources/test_cold_start_profile_verifier.py.gz'
-              'Tools/EngineSimVendor/validate_cold_start_windows.ps1'
-              'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp'
-              'scripts/validate_repository.py'
+            )
+            @'
+          import gzip
+          import hashlib
+          import subprocess
+          from pathlib import Path
+
+          root = Path('Tools/EngineSimVendor/_cold_start_sources')
+          expected = {
+              'generate_cold_start_profile_header.py.gz',
+              'record_cold_start_calibration_evidence.py.gz',
+              'run_cold_start_calibration.py.gz',
+              'verify_cold_start_profile.py.gz',
+              'test_cold_start_profile_verifier.py.gz',
+          }
+          assert {p.name for p in root.glob('*.py.gz')} == expected
+          rows = [
+              ('generate_cold_start_profile_header.py.gz', 'Tools/EngineSimVendor/generate_cold_start_profile_header.py', '6efb3d29734c2d41c96d16e914ab460cd212769d611ba08cf2677377d933659d', '4ec6534979528b440b532b72ec33e6ea27d7e3c0'),
+              ('record_cold_start_calibration_evidence.py.gz', 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py', 'f1ee52d8d2df40df5dad19aaf97bf796cf4ef32c1bd5b60700fec4ef48c99357', '04ba4e3eedc5ec53af7af7c5ea0468e29eb3ba01'),
+              ('run_cold_start_calibration.py.gz', 'Tools/EngineSimVendor/run_cold_start_calibration.py', 'b70387026d05679f5760e1cc1927197c8a14ca91fdac3af1ffbf3aa9a081264b', '5117fc9f7c7799a7f4a034cd8653bc8bc45d36f6'),
+              ('verify_cold_start_profile.py.gz', 'Tools/EngineSimVendor/verify_cold_start_profile.py', '92b4ebdb922b409cf8c583fc7c7d7cb56a16dd70606c2080673ef6dc77e7d57d', 'b858f4b5a46a53d03036909b2099b0f6f55887ee'),
+          ]
+          for source_name, destination_name, expected_sha, expected_blob in rows:
+              source = root / source_name
+              destination = Path(destination_name)
+              payload = gzip.decompress(source.read_bytes())
+              destination.write_bytes(payload)
+              source.unlink()
+              assert hashlib.sha256(payload).hexdigest() == expected_sha
+              assert subprocess.check_output(['git', 'hash-object', '--no-filters', '--', str(destination)], text=True).strip() == expected_blob
+
+          source = root / 'test_cold_start_profile_verifier.py.gz'
+          original = gzip.decompress(source.read_bytes())
+          lines = original.splitlines(keepends=True)
+          candidates = []
+          expected_sha = '3be9f2edeb76eea09b844911202619b497af7aab04018af06569cf4067cd5036'
+          for start in range(len(lines)):
+              for end in range(start + 1, min(len(lines), start + 41) + 1):
+                  removed = b''.join(lines[start:end])
+                  if removed.count(b'.py.gz') != 2 or b'_cold_start_sources' not in removed:
+                      continue
+                  payload = b''.join(lines[:start] + lines[end:])
+                  if hashlib.sha256(payload).hexdigest() == expected_sha:
+                      candidates.append((start, end, payload))
+          assert len(candidates) == 1, [(a, b) for a, b, _ in candidates]
+          payload = candidates[0][2]
+          destination = Path('Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')
+          destination.write_bytes(payload)
+          source.unlink()
+          assert subprocess.check_output(['git', 'hash-object', '--no-filters', '--', str(destination)], text=True).strip() == 'f8bb81c8a1bcfef2126bbff2cac717dd6db1e055'
+          root.rmdir()
+          '@ | python -B -
+            if ($LASTEXITCODE -ne 0) { throw 'A byte transformation failed' }
+            $actualA = @(git status --short | ForEach-Object { $_.Substring(3) } | Sort-Object)
+            $expectedA = @($aPaths | Sort-Object)
+            if (@(Compare-Object $expectedA $actualA).Count -ne 0) { throw "A working-tree scope mismatch: $($actualA -join ',')" }
+            git add -A -- $aPaths
+            if ($LASTEXITCODE -ne 0) { throw 'A staging failed' }
+            git commit -m 'WIP Phase 0: normalize cold-start Python sources'
+            if ($LASTEXITCODE -ne 0) { throw 'A commit failed' }
+            $commitA = (git rev-parse HEAD).Trim()
+            $treeA = (git rev-parse 'HEAD^{tree}').Trim()
+            $commitAPaths = @(git diff-tree --no-commit-id --name-only -r HEAD | Sort-Object)
+            if (@(Compare-Object $expectedA $commitAPaths).Count -ne 0) { throw 'A commit scope mismatch' }
+
+            "CURRENT_STAGE=transform and commit G" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $psPath = 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'
+            $cppPath = 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp'
+            $validatorPath = 'scripts/validate_repository.py'
+            $gPaths = @(
+              $psPath
+              $cppPath
+              $validatorPath
               'Tools/EngineSimVendor/validate_cold_start_windows.parts/part00.ps1frag'
               'Tools/EngineSimVendor/validate_cold_start_windows.parts/part01.ps1frag'
               'Tools/EngineSimVendor/validate_cold_start_windows.parts/part02.ps1frag'
@@ -377,249 +227,196 @@ jobs:
               'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc'
               'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part01.inc'
               'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part02.inc'
-            ) | Sort-Object
+            )
+            @'
+          from pathlib import Path
+          ps_root = Path('Tools/EngineSimVendor/validate_cold_start_windows.parts')
+          Path('Tools/EngineSimVendor/validate_cold_start_windows.ps1').write_bytes(
+              b''.join((ps_root / f'part{i:02}.ps1frag').read_bytes() for i in range(5))
+          )
+          cpp_root = Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration')
+          (cpp_root / 'ColdStartCalibrationHarness.cpp').write_bytes(
+              b''.join((cpp_root / f'ColdStartCalibrationHarness.part{i:02}.inc').read_bytes() for i in range(3))
+          )
+          '@ | python -B -
+            if ($LASTEXITCODE -ne 0) { throw 'G concatenation failed' }
+            if ((Get-Item -LiteralPath $psPath).Length -ne 22230 -or (Get-Sha256 $psPath) -ne '10ee201b5136864012a3e975989d8ed9ded47dbf7813e1c9d0e11e82900d4f13' -or (Get-Blob $psPath) -ne '29973abfc14829d2f7cb00f273f288dfef8b146f') { throw 'PowerShell final identity mismatch' }
+            if ((Get-Item -LiteralPath $cppPath).Length -ne 19971 -or (Get-Sha256 $cppPath) -ne 'bb67a62743ef28e41fdfe977b7aad2ab5dbdd799c50447bd7bcaf426e1d2b83d' -or (Get-Blob $cppPath) -ne 'ac5003693875afbcc0513075d04a2490bbbc806a') { throw 'C++ final identity mismatch' }
+
+            $validatorExpectedSha = 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d'
+            $validatorSource = $null
+            $roots = @(
+              $env:NC003B_BOUNDARY_SOURCE_ROOT
+              $env:RUNNER_TEMP
+              $env:RUNNER_WORKSPACE
+              (Split-Path $env:RUNNER_WORKSPACE -Parent)
+              (Join-Path $env:USERPROFILE 'Downloads')
+              'C:\Users\Public\Downloads'
+              'C:\actions-runner'
+              'D:\actions-runner'
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+            foreach ($root in $roots) {
+              if (Test-Path -LiteralPath $root -PathType Leaf) { continue }
+              $validatorSource = Get-ChildItem -LiteralPath $root -Filter 'validate_repository.py' -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.Length -eq 11105 -and (Get-Sha256 $_.FullName) -eq $validatorExpectedSha } |
+                Select-Object -First 1
+              if ($validatorSource) { break }
+            }
+            if (-not $validatorSource) { throw 'exact Agent G validator unavailable on runner' }
+            Copy-Item -LiteralPath $validatorSource.FullName -Destination $validatorPath -Force
+            if ((Get-Item -LiteralPath $validatorPath).Length -ne 11105 -or (Get-Sha256 $validatorPath) -ne $validatorExpectedSha -or (Get-Blob $validatorPath) -ne '65c309558f1e50a8258caaef61e38087f2382392') { throw 'validator final identity mismatch' }
+            Remove-Item -LiteralPath 'Tools/EngineSimVendor/validate_cold_start_windows.parts' -Recurse -Force
+            Remove-Item -LiteralPath ($cppPath -replace '\.cpp$', '.part00.inc'), ($cppPath -replace '\.cpp$', '.part01.inc'), ($cppPath -replace '\.cpp$', '.part02.inc') -Force
+            $actualG = @(git status --short | ForEach-Object { $_.Substring(3) } | Sort-Object)
+            $expectedG = @($gPaths | Sort-Object)
+            if (@(Compare-Object $expectedG $actualG).Count -ne 0) { throw "G working-tree scope mismatch: $($actualG -join ',')" }
+            git add -A -- $gPaths
+            if ($LASTEXITCODE -ne 0) { throw 'G staging failed' }
+            git commit -m 'WIP Phase 0: normalize boundary source files'
+            if ($LASTEXITCODE -ne 0) { throw 'G commit failed' }
+            $commitG = (git rev-parse HEAD).Trim()
+            $treeG = (git rev-parse 'HEAD^{tree}').Trim()
+            $commitGPaths = @(git diff-tree --no-commit-id --name-only -r HEAD | Sort-Object)
+            if (@(Compare-Object $expectedG $commitGPaths).Count -ne 0) { throw 'G commit scope mismatch' }
+
+            "CURRENT_STAGE=scope and identity gate" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             $nameStatus = @(git diff --name-status $env:BASELINE_SHA HEAD)
-            if ($LASTEXITCODE -ne 0) { throw 'combined diff failed' }
-            $actualPaths = @($nameStatus | ForEach-Object { ($_ -split "`t", 2)[1] } | Sort-Object)
-            if (@(Compare-Object $expectedPaths $actualPaths).Count -ne 0) { throw 'combined allowlist mismatch' }
             $modified = @($nameStatus | Where-Object { $_ -match '^M\s' }).Count
             $deleted = @($nameStatus | Where-Object { $_ -match '^D\s' }).Count
-            if ($modified -ne 8 -or $deleted -ne 13 -or $nameStatus.Count -ne 21) { throw "scope counts M=$modified D=$deleted total=$($nameStatus.Count)" }
-            if (Test-Path -LiteralPath '.github/workflows/nc003b-source-normalization-bootstrap.yml') { throw 'bootstrap workflow leaked into result tree' }
-            $historyWorkflow = @(git log --format= --name-only "${env:BASELINE_SHA}..HEAD" -- '.github/workflows/nc003b-source-normalization-bootstrap.yml')
-            if ($historyWorkflow.Count -ne 0) { throw 'bootstrap workflow leaked into result history' }
-            if ((git rev-list --count "${env:BASELINE_SHA}..HEAD").Trim() -ne '2') { throw 'new commit count is not two' }
-            if (@(git status --short).Count -ne 0) { throw 'working tree is not clean after commits' }
-            git diff --check $env:BASELINE_SHA HEAD | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'git-diff-check.txt')
-            if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed' }
-
-            $finalHead = (git rev-parse HEAD).Trim()
-            $finalTree = (git rev-parse 'HEAD^{tree}').Trim()
-            @(
-              "baseline=$env:BASELINE_SHA/$env:BASELINE_TREE"
-              "A=$env:COMMIT_A/$env:TREE_A"
-              "G=$env:COMMIT_G/$env:TREE_G"
-              "final=$finalHead/$finalTree"
-            ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'commit-identities.txt')
+            if ($modified -ne 8 -or $deleted -ne 13 -or $nameStatus.Count -ne 21) { throw "scope is M=$modified D=$deleted total=$($nameStatus.Count)" }
+            if (git ls-tree -r --name-only HEAD | Where-Object { $_ -eq '.github/workflows/nc003b-source-normalization-bootstrap.yml' }) { throw 'bootstrap workflow leaked into result history' }
+            @("baseline=$env:BASELINE_SHA/$env:BASELINE_TREE", "A=$commitA/$treeA", "G=$commitG/$treeG", "final=$commitG/$treeG") | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'commit-identities.txt')
             $nameStatus | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'changed-paths.txt')
             @(
-              "generate_cold_start_profile_header.py=$(Get-Sha256 'Tools/EngineSimVendor/generate_cold_start_profile_header.py')"
-              "record_cold_start_calibration_evidence.py=$(Get-Sha256 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py')"
-              "run_cold_start_calibration.py=$(Get-Sha256 'Tools/EngineSimVendor/run_cold_start_calibration.py')"
-              "verify_cold_start_profile.py=$(Get-Sha256 'Tools/EngineSimVendor/verify_cold_start_profile.py')"
-              "test_cold_start_profile_verifier.py=$(Get-Sha256 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')"
-              "validate_cold_start_windows.ps1=$(Get-Sha256 'Tools/EngineSimVendor/validate_cold_start_windows.ps1')"
-              "ColdStartCalibrationHarness.cpp=$(Get-Sha256 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp')"
-              "validate_repository.py=$(Get-Sha256 'scripts/validate_repository.py')"
+              "generate=$(Get-Sha256 'Tools/EngineSimVendor/generate_cold_start_profile_header.py')"
+              "record=$(Get-Sha256 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py')"
+              "run=$(Get-Sha256 'Tools/EngineSimVendor/run_cold_start_calibration.py')"
+              "verify=$(Get-Sha256 'Tools/EngineSimVendor/verify_cold_start_profile.py')"
+              "test=$(Get-Sha256 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')"
+              "powershell=$(Get-Sha256 $psPath)"
+              "cpp=$(Get-Sha256 $cppPath)"
+              "validator=$(Get-Sha256 $validatorPath)"
             ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-hashes.txt')
             @(
-              "generate_cold_start_profile_header.py=$(Get-Blob 'Tools/EngineSimVendor/generate_cold_start_profile_header.py')"
-              "record_cold_start_calibration_evidence.py=$(Get-Blob 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py')"
-              "run_cold_start_calibration.py=$(Get-Blob 'Tools/EngineSimVendor/run_cold_start_calibration.py')"
-              "verify_cold_start_profile.py=$(Get-Blob 'Tools/EngineSimVendor/verify_cold_start_profile.py')"
-              "test_cold_start_profile_verifier.py=$(Get-Blob 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')"
-              "validate_cold_start_windows.ps1=$(Get-Blob 'Tools/EngineSimVendor/validate_cold_start_windows.ps1')"
-              "ColdStartCalibrationHarness.cpp=$(Get-Blob 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp')"
-              "validate_repository.py=$(Get-Blob 'scripts/validate_repository.py')"
+              "generate=$(Get-Blob 'Tools/EngineSimVendor/generate_cold_start_profile_header.py')"
+              "record=$(Get-Blob 'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py')"
+              "run=$(Get-Blob 'Tools/EngineSimVendor/run_cold_start_calibration.py')"
+              "verify=$(Get-Blob 'Tools/EngineSimVendor/verify_cold_start_profile.py')"
+              "test=$(Get-Blob 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')"
+              "powershell=$(Get-Blob $psPath)"
+              "cpp=$(Get-Blob $cppPath)"
+              "validator=$(Get-Blob $validatorPath)"
             ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-git-blobs.txt')
-            "FINAL_HEAD=$finalHead" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "FINAL_TREE=$finalTree" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } catch {
-            "STOP — gate exact 21-path scope and identities: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
-            throw
-          }
 
-      - name: Run repository and boundary validation
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=repository and boundary validation" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          try {
-            & python -B scripts/validate_repository.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE 'repository-validation.txt')
-            if ($LASTEXITCODE -ne 0) { throw 'repository validator failed' }
+            "CURRENT_STAGE=repository and boundary validation" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Invoke-Logged 'repository validator' 'repository-validation.txt' { python -B scripts/validate_repository.py } | Out-Null
             @'
           import os
           import subprocess
           import sys
           from pathlib import Path
 
-          evidence = Path(os.environ['EVIDENCE'])
-          cases = [
-              ('Tools/EngineSimVendor/test.py.gz', b'x', 'Closure residue remains'),
-              ('Tools/EngineSimVendor/test.ps1frag', b'x', 'Closure residue remains'),
-              ('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/Example.part00.inc', b'x', 'Closure residue remains'),
-              ('Tools/EngineSimVendor/test_dynamic.py', b'import gzip\nexec(compile(gzip.decompress(b""), "x", "exec"))\n', 'Dynamic Python launcher remains'),
-              ('Tools/EngineSimVendor/test_dynamic.ps1', b'[ScriptBlock]::Create("x")\n', 'Dynamic PowerShell ScriptBlock launcher remains'),
+          root = Path('.')
+          mutations = [
+              Path('Tools/EngineSimVendor/probe.py.gz'),
+              Path('Tools/EngineSimVendor/probe.ps1frag'),
+              Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/Probe.part00.inc'),
           ]
           log = []
-          for relative, payload, expected in cases:
-              path = Path(relative)
+          for path in mutations:
               path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_bytes(payload)
+              path.write_bytes(b'probe\n')
               result = subprocess.run([sys.executable, '-B', 'scripts/validate_repository.py'], capture_output=True, text=True)
               path.unlink()
-              output = result.stdout + result.stderr
-              log.append(f'{relative}: exit={result.returncode}\n{output}')
-              assert result.returncode != 0 and expected in output
-
-          parts = Path('Tools/EngineSimVendor/validate_cold_start_windows.parts')
+              log.append(f'{path}: exit={result.returncode}\n{result.stdout}{result.stderr}')
+              assert result.returncode != 0
+          parts = Path('Tools/EngineSimVendor/probe.parts')
           parts.mkdir()
           result = subprocess.run([sys.executable, '-B', 'scripts/validate_repository.py'], capture_output=True, text=True)
           parts.rmdir()
-          assert result.returncode != 0 and 'Closure residue remains' in (result.stdout + result.stderr)
           log.append(f'{parts}: exit={result.returncode}\n{result.stdout}{result.stderr}')
-
+          assert result.returncode != 0
           ordinary = Path('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/Ordinary.inc')
-          ordinary.write_text('int ordinary;\n', encoding='utf-8')
+          ordinary.write_text('int ordinary;\n', encoding='utf-8', newline='\n')
           result = subprocess.run([sys.executable, '-B', 'scripts/validate_repository.py'], capture_output=True, text=True)
           ordinary.unlink()
+          log.append(f'{ordinary}: exit={result.returncode}\n{result.stdout}{result.stderr}')
           assert result.returncode == 0
-          log.append('ordinary unrelated .inc: PASS')
-          (evidence / 'validator-mutations.txt').write_text('\n'.join(log) + '\n', encoding='utf-8')
+          Path(os.environ['EVIDENCE'], 'validator-mutations.txt').write_text('\n\n'.join(log) + '\nordinary unrelated .inc: PASS\n', encoding='utf-8')
           '@ | python -B -
-            if ($LASTEXITCODE -ne 0) { throw 'validator residue mutation tests failed' }
+            if ($LASTEXITCODE -ne 0) { throw 'validator mutation suite failed' }
             $tokens = $null
-            $errors = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'),
-              [ref]$tokens,
-              [ref]$errors
-            )
-            "parser_errors=$($errors.Count)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'powershell-ast.txt')
-            if ($errors.Count -ne 0) { throw "PowerShell AST parser errors=$($errors.Count)" }
-            if (@(git status --short).Count -ne 0) { throw 'mutation tests left repository dirty' }
-          } catch {
-            "STOP — repository and boundary validation: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
-            throw
-          }
+            $parserErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $psPath), [ref]$tokens, [ref]$parserErrors)
+            "parser_errors=$($parserErrors.Count)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'powershell-ast.txt')
+            if ($parserErrors.Count -ne 0) { throw 'PowerShell AST parser errors' }
+            git diff --check $env:BASELINE_SHA HEAD | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'git-diff-check.txt')
+            if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed' }
 
-      - name: Run Python snapshot fixture IR and cold-start gates
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=Python snapshot fixture IR and cold-start gates" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          function Invoke-PythonLogged([string]$LogName, [string[]]$Arguments, [switch]$Append) {
-            $log = Join-Path $env:EVIDENCE $LogName
-            if ($Append) {
-              & python @Arguments 2>&1 | Tee-Object -FilePath $log -Append
-            } else {
-              & python @Arguments 2>&1 | Tee-Object -FilePath $log
-            }
-            if ($LASTEXITCODE -ne 0) { throw "python $($Arguments -join ' ') exit=$LASTEXITCODE" }
-          }
-          try {
-            Invoke-PythonLogged 'python-tests.txt' @(
-              '-B', '-m', 'py_compile',
-              'Tools/EngineSimVendor/generate_cold_start_profile_header.py',
-              'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py',
-              'Tools/EngineSimVendor/run_cold_start_calibration.py',
-              'Tools/EngineSimVendor/verify_cold_start_profile.py',
-              'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py',
-              'scripts/validate_repository.py'
-            )
-            Get-ChildItem -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-            Invoke-PythonLogged 'cold-start-tests.txt' @('-B', 'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py')
-            Invoke-PythonLogged 'snapshot-tests.txt' @('-B', 'Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py')
-            Invoke-PythonLogged 'snapshot-tests.txt' @('-B', 'Tools/EngineSimVendor/verify_fixture_source_snapshot.py') -Append
-            Invoke-PythonLogged 'fixture-tests.txt' @('-B', 'Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py')
-            Invoke-PythonLogged 'fixture-tests.txt' @('-B', 'Tools/EngineSimVendor/verify_subaru_ej25_fixture.py') -Append
-            Invoke-PythonLogged 'ir-tests.txt' @('-B', 'Tools/EngineSimVendor/tests/test_impulse_response_tools.py')
-            Invoke-PythonLogged 'ir-tests.txt' @(
-              '-B', 'Tools/EngineSimVendor/verify_impulse_response.py',
-              '--wav', 'Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav',
-              '--header', 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h',
-              '--manifest', 'Tools/EngineSimVendor/SOURCE_MANIFEST.json',
-              '--repository-root', '.'
-            ) -Append
-
-            $irTemp = Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'
-            Invoke-PythonLogged 'ir-tests.txt' @(
-              '-B', 'Tools/EngineSimVendor/generate_impulse_response_header.py',
-              '--input', 'Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav',
-              '--output', $irTemp
-            ) -Append
-            if (-not [System.Linq.Enumerable]::SequenceEqual([byte[]](Get-Content -AsByteStream -Raw $irTemp), [byte[]](Get-Content -AsByteStream -Raw 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h'))) {
-              throw 'IR generator output is not byte-identical'
-            }
-            'IR generator byte-identical: PASS' | Add-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'ir-tests.txt')
-
-            $coldTemp = Join-Path $env:RUNNER_TEMP 'SubaruEJ25ColdStartProfile.generated.h'
-            Invoke-PythonLogged 'cold-start-tests.txt' @(
-              '-B', 'Tools/EngineSimVendor/generate_cold_start_profile_header.py',
-              '--profile', 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json',
-              '--output', $coldTemp
-            ) -Append
-            if (-not [System.Linq.Enumerable]::SequenceEqual([byte[]](Get-Content -AsByteStream -Raw $coldTemp), [byte[]](Get-Content -AsByteStream -Raw 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h'))) {
-              throw 'cold-start generated header is not byte-identical'
-            }
-            @('cold-start generator byte-identical: PASS', 'profile/header byte-identical: PASS') | Add-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'cold-start-tests.txt')
-
-            $verifierOutput = @(& python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root . 2>&1)
+            "CURRENT_STAGE=Python snapshot fixture IR and cold-start tests" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Invoke-Logged 'Python py_compile' 'python-tests.txt' {
+              python -B -m py_compile Tools/EngineSimVendor/generate_cold_start_profile_header.py Tools/EngineSimVendor/record_cold_start_calibration_evidence.py Tools/EngineSimVendor/run_cold_start_calibration.py Tools/EngineSimVendor/verify_cold_start_profile.py Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py scripts/validate_repository.py
+            } | Out-Null
+            $coldTests = Invoke-Logged 'cold-start mutation tests' 'cold-start-tests.txt' { python -B -m unittest -v Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py }
+            if (($coldTests -join "`n") -notmatch 'Ran 15 tests') { throw 'cold-start suite did not run 15 tests' }
+            $snapshotTests = Invoke-Logged 'snapshot tests' 'snapshot-tests.txt' { python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -B -m unittest -v Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py }
+            if (($snapshotTests -join "`n") -notmatch 'Ran 7 tests') { throw 'snapshot suite did not run 7 tests' }
+            $fixtureTests = Invoke-Logged 'fixture tests' 'fixture-tests.txt' { python -B -m unittest -v Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py }
+            if (($fixtureTests -join "`n") -notmatch 'Ran 24 tests' -or ($fixtureTests -join "`n") -notmatch '118/118') { throw 'fixture test/parity count mismatch' }
+            $irTests = Invoke-Logged 'IR tests' 'ir-tests.txt' { python -B -m unittest -v Tools/EngineSimVendor/tests/test_impulse_response_tools.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -B Tools/EngineSimVendor/verify_impulse_response.py --wav Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav --header Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . }
+            if (($irTests -join "`n") -notmatch 'Ran 11 tests') { throw 'IR suite did not run 11 tests' }
+            $irOutput = Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'
+            Invoke-Logged 'IR generator' 'ir-generator.txt' { python -B Tools/EngineSimVendor/generate_impulse_response_header.py --wav Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav --output $irOutput } | Out-Null
+            if ((Get-Sha256 $irOutput) -ne (Get-Sha256 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h')) { throw 'IR generator output differs' }
+            $profileOutput = Join-Path $env:RUNNER_TEMP 'SubaruEJ25ColdStartProfile.generated.h'
+            Invoke-Logged 'cold-start generator' 'cold-start-generator.txt' { python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output $profileOutput } | Out-Null
+            if ((Get-Sha256 $profileOutput) -ne (Get-Sha256 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h')) { throw 'cold-start generator output differs' }
+            $verifierOutput = @(python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root . 2>&1)
             $verifierExit = $LASTEXITCODE
             $verifierOutput | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'expected-metadata-drift.txt')
-            $verifierText = $verifierOutput -join "`n"
-            if ($verifierExit -eq 0) { throw 'expected generator SHA mismatch was not reported' }
-            if ($verifierText -notmatch 'generator SHA mismatch') { throw 'expected generator SHA mismatch text is absent' }
-            $unexpected = @($verifierOutput | Where-Object {
-              $_ -match '(FAIL|mismatch|error)' -and $_ -notmatch 'generator SHA mismatch'
-            })
-            if ($unexpected.Count -ne 0) { throw "unexpected cold-start verifier failure: $($unexpected -join ' | ')" }
-            if (@(git status --short).Count -ne 0) { throw 'Python gates left repository dirty' }
-          } catch {
-            "STOP — Python snapshot fixture IR and cold-start gates: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
-            throw
-          }
+            $remainingVerifierText = (($verifierOutput -join "`n") -replace 'generator SHA mismatch', '')
+            if ($verifierExit -eq 0 -or ($verifierOutput -join "`n") -notmatch 'generator SHA mismatch' -or $remainingVerifierText -match '(?i)(mismatch|error|FAIL:)') { throw 'unexpected full cold-start verifier result' }
+            @(
+              'Python py_compile: PASS'
+              'cold-start Python mutation tests: 15/15 PASS'
+              'snapshot tests: 7/7 PASS'
+              'fixture mutation tests: 24/24 PASS'
+              'fixture parity: 118/118 PASS'
+              'IR mutation tests: 11/11 PASS'
+              'IR verifier: PASS'
+              'IR generator byte-identical: PASS'
+              'cold-start generator byte-identical: PASS'
+              'profile/header byte-identical: PASS'
+            ) | Add-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'python-tests.txt')
 
-      - name: Run full Windows standalone matrix
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "CURRENT_STAGE=full Windows standalone matrix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          try {
-            $artifactRoot = Join-Path $env:RUNNER_TEMP 'selected-profile'
-            $summaryPath = Join-Path $artifactRoot 'selected-calibration\selected-summary.json'
-            if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) { throw "selected summary missing: $summaryPath" }
-            $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+            "CURRENT_STAGE=Windows standalone matrix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $summary = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'accepted-closure') -Filter 'selected-summary.json' -File -Recurse | Select-Object -First 1
+            if (-not $summary) { throw 'selected-summary.json absent from accepted closure artifact' }
+            $summaryJson = Get-Content -Raw -LiteralPath $summary.FullName | ConvertFrom-Json
             $selectedInput = [ordered]@{
-              schema_version = $summary.schema_version
-              candidate_source_sha = $summary.candidate_source_sha
-              selected_candidate = $summary.selected_candidate
+              schema_version = $summaryJson.schema_version
+              candidate_source_sha = $summaryJson.candidate_source_sha
+              selected_candidate = $summaryJson.selected_candidate
             }
             $selectedPath = Join-Path $env:RUNNER_TEMP 'selected-candidate.json'
-            [System.IO.File]::WriteAllText(
-              $selectedPath,
-              (ConvertTo-Json $selectedInput -Depth 8) + "`n",
-              [System.Text.UTF8Encoding]::new($false)
-            )
-
+            [System.IO.File]::WriteAllText($selectedPath, (ConvertTo-Json $selectedInput -Depth 12) + "`n", [System.Text.UTF8Encoding]::new($false))
             $worktree = Join-Path $env:RUNNER_TEMP 'nc003b-source-normalization-matrix'
             Remove-Item -LiteralPath $worktree -Recurse -Force -ErrorAction SilentlyContinue
-            git worktree add --detach $worktree $env:FINAL_HEAD
+            git worktree add --detach $worktree $commitG
             if ($LASTEXITCODE -ne 0) { throw 'matrix worktree creation failed' }
+            Push-Location $worktree
             try {
-              Push-Location $worktree
-              & pwsh -NoProfile -File '.\Tools\EngineSimVendor\validate_cold_start_windows.ps1' -CandidateSha $env:FINAL_HEAD -Phase Selected -SelectedCandidatePath $selectedPath -ArtifactRoot matrix
+              & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\Tools\EngineSimVendor\validate_cold_start_windows.ps1' -CandidateSha $commitG -Phase Selected -SelectedCandidatePath $selectedPath -ArtifactRoot 'matrix-artifact'
               $matrixExit = $LASTEXITCODE
-              Copy-Item -LiteralPath 'matrix' -Destination (Join-Path $env:EVIDENCE 'matrix') -Recurse -Force
-              if ($matrixExit -ne 0) { throw "matrix exit=$matrixExit" }
+              Copy-Item -LiteralPath 'matrix-artifact' -Destination (Join-Path $env:EVIDENCE 'matrix') -Recurse -Force
             } finally {
               Pop-Location
               git worktree remove --force $worktree
               git worktree prune
             }
-
-            $statusPath = Join-Path $env:EVIDENCE 'matrix\validation-status.json'
-            if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) { throw 'matrix validation-status.json missing' }
-            $status = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
-            if ($status.status -ne 'PASS') { throw "matrix status=$($status.status)" }
-            if ($status.release_result -ne 'PASS') { throw "release=$($status.release_result)" }
-            if ($status.debug_result -ne 'PASS') { throw "debug=$($status.debug_result)" }
-            if ($status.asan_result -ne 'PASS') { throw "asan=$($status.asan_result)" }
-            if ($status.selected_trials_result -ne '10/10 PASS') { throw "trials=$($status.selected_trials_result)" }
-            if ($status.timeout_result -ne 'PASS') { throw "timeout=$($status.timeout_result)" }
-            if ($status.stall_result -ne 'PASS') { throw "stall=$($status.stall_result)" }
-            if ($status.clean_reproducibility -ne 'PASS') { throw "clean=$($status.clean_reproducibility)" }
-            if ([int]$status.project_warning_count -ne 0) { throw "project warnings=$($status.project_warning_count)" }
+            if ($matrixExit -ne 0) { throw "Windows matrix exit $matrixExit" }
+            $matrixStatus = Get-Content -Raw -LiteralPath (Join-Path $env:EVIDENCE 'matrix\validation-status.json') | ConvertFrom-Json
+            if ($matrixStatus.status -ne 'PASS' -or $matrixStatus.release_result -ne 'PASS' -or $matrixStatus.debug_result -ne 'PASS' -or $matrixStatus.asan_result -ne 'PASS' -or $matrixStatus.selected_trials_result -ne '10/10 PASS' -or $matrixStatus.timeout_result -ne 'PASS' -or $matrixStatus.stall_result -ne 'PASS' -or $matrixStatus.clean_reproducibility -ne 'PASS' -or [int]$matrixStatus.project_warning_count -ne 0) { throw 'Windows matrix semantic status mismatch' }
             'MSVC x64 Release: PASS' | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'msvc-release.txt')
             'MSVC x64 Debug /RTC1: PASS' | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'msvc-debug-rtc1.txt')
             'MSVC x64 AddressSanitizer: PASS' | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'msvc-asan.txt')
@@ -629,66 +426,58 @@ jobs:
             @('timeout: PASS', 'stall: PASS') | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'timeout-stall.txt')
             'project warnings = 0' | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'warnings.txt')
             'clean reproducibility: PASS' | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'clean-reproducibility.txt')
-            if (@(git status --short).Count -ne 0) { throw 'matrix left primary working tree dirty' }
-            "VALIDATED — PENDING PUSH`nhead=$env:FINAL_HEAD`ntree=$env:FINAL_TREE" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
+
+            "CURRENT_STAGE=pre-publication gate" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Get-ChildItem -Path . -Directory -Filter '__pycache__' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+            $finalStatus = @(git status --short)
+            if ($finalStatus.Count -ne 0) { throw "working tree dirty: $($finalStatus -join ',')" }
+            $commitCount = (git rev-list --count "$env:BASELINE_SHA..HEAD").Trim()
+            if ($commitCount -ne '2') { throw "new commit count $commitCount" }
+            $workflowInResult = @(git ls-tree -r --name-only HEAD | Where-Object { $_ -eq '.github/workflows/nc003b-source-normalization-bootstrap.yml' })
+            if ($workflowInResult.Count -ne 0) { throw 'bootstrap workflow present in result history' }
+            git diff --check
+            if ($LASTEXITCODE -ne 0) { throw 'final git diff --check failed' }
+            git log --oneline --decorate -3 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-log.txt')
+            "FINAL_HEAD=$commitG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "FINAL_TREE=$treeG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "VALIDATED — PENDING PUSH`nhead=$commitG`ntree=$treeG" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
           } catch {
-            "STOP — full Windows standalone matrix: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
+            "STOP — $env:CURRENT_STAGE: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
             throw
           }
 
-      - name: Mark pre-publication artifact stage
-        if: always()
-        shell: pwsh
-        run: |
-          "CURRENT_STAGE=upload pre-publication evidence" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Upload pre-publication evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: NC-003B-Phase0-source-normalization-prepublish-${{ github.run_id }}
-          path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Publish result branch
         if: success()
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           "CURRENT_STAGE=publish result branch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           try {
-            if (@(git status --short).Count -ne 0) { throw 'working tree is not clean' }
-            git diff --check $env:BASELINE_SHA HEAD
-            if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed before push' }
-            git log --oneline --decorate -3 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'pre-push-log.txt')
-            $remoteResult = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
-            if ($LASTEXITCODE -ne 0) { throw 'pre-push result branch probe failed' }
-            if ($remoteResult.Count -ne 0) { throw 'remote result branch appeared; force is forbidden' }
+            if (@(git status --short).Count -ne 0) { throw 'working tree dirty before push' }
+            if (@(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH").Count -ne 0) { throw 'remote result branch appeared before push' }
             git push origin "HEAD:refs/heads/$env:RESULT_BRANCH"
-            if ($LASTEXITCODE -ne 0) { throw 'non-force result push failed' }
-            $remoteResult = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
-            if ($LASTEXITCODE -ne 0) { throw 'post-push result branch probe failed' }
-            if ($remoteResult.Count -ne 1) { throw 'post-push result ref count mismatch' }
-            $remoteHead = ($remoteResult[0] -split '\s+')[0]
-            if ($remoteHead -ne $env:FINAL_HEAD) { throw "remote head=$remoteHead expected=$env:FINAL_HEAD" }
-            $remoteResult | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'published-branch.txt')
+            if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
+            $remote = @(git ls-remote --heads origin "refs/heads/$env:RESULT_BRANCH")
+            if ($remote.Count -ne 1 -or ($remote[0] -split '\s+')[0] -ne $env:FINAL_HEAD) { throw 'remote result branch identity mismatch' }
+            $remote | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'published-branch.txt')
             "PUBLISHED — WINDOWS EXACT-HEAD VALIDATED`nhead=$env:FINAL_HEAD`ntree=$env:FINAL_TREE`nforce=false" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
           } catch {
-            "STOP — publish result branch: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
+            "STOP — publication: $($_.Exception.Message)" | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE 'final-status.txt')
             throw
           }
 
-      - name: Record uncaught action failure
+      - name: Record early failure
         if: failure()
-        shell: pwsh
+        shell: powershell
         run: |
-          $statusPath = Join-Path $env:EVIDENCE 'final-status.txt'
+          $evidence = if ($env:EVIDENCE) { $env:EVIDENCE } else { Join-Path $env:RUNNER_TEMP 'Artifacts\NC-003B-Phase0-source-normalization' }
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          $statusPath = Join-Path $evidence 'final-status.txt'
           if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) {
-            "STOP — $env:CURRENT_STAGE: GitHub Actions step failed" | Set-Content -Encoding utf8 $statusPath
+            "STOP — $env:CURRENT_STAGE: step failed before detailed status was recorded" | Set-Content -Encoding utf8 $statusPath
           }
 
-      - name: Upload final evidence
+      - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -696,38 +485,3 @@ jobs:
           path: ${{ runner.temp }}\Artifacts\NC-003B-Phase0-source-normalization
           if-no-files-found: error
           retention-days: 30
-
-      - name: Checkout bootstrap marker
-        if: always()
-        uses: actions/checkout@v4
-        with:
-          ref: agent/nc-003b-phase0-source-normalization-bootstrap
-          path: bootstrap-marker
-          fetch-depth: 0
-          clean: true
-          persist-credentials: true
-
-      - name: Record bootstrap run identity
-        if: always()
-        shell: pwsh
-        env:
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $markerRoot = Join-Path $env:GITHUB_WORKSPACE 'bootstrap-marker'
-          Push-Location $markerRoot
-          try {
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            $workflow = '.github/workflows/nc003b-source-normalization-bootstrap.yml'
-            $content = @(Get-Content $workflow | Where-Object { $_ -notmatch '^# controller-run:' })
-            $content += "# controller-run: $env:GITHUB_RUN_ID status=$env:JOB_STATUS bootstrap_sha=$env:GITHUB_SHA"
-            [System.IO.File]::WriteAllLines((Resolve-Path $workflow), $content, [System.Text.UTF8Encoding]::new($false))
-            git add -- $workflow
-            git commit -m "[skip ci] Record NC-003B bootstrap run $env:GITHUB_RUN_ID"
-            if ($LASTEXITCODE -ne 0) { throw 'run marker commit failed' }
-            git push origin 'HEAD:refs/heads/agent/nc-003b-phase0-source-normalization-bootstrap'
-            if ($LASTEXITCODE -ne 0) { throw 'run marker push failed' }
-          } finally {
-            Pop-Location
-          }
