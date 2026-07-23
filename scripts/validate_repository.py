@@ -49,7 +49,7 @@ REQUIRED_PR_TEMPLATE_PHRASES = (
     "`docs/manager-history.md` contains a final append-only entry",
 )
 
-TEXT_SUFFIXES = {".cpp", ".h", ".hpp", ".cs", ".ini", ".md", ".py", ".yml", ".yaml"}
+TEXT_SUFFIXES = {".cpp", ".h", ".hpp", ".cs", ".ini", ".inc", ".md", ".ps1", ".ps1frag", ".py", ".yml", ".yaml"}
 BALANCED_SUFFIXES = {".cpp", ".h", ".hpp", ".cs"}
 JSON_SUFFIXES = {".json", ".uproject", ".uplugin"}
 
@@ -195,9 +195,52 @@ def check_phase0_closure() -> None:
         if (ROOT / "Tools" / "EngineSimVendor" / name).exists():
             fail(f"Reconstruction-only document remains: {name}")
     forbidden_names = {"_transport_probe_local.txt", "_should_not_use", "RUNNER_BOOTSTRAP_REQUEST", "bootstrap_on_runner.ps1"}
-    for path in ROOT.rglob("*"):
+    vendor_root = ROOT / "Tools" / "EngineSimVendor"
+    core_root = (
+        ROOT
+        / "Plugins"
+        / "NextcarEngineSim"
+        / "Source"
+        / "NextcarEngineSimCore"
+    )
+    phase0_roots = (vendor_root, core_root)
+    forbidden_cold_start_sources = vendor_root / "_cold_start_sources"
+    if forbidden_cold_start_sources.exists():
+        fail(f"Closure residue remains: {forbidden_cold_start_sources.relative_to(ROOT)}")
+
+    def is_phase0_path(path: Path) -> bool:
+        return any(path == root or root in path.parents for root in phase0_roots)
+
+    for path in sorted(ROOT.rglob("*")):
+        relative = path.relative_to(ROOT)
         if path.name in forbidden_names or path.suffix == ".pyc" or "__pycache__" in path.parts:
-            fail(f"Closure residue remains: {path.relative_to(ROOT)}")
+            fail(f"Closure residue remains: {relative}")
+        if not is_phase0_path(path):
+            continue
+        if path.name == "validate_cold_start_windows.parts":
+            fail(f"Closure residue remains: {relative}")
+        if path.is_file() and path.name.lower().endswith(".ps1frag"):
+            fail(f"Closure residue remains: {relative}")
+        if path.is_file() and re.search(r"\.part\d{2}\.inc\Z", path.name, re.IGNORECASE):
+            fail(f"Closure residue remains: {relative}")
+        if path.is_file() and vendor_root in path.parents and path.name.lower().endswith(".py.gz"):
+            fail(f"Closure residue remains: {relative}")
+
+    for path in sorted(vendor_root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if (
+            re.search(r"gzip\s*\.\s*decompress", source)
+            and re.search(r"exec\s*\(\s*compile\s*\(", source)
+        ):
+            fail(f"Dynamic Python launcher remains: {path.relative_to(ROOT)}")
+
+    scriptblock_create = re.compile(
+        r"(?:\[[^]\r\n]*ScriptBlock\]|ScriptBlock)\s*::\s*Create\b",
+        re.IGNORECASE,
+    )
+    for path in sorted(vendor_root.rglob("*.ps1")):
+        if scriptblock_create.search(path.read_text(encoding="utf-8")):
+            fail(f"Dynamic PowerShell ScriptBlock launcher remains: {path.relative_to(ROOT)}")
     workflow = ROOT / ".github" / "workflows" / "nc003b-phase0-final-closure-windows.yml"
     if workflow.exists():
         fail("Temporary final-closure workflow must not be present in the candidate tree")
