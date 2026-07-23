@@ -325,12 +325,7 @@ jobs:
           exit /b %NC003B_PS_EXIT%
 
       - name: Verify canary independently
-        if: >-
-          ${{
-            always() &&
-            steps.canonicalize_bootstrap.outcome == 'success' &&
-            steps.verify_canonical_bootstrap.outcome == 'success'
-          }}
+        if: always() && steps.canonicalize_bootstrap.outcome == 'success' && steps.verify_canonical_bootstrap.outcome == 'success'
         uses: actions/github-script@v7
         with:
           script: |
