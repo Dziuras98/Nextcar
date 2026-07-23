@@ -66,6 +66,244 @@ jobs:
           clean: true
           persist-credentials: false
 
+      - name: Record bootstrap checkout byte state
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const crypto = require('crypto');
+            const childProcess = require('child_process');
+            const root = path.join(process.env.GITHUB_WORKSPACE, 'bootstrap');
+            const entries = [
+              '.github/nc003b-bootstrap/validate_repository.py',
+              '.github/nc003b-bootstrap/run-source-normalization.ps1',
+              '.github/nc003b-bootstrap/powershell-canary.ps1',
+              '.github/nc003b-bootstrap/publish-result-branch.ps1'
+            ];
+            const git = args => childProcess.execFileSync(
+              'git',
+              ['-C', root, ...args],
+              { encoding: 'utf8' }
+            ).trim();
+            const sha256 = bytes => crypto
+              .createHash('sha256')
+              .update(bytes)
+              .digest('hex');
+            const gitBlob = bytes => crypto
+              .createHash('sha1')
+              .update(Buffer.concat([
+                Buffer.from(`blob ${bytes.length}\0`, 'utf8'),
+                bytes
+              ]))
+              .digest('hex');
+            const lineCounts = bytes => {
+              let crlf = 0;
+              let lf = 0;
+              for (let i = 0; i < bytes.length; i += 1) {
+                if (bytes[i] === 0x0a) {
+                  lf += 1;
+                  if (i > 0 && bytes[i - 1] === 0x0d) {
+                    crlf += 1;
+                  }
+                }
+              }
+              return { crlf, lf };
+            };
+            const report = [];
+            for (const entry of entries) {
+              const bytes = fs.readFileSync(path.join(root, ...entry.split('/')));
+              const counts = lineCounts(bytes);
+              const repositoryBlob = git(['rev-parse', `HEAD:${entry}`]);
+              const repositorySize = git(['cat-file', '-s', repositoryBlob]);
+              report.push(
+                `path=${entry}`,
+                `worktree_bytes=${bytes.length}`,
+                `worktree_sha256=${sha256(bytes)}`,
+                `worktree_git_blob=${gitBlob(bytes)}`,
+                `crlf_count=${counts.crlf}`,
+                `lf_count=${counts.lf}`,
+                `repository_blob_from_git=${repositoryBlob}`,
+                `repository_blob_size_from_git=${repositorySize}`,
+                ''
+              );
+            }
+            fs.writeFileSync(
+              path.join(
+                process.env.EVIDENCE,
+                'bootstrap-bytes-before-normalization.txt'
+              ),
+              report.join('\n'),
+              'utf8'
+            );
+
+      - name: Canonicalize bootstrap checkout bytes
+        shell: cmd
+        run: |
+          @echo off
+
+          git -C "%GITHUB_WORKSPACE%\bootstrap" config core.autocrlf false
+          if errorlevel 1 exit /b 1
+
+          git -C "%GITHUB_WORKSPACE%\bootstrap" config core.eol lf
+          if errorlevel 1 exit /b 1
+
+          git -C "%GITHUB_WORKSPACE%\bootstrap" checkout-index --all --force
+          if errorlevel 1 exit /b 1
+
+          git -C "%GITHUB_WORKSPACE%\bootstrap" status --short
+          if errorlevel 1 exit /b 1
+
+          for /f "delims=" %%L in ('git -C "%GITHUB_WORKSPACE%\bootstrap" status --short') do (
+            echo Unexpected bootstrap worktree change: %%L
+            exit /b 1
+          )
+
+      - name: Verify canonical bootstrap checkout bytes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const crypto = require('crypto');
+            const childProcess = require('child_process');
+            const root = path.join(process.env.GITHUB_WORKSPACE, 'bootstrap');
+            const expected = [
+              {
+                path: '.github/nc003b-bootstrap/validate_repository.py',
+                bytes: 11105,
+                sha256: 'aae52e31fb11ffab7791a3b3c33dbef73faa0d753df977939011b28fb0b8341d',
+                blob: '65c309558f1e50a8258caaef61e38087f2382392'
+              },
+              {
+                path: '.github/nc003b-bootstrap/run-source-normalization.ps1',
+                bytes: 16449,
+                sha256: '7f8196da3934e89ed0c21aaa9d0be34e4b6a5825366483c81d0820e110a21d02',
+                blob: 'c01833669acbfb3762b0afa267dffbb10b109966'
+              },
+              {
+                path: '.github/nc003b-bootstrap/powershell-canary.ps1',
+                bytes: 926,
+                sha256: '58740eb2b577103cec9565175564f6c624d154959139e187c7e6d1a2d5cf6279',
+                blob: 'dbfbe517d4565882c7f6b6769ab8ea63ef47d5b4'
+              },
+              {
+                path: '.github/nc003b-bootstrap/publish-result-branch.ps1',
+                bytes: 2114,
+                sha256: '0f965e7769c14d9433cba1d90d15a7e690d0296d8adb159f0de747d5c27601d1',
+                blob: '56d1b1ef69dcc4edad6109501e5567b7fa212055'
+              }
+            ];
+            const git = args => childProcess.execFileSync(
+              'git',
+              ['-C', root, ...args],
+              { encoding: 'utf8' }
+            ).trim();
+            const sha256 = bytes => crypto
+              .createHash('sha256')
+              .update(bytes)
+              .digest('hex');
+            const gitBlob = bytes => crypto
+              .createHash('sha1')
+              .update(Buffer.concat([
+                Buffer.from(`blob ${bytes.length}\0`, 'utf8'),
+                bytes
+              ]))
+              .digest('hex');
+            const lineCounts = bytes => {
+              let crlf = 0;
+              let lf = 0;
+              for (let i = 0; i < bytes.length; i += 1) {
+                if (bytes[i] === 0x0a) {
+                  lf += 1;
+                  if (i > 0 && bytes[i - 1] === 0x0d) {
+                    crlf += 1;
+                  }
+                }
+              }
+              return { crlf, lf };
+            };
+            const fail = detail => {
+              const stop = `STOP — canonical bootstrap checkout identity mismatch: ${detail}`;
+              fs.writeFileSync(
+                path.join(process.env.EVIDENCE, 'final-status.txt'),
+                `${stop}\n`,
+                'utf8'
+              );
+              core.setFailed(stop);
+            };
+            const autocrlf = git(['config', '--local', '--get', 'core.autocrlf']);
+            const eol = git(['config', '--local', '--get', 'core.eol']);
+            fs.writeFileSync(
+              path.join(process.env.EVIDENCE, 'bootstrap-git-eol-settings.txt'),
+              `core.autocrlf=${autocrlf}\ncore.eol=${eol}\n`,
+              'utf8'
+            );
+            if (autocrlf !== 'false') {
+              fail('bootstrap/core.autocrlf');
+              return;
+            }
+            if (eol !== 'lf') {
+              fail('bootstrap/core.eol');
+              return;
+            }
+            const status = git(['status', '--short']);
+            if (status !== '') {
+              fail('bootstrap/status');
+              return;
+            }
+            const report = [];
+            for (const entry of expected) {
+              const bytes = fs.readFileSync(path.join(root, ...entry.path.split('/')));
+              const actualSha256 = sha256(bytes);
+              const actualBlob = gitBlob(bytes);
+              const counts = lineCounts(bytes);
+              const repositoryBlob = git(['rev-parse', `HEAD:${entry.path}`]);
+              const repositorySize = Number(git(['cat-file', '-s', repositoryBlob]));
+              report.push(
+                `path=${entry.path}`,
+                `worktree_bytes=${bytes.length}`,
+                `worktree_sha256=${actualSha256}`,
+                `worktree_git_blob=${actualBlob}`,
+                `crlf_count=${counts.crlf}`,
+                `lf_count=${counts.lf}`,
+                `repository_blob_from_git=${repositoryBlob}`,
+                `repository_blob_size_from_git=${repositorySize}`,
+                ''
+              );
+              const checks = [
+                ['worktree_bytes', bytes.length === entry.bytes],
+                ['worktree_sha256', actualSha256 === entry.sha256],
+                ['worktree_git_blob', actualBlob === entry.blob],
+                ['repository_blob_from_git', repositoryBlob === entry.blob],
+                ['worktree_blob_matches_repository', actualBlob === repositoryBlob],
+                ['repository_blob_size_from_git', repositorySize === entry.bytes],
+                ['crlf_count', counts.crlf === 0]
+              ];
+              for (const [field, passed] of checks) {
+                if (!passed) {
+                  fs.writeFileSync(
+                    path.join(
+                      process.env.EVIDENCE,
+                      'bootstrap-bytes-after-normalization.txt'
+                    ),
+                    report.join('\n'),
+                    'utf8'
+                  );
+                  fail(`${entry.path}/${field}`);
+                  return;
+                }
+              }
+            }
+            fs.writeFileSync(
+              path.join(
+                process.env.EVIDENCE,
+                'bootstrap-bytes-after-normalization.txt'
+              ),
+              report.join('\n'),
+              'utf8'
+            );
+
       - name: PowerShell execution-policy canary
         shell: cmd
         run: |
@@ -231,7 +469,7 @@ jobs:
               .map(line => line.trim())
               .filter(line => line.startsWith('shell:'));
             if (
-              shellLines.length !== 3 ||
+              shellLines.length !== 4 ||
               shellLines.some(line => line !== 'shell: cmd')
             ) {
               fail(`non-cmd shell remains: ${shellLines.join(',')}`);
