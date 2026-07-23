@@ -25,7 +25,7 @@ inline constexpr char SubaruEJ25ColdStartProfileIrWavSha256[] =
 inline constexpr char SubaruEJ25ColdStartProfileGeneratedIrSha256[] =
     "ce0702aa501d94f35b5f804efcd1b21688b9f9cacaa0fa2fc7f459c03a98e540";
 inline constexpr char SubaruEJ25ColdStartProfilePayloadSha256[] =
-    "e94ea6572b51be523ed7b33a5786865303a18e14ef3ee0fb14a3edeb48d47d49";
+    "093ef4e39526563ebcc211e127a7556dda0a154e1f4b0e75c806edf360389f1d";
 inline constexpr char SubaruEJ25ColdStartProfileSelectedCandidateId[] =
     "thr-0p050-dis-0800-min-0600-win-2p000-max-8p000";
 

@@ -44,13 +44,13 @@
   "fixture_semantic_contract_sha256": "3ba447789024d613cdceb2382d917e9d6ce340cbeecb621d4f71133e55578f00",
   "generated_header": {
     "path": "Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h",
-    "sha256": "8d44a17e4491dfdb1500ff8498c739c143fffa84510df2f31bfdf9a0e3797d5f"
+    "sha256": "da5a00fa9d776408f9f01d7f01be62e4ccd744368d07036eb0eefcc5373ac20e"
   },
   "generated_ir_sha256": "ce0702aa501d94f35b5f804efcd1b21688b9f9cacaa0fa2fc7f459c03a98e540",
   "generator": {
     "command": "python Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h",
     "path": "Tools/EngineSimVendor/generate_cold_start_profile_header.py",
-    "sha256": "208790f300970ef004fbe57816231685a0a4d2013d48339ffc6467d53d14cb4f"
+    "sha256": "6efb3d29734c2d41c96d16e914ab460cd212769d611ba08cf2677377d933659d"
   },
   "ir_wav_sha256": "df0b8be829d28ae64e5b2818a1942a3b3e5733186bdf262cad4c2af038995d48",
   "maximum_startup_simulation_seconds": 8.0,
@@ -106,7 +106,7 @@
       "p95": 174175.0
     }
   },
-  "payload_sha256": "e94ea6572b51be523ed7b33a5786865303a18e14ef3ee0fb14a3edeb48d47d49",
+  "payload_sha256": "093ef4e39526563ebcc211e127a7556dda0a154e1f4b0e75c806edf360389f1d",
   "positive_traces": [
     {
       "path": "Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/positive-traces/trial-00.json",
@@ -209,6 +209,6 @@
   "validated_parity_source_sha": "542d3261efc3ef48c78f337d990793aea55dd7fb",
   "verifier": {
     "path": "Tools/EngineSimVendor/verify_cold_start_profile.py",
-    "sha256": "63f6bfe15692228bd1dd66661c2bf24f3a45d543acd25be2f67fbe86369ef008"
+    "sha256": "92b4ebdb922b409cf8c583fc7c7d7cb56a16dd70606c2080673ef6dc77e7d57d"
   }
 }
