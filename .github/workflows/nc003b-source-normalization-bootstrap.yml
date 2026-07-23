@@ -138,28 +138,33 @@ jobs:
             );
 
       - name: Canonicalize bootstrap checkout bytes
+        id: canonicalize_bootstrap
         shell: cmd
         run: |
           @echo off
 
           git -C "%GITHUB_WORKSPACE%\bootstrap" config core.autocrlf false
-          if errorlevel 1 exit /b 1
-
-          git -C "%GITHUB_WORKSPACE%\bootstrap" config core.eol lf
-          if errorlevel 1 exit /b 1
-
-          git -C "%GITHUB_WORKSPACE%\bootstrap" checkout-index --all --force
-          if errorlevel 1 exit /b 1
-
-          git -C "%GITHUB_WORKSPACE%\bootstrap" status --short
-          if errorlevel 1 exit /b 1
-
-          for /f "delims=" %%L in ('git -C "%GITHUB_WORKSPACE%\bootstrap" status --short') do (
-            echo Unexpected bootstrap worktree change: %%L
+          if errorlevel 1 (
+            >"%EVIDENCE%\final-status.txt" echo STOP — Canonicalize bootstrap checkout bytes: setting core.autocrlf failed
             exit /b 1
           )
 
+          git -C "%GITHUB_WORKSPACE%\bootstrap" config core.eol lf
+          if errorlevel 1 (
+            >"%EVIDENCE%\final-status.txt" echo STOP — Canonicalize bootstrap checkout bytes: setting core.eol failed
+            exit /b 1
+          )
+
+          git -C "%GITHUB_WORKSPACE%\bootstrap" checkout-index --all --force
+          if errorlevel 1 (
+            >"%EVIDENCE%\final-status.txt" echo STOP — Canonicalize bootstrap checkout bytes: checkout-index failed
+            exit /b 1
+          )
+
+          exit /b 0
+
       - name: Verify canonical bootstrap checkout bytes
+        id: verify_canonical_bootstrap
         uses: actions/github-script@v7
         with:
           script: |
@@ -305,6 +310,7 @@ jobs:
             );
 
       - name: PowerShell execution-policy canary
+        id: powershell_canary
         shell: cmd
         run: |
           @echo off
@@ -319,7 +325,12 @@ jobs:
           exit /b %NC003B_PS_EXIT%
 
       - name: Verify canary independently
-        if: always()
+        if: >-
+          ${{
+            always() &&
+            steps.canonicalize_bootstrap.outcome == 'success' &&
+            steps.verify_canonical_bootstrap.outcome == 'success'
+          }}
         uses: actions/github-script@v7
         with:
           script: |
