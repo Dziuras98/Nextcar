@@ -1,4 +1,4 @@
-name: "NC-003B PR42 final self-hosted Windows gate"
+name: "NC-003B PR42 self-hosted toolchain discovery"
 
 on:
   push:
@@ -13,24 +13,15 @@ permissions:
   statuses: write
 
 env:
-  PYTHONDONTWRITEBYTECODE: "1"
   CANDIDATE_SHA: 1b2bc3599a0811be88a3b55987a4d27c72672a46
-  CANDIDATE_TREE: 242fd115c2935367dc34d1185c4fe9cf25a0a6a7
-  BASE_SHA: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
-  SOURCE_SHA: 8548a70387aa36d9b567652eee4cd0f1319d527a
-  SOURCE_TREE: 69f3faa5d1b82dddab1d9985ab8da0b9fae1cddc
-  B_SHA: baff818ad6cce157dbcd94088d74f4a2c22c16fb
-  B_TREE: 22c8ffe428b96b60c0bc401bbc3ff22bdddf97f5
-  G_SHA: ab70fb2b0227e4274387357145e734d7d2fde29a
-  G_TREE: 6b4a9479ba764754ea4f59cc11fb3fe6cae981c9
-  STATUS_CONTEXT: NC-003B Phase 0 / Final self-hosted Windows exact-head gate
+  STATUS_CONTEXT: NC-003B Phase 0 / Self-hosted toolchain discovery
 
 jobs:
   announce-run:
-    name: "Announce PR #42 final Windows gate"
+    name: "Announce toolchain discovery run"
     runs-on: ubuntu-latest
     steps:
-      - name: Publish pending candidate status with run ID
+      - name: Publish pending discovery status with run ID
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -38,17 +29,15 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json, os, urllib.request
-          body=json.dumps({'state':'pending','context':os.environ['STATUS_CONTEXT'],'description':'Final self-hosted Windows exact-head validation running','target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode('utf-8')
+          body=json.dumps({'state':'pending','context':os.environ['STATUS_CONTEXT'],'description':'Self-hosted Windows toolchain discovery running','target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode('utf-8')
           req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
-          with urllib.request.urlopen(req) as response: assert response.status==201
+          with urllib.request.urlopen(req) as response: assert response.status == 201
           PY
 
   control-artifact-probe:
     name: "GitHub-hosted artifact control probe"
     needs: announce-run
     runs-on: ubuntu-latest
-    outputs:
-      upload_outcome: ${{ steps.control-upload.outcome }}
     steps:
       - name: Create control probe
         shell: bash
@@ -72,24 +61,13 @@ jobs:
         run: test "${{ steps.control-upload.outcome }}" = success
 
   self-hosted-preflight:
-    name: "Self-hosted PowerShell, CMake, MSVC and artifact preflight"
+    name: "Self-hosted CMake, CTest and MSVC discovery"
     needs: announce-run
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 30
     env:
       PSExecutionPolicyPreference: Bypass
-    outputs:
-      upload_outcome: ${{ steps.self-upload.outcome }}
-      cmake_exe: ${{ steps.cmake-discovery.outputs.cmake_exe }}
-      ctest_exe: ${{ steps.cmake-discovery.outputs.ctest_exe }}
-      cmake_bin: ${{ steps.cmake-discovery.outputs.cmake_bin }}
-      cmake_source: ${{ steps.cmake-discovery.outputs.cmake_source }}
-      cmake_sha256: ${{ steps.cmake-discovery.outputs.cmake_sha256 }}
-      ctest_sha256: ${{ steps.cmake-discovery.outputs.ctest_sha256 }}
-      vs_installation: ${{ steps.cmake-discovery.outputs.vs_installation }}
-      vs_version: ${{ steps.cmake-discovery.outputs.vs_version }}
-      vsdevcmd: ${{ steps.cmake-discovery.outputs.vsdevcmd }}
-      msvc_toolset: ${{ steps.cmake-discovery.outputs.msvc_toolset }}
+      TOOLCHAIN_EVIDENCE_ROOT: ${{ github.workspace }}\_toolchain_discovery_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - name: Verify inherited process execution policy
         shell: cmd
@@ -100,280 +78,134 @@ jobs:
           if errorlevel 1 exit /b 1
           echo PSExecutionPolicyPreference=%PSExecutionPolicyPreference%
           if /I not "%PSExecutionPolicyPreference%"=="Bypass" exit /b 1
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List | Format-Table -AutoSize; Write-Host EFFECTIVE_POLICY=$(Get-ExecutionPolicy); Write-Host PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
-          if errorlevel 1 exit /b 1
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "if ((Get-ExecutionPolicy) -ne 'Bypass') { exit 21 }; if ((Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { exit 22 }; exit 0"
           if errorlevel 1 exit /b 1
-      - name: Execute built-in PowerShell process-policy probe
+
+      - name: Initialize toolchain evidence
         shell: powershell
         run: |
+          $ErrorActionPreference='Stop'
           Write-Host 'POWERSHELL_BODY_EXECUTED=true'
-          Write-Host "POWERSHELL_VERSION=$($PSVersionTable.PSVersion)"
           Write-Host "PSCOMMAND_PATH=$PSCommandPath"
           Write-Host "SCRIPT_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))"
-          Write-Host "EFFECTIVE_POLICY=$(Get-ExecutionPolicy)"
-          Write-Host "PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if ([string]::IsNullOrWhiteSpace($PSCommandPath)) { throw 'PSCommandPath is empty.' }
           if ([IO.Path]::GetExtension($PSCommandPath) -ine '.ps1') { throw 'Runner did not materialize a .ps1 script.' }
           if ((Get-ExecutionPolicy) -ne 'Bypass' -or (Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { throw 'Process policy proof failed.' }
-          $UploadRoot=Join-Path $env:GITHUB_WORKSPACE "_artifact_probe_upload_$env:GITHUB_RUN_ID`_$env:GITHUB_RUN_ATTEMPT"
-          if(Test-Path -LiteralPath $UploadRoot){throw "Unique probe root already exists: $UploadRoot"}
-          New-Item -ItemType Directory -Path $UploadRoot|Out-Null
-          @('repository=Dziuras98/Nextcar',"run_id=$env:GITHUB_RUN_ID","run_attempt=$env:GITHUB_RUN_ATTEMPT","runner=$env:RUNNER_NAME",'shell=built-in-powershell','process_policy=Bypass','purpose=final-gate-preflight')|Set-Content -LiteralPath (Join-Path $UploadRoot 'probe.txt') -Encoding utf8
+          $root=$env:TOOLCHAIN_EVIDENCE_ROOT
+          if(Test-Path -LiteralPath $root){throw "Unique evidence root already exists: $root"}
+          New-Item -ItemType Directory -Path $root|Out-Null
+          Set-Content -LiteralPath (Join-Path $root 'run-id.txt') -Value $env:GITHUB_RUN_ID -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'run-attempt.txt') -Value $env:GITHUB_RUN_ATTEMPT -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'runner-name.txt') -Value $env:RUNNER_NAME -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'runner-os.txt') -Value $env:RUNNER_OS -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'runner-arch.txt') -Value $env:RUNNER_ARCH -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'powershell-version.txt') -Value ($PSVersionTable|Out-String) -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'process-policy.txt') -Value @("env=$env:PSExecutionPolicyPreference","effective=$(Get-ExecutionPolicy)","process=$(Get-ExecutionPolicy -Scope Process)",(Get-ExecutionPolicy -List|Out-String)) -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'probe.txt') -Value @('repository=Dziuras98/Nextcar',"run_id=$env:GITHUB_RUN_ID","run_attempt=$env:GITHUB_RUN_ATTEMPT","runner=$env:RUNNER_NAME",'shell=built-in-powershell','process_policy=Bypass','purpose=toolchain-discovery') -Encoding utf8
+
       - name: Verify built-in PowerShell effects from cmd
         shell: cmd
         run: |
           @echo off
           setlocal
-          set "UPLOAD_ROOT=%GITHUB_WORKSPACE%\_artifact_probe_upload_%GITHUB_RUN_ID%_%GITHUB_RUN_ATTEMPT%"
-          set "UPLOAD_FILE=%UPLOAD_ROOT%\probe.txt"
-          if not exist "%UPLOAD_FILE%" exit /b 1
-          for %%I in ("%UPLOAD_FILE%") do (echo CMD_UPLOAD_FULL_NAME=%%~fI& echo CMD_UPLOAD_LENGTH=%%~zI)
-          certutil -hashfile "%UPLOAD_FILE%" SHA256
+          set "PROBE=%TOOLCHAIN_EVIDENCE_ROOT%\probe.txt"
+          if not exist "%PROBE%" exit /b 1
+          for %%I in ("%PROBE%") do (echo CMD_PROBE_FULL_NAME=%%~fI& echo CMD_PROBE_LENGTH=%%~zI)
+          certutil -hashfile "%PROBE%" SHA256
           if errorlevel 1 exit /b 1
-      - name: Discover existing CMake and CTest
+
+      - name: Discover CMake and CTest
         id: cmake-discovery
+        continue-on-error: true
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $utf8NoBom=New-Object System.Text.UTF8Encoding($false)
-          $probeRoot=Join-Path $env:GITHUB_WORKSPACE "_artifact_probe_upload_$env:GITHUB_RUN_ID`_$env:GITHUB_RUN_ATTEMPT"
-          $probe=Join-Path $probeRoot 'probe.txt'
+          $root=$env:TOOLCHAIN_EVIDENCE_ROOT
           $log=New-Object System.Collections.Generic.List[string]
-          $checked=New-Object System.Collections.Generic.List[string]
-          $raw=New-Object System.Collections.Generic.List[object]
-          function Add-Pair([string]$cm,[string]$ct,[string]$source,[int]$priority,[string]$tie){
-            if([string]::IsNullOrWhiteSpace($cm)-or[string]::IsNullOrWhiteSpace($ct)){return}
-            try{$cm=[IO.Path]::GetFullPath($cm);$ct=[IO.Path]::GetFullPath($ct)}catch{return}
-            $checked.Add("$source|$cm|$ct")
-            foreach($bad in @($env:GITHUB_WORKSPACE,$env:RUNNER_TEMP)){if($bad-and($cm.StartsWith([IO.Path]::GetFullPath($bad),[StringComparison]::OrdinalIgnoreCase)-or$ct.StartsWith([IO.Path]::GetFullPath($bad),[StringComparison]::OrdinalIgnoreCase))){$log.Add("REJECT prohibited root: $source $cm $ct");return}}
-            if(-not(Test-Path -LiteralPath $cm -PathType Leaf)-or-not(Test-Path -LiteralPath $ct -PathType Leaf)){return}
-            if((Split-Path $cm -Parent)-ine(Split-Path $ct -Parent)){$log.Add("REJECT bin mismatch: $source");return}
-            $cv=(& $cm --version 2>&1)-join"`n";$ce=$LASTEXITCODE;$tv=(& $ct --version 2>&1)-join"`n";$te=$LASTEXITCODE
-            if($ce-ne0-or$te-ne0-or$cv-notmatch'cmake version\s+([0-9]+(?:\.[0-9]+)+)'-or$tv-notmatch'ctest version\s+([0-9]+(?:\.[0-9]+)+)'){$log.Add("REJECT invocation/version: $source $cm $ct");return}
-            $raw.Add([pscustomobject]@{cmake=$cm;ctest=$ct;bin=(Split-Path $cm -Parent);source=$source;priority=$priority;tie=$tie;cmake_version=([regex]::Match($cv,'cmake version\s+([0-9]+(?:\.[0-9]+)+)').Groups[1].Value);ctest_version=([regex]::Match($tv,'ctest version\s+([0-9]+(?:\.[0-9]+)+)').Groups[1].Value);cmake_sha256=(Get-FileHash -LiteralPath $cm -Algorithm SHA256).Hash.ToLowerInvariant();ctest_sha256=(Get-FileHash -LiteralPath $ct -Algorithm SHA256).Hash.ToLowerInvariant();cmake_size=(Get-Item -LiteralPath $cm).Length;ctest_size=(Get-Item -LiteralPath $ct).Length})
+          $checked=New-Object System.Collections.Generic.List[object]
+          $candidates=New-Object System.Collections.Generic.List[object]
+          $classification='CMAKE_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$null;$selected=$null
+          function Record-Location([string]$source,[string]$cmake,[string]$ctest){$checked.Add([ordered]@{source=$source;cmake_path=$cmake;ctest_path=$ctest})}
+          function Probe-Pair([string]$source,[string]$cmake,[string]$ctest){
+            $row=[ordered]@{source=$source;cmake_path=$cmake;ctest_path=$ctest;cmake_exists=$false;ctest_exists=$false;same_bin_directory=$false;cmake_invocation_exit_code=$null;ctest_invocation_exit_code=$null;cmake_version_output=$null;ctest_version_output=$null;cmake_version=$null;ctest_version=$null;cmake_sha256=$null;ctest_sha256=$null;cmake_size=$null;ctest_size=$null;rejection_reason=$null}
+            try{$row.cmake_exists=Test-Path -LiteralPath $cmake -PathType Leaf;$row.ctest_exists=Test-Path -LiteralPath $ctest -PathType Leaf;if(-not$row.cmake_exists){$row.rejection_reason='cmake missing';$candidates.Add([pscustomobject]$row);return};if(-not$row.ctest_exists){$row.rejection_reason='ctest missing';$candidates.Add([pscustomobject]$row);return};$row.same_bin_directory=(Split-Path $cmake -Parent)-ieq(Split-Path $ctest -Parent);if(-not$row.same_bin_directory){$row.rejection_reason='different bin directories';$candidates.Add([pscustomobject]$row);return};$cmOut=(& $cmake --version 2>&1)-join"`n";$cmExit=$LASTEXITCODE;$ctOut=(& $ctest --version 2>&1)-join"`n";$ctExit=$LASTEXITCODE;$row.cmake_invocation_exit_code=$cmExit;$row.ctest_invocation_exit_code=$ctExit;$row.cmake_version_output=$cmOut;$row.ctest_version_output=$ctOut;if($cmExit-ne0){$row.rejection_reason='cmake invocation failed';$candidates.Add([pscustomobject]$row);return};if($ctExit-ne0){$row.rejection_reason='ctest invocation failed';$candidates.Add([pscustomobject]$row);return};$cmMatch=[regex]::Match($cmOut,'cmake version\s+([0-9]+(?:\.[0-9]+)+)');$ctMatch=[regex]::Match($ctOut,'ctest version\s+([0-9]+(?:\.[0-9]+)+)');if(-not$cmMatch.Success-or-not$ctMatch.Success){$row.rejection_reason='version parse failed';$candidates.Add([pscustomobject]$row);return};$row.cmake_version=$cmMatch.Groups[1].Value;$row.ctest_version=$ctMatch.Groups[1].Value;$row.cmake_sha256=(Get-FileHash -LiteralPath $cmake -Algorithm SHA256).Hash.ToLowerInvariant();$row.ctest_sha256=(Get-FileHash -LiteralPath $ctest -Algorithm SHA256).Hash.ToLowerInvariant();$row.cmake_size=(Get-Item -LiteralPath $cmake).Length;$row.ctest_size=(Get-Item -LiteralPath $ctest).Length;$candidates.Add([pscustomobject]$row)}catch{$row.rejection_reason="probe exception: $($_.Exception.Message)";$candidates.Add([pscustomobject]$row)}
           }
-          $pathCm=@(Get-Command cmake.exe -All -ErrorAction SilentlyContinue|ForEach-Object Source);$pathCt=@(Get-Command ctest.exe -All -ErrorAction SilentlyContinue|ForEach-Object Source)
-          where.exe cmake.exe 2>&1|ForEach-Object{$log.Add("WHERE_CMAKE $_")};where.exe ctest.exe 2>&1|ForEach-Object{$log.Add("WHERE_CTEST $_")}
-          foreach($cm in $pathCm){foreach($ct in $pathCt){if((Split-Path $cm -Parent)-ieq(Split-Path $ct -Parent)){Add-Pair $cm $ct 'PATH' 1 ([IO.Path]::GetFullPath($cm))}}}
-          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          if(-not(Test-Path -LiteralPath $vswhere -PathType Leaf)){throw 'STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE: vswhere.exe missing'}
-          $vc=@(& $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json|ConvertFrom-Json)
-          $vscm=@(& $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.CMake.Project -format json|ConvertFrom-Json)
-          if(-not$vc){throw 'STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE: VC.Tools.x86.x64 missing'}
-          foreach($i in ($vscm|Sort-Object {[version]$_.installationVersion} -Descending)){
-            $base=Join-Path $i.installationPath 'Common7\IDE\CommonExtensions\Microsoft\CMake'
-            Add-Pair (Join-Path $base 'CMake\bin\cmake.exe') (Join-Path $base 'CMake\bin\ctest.exe') "VisualStudio:$($i.installationVersion)" 2 (('{0:D20}|{1}'-f([version]$i.installationVersion).Major,$i.installationPath))
-            if(Test-Path $base){$cms=@(Get-ChildItem $base -Filter cmake.exe -File -Recurse -ErrorAction SilentlyContinue);foreach($cm in $cms){$ct=Join-Path $cm.DirectoryName 'ctest.exe';Add-Pair $cm.FullName $ct "VisualStudioRecursive:$($i.installationVersion)" 2 ("$($i.installationVersion)|$($cm.FullName)")}}
-          }
-          foreach($root in @($env:ProgramFiles,${env:ProgramFiles(x86)})){if($root){Add-Pair (Join-Path $root 'CMake\bin\cmake.exe') (Join-Path $root 'CMake\bin\ctest.exe') "ProgramFiles:$root" 3 $root}}
-          foreach($name in @('CMAKE_ROOT','CMAKE_HOME','ChocolateyInstall')){$root=[Environment]::GetEnvironmentVariable($name);if($root){Add-Pair (Join-Path $root 'bin\cmake.exe') (Join-Path $root 'bin\ctest.exe') "Environment:$name" 4 $root;Add-Pair (Join-Path $root 'cmake\bin\cmake.exe') (Join-Path $root 'cmake\bin\ctest.exe') "Environment:$name/cmake" 4 $root}}
-          $valid=@($raw|Sort-Object priority,tie,cmake -Unique)
-          foreach($c in $valid){$log.Add("VALID priority=$($c.priority) source=$($c.source) cmake=$($c.cmake) ctest=$($c.ctest) cmake_version=$($c.cmake_version) ctest_version=$($c.ctest_version)")}
-          if(-not$valid){$log|Set-Content -LiteralPath (Join-Path $probeRoot 'cmake-discovery.log') -Encoding utf8;throw "STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE`nCHECKED:`n$($checked-join"`n")"}
-          $bestPriority=($valid|Measure-Object priority -Minimum).Minimum;$best=@($valid|Where-Object priority -eq $bestPriority|Sort-Object tie,cmake)
-          if($best.Count-gt1-and$best[0].tie-eq$best[1].tie-and$best[0].cmake-ine$best[1].cmake){throw 'STOP — AMBIGUOUS SELF-HOSTED CMAKE TOOLCHAIN'}
-          $sel=$best[0]
-          $vsi=$vc|Sort-Object {[version]$_.installationVersion} -Descending|Select-Object -First 1
-          $vsdev=Join-Path $vsi.installationPath 'Common7\Tools\VsDevCmd.bat';if(-not(Test-Path $vsdev -PathType Leaf)){throw 'STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE: VsDevCmd.bat missing'}
-          $cmd='"'+$vsdev+'" -no_logo -arch=x64 -host_arch=x64 && set';$envLines=& cmd.exe /d /s /c $cmd;if($LASTEXITCODE-ne0){throw 'STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE: VsDevCmd failed'}
-          $procEnv=@{};foreach($line in $envLines){if($line-match'^([^=]+)=(.*)$'){$procEnv[$matches[1]]=$matches[2]}}
-          $cl=$null;foreach($dir in ($procEnv['PATH']-split';')){if($dir-and(Test-Path (Join-Path $dir 'cl.exe') -PathType Leaf)){$cl=Join-Path $dir 'cl.exe';break}}
-          if(-not$cl){throw 'STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE: cl.exe missing after VsDevCmd'}
-          $msvc=Split-Path (Split-Path $cl -Parent) -Leaf
-          $json=[ordered]@{status='PASS';selected=[ordered]@{cmake_exe=$sel.cmake;ctest_exe=$sel.ctest;bin=$sel.bin;source=$sel.source;cmake_version=$sel.cmake_version;ctest_version=$sel.ctest_version;cmake_sha256=$sel.cmake_sha256;ctest_sha256=$sel.ctest_sha256;cmake_size=$sel.cmake_size;ctest_size=$sel.ctest_size};candidates=$valid;checked_locations=$checked;visual_studio=[ordered]@{installation_path=$vsi.installationPath;installation_version=$vsi.installationVersion;vsdevcmd=$vsdev;cl_exe=$cl;msvc_toolset=$msvc}}
-          $json|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $probeRoot 'cmake-discovery.json') -Encoding utf8
-          $log.Add("SELECTED source=$($sel.source) cmake=$($sel.cmake) ctest=$($sel.ctest)");$log.Add("VS installation=$($vsi.installationPath) version=$($vsi.installationVersion) VsDevCmd=$vsdev cl=$cl toolset=$msvc");$log|Set-Content -LiteralPath (Join-Path $probeRoot 'cmake-discovery.log') -Encoding utf8
-          foreach($line in @("cmake_exe=$($sel.cmake)","ctest_exe=$($sel.ctest)","cmake_source=$($sel.source)","cmake_sha256=$($sel.cmake_sha256)","ctest_sha256=$($sel.ctest_sha256)")){[IO.File]::AppendAllText($probe,"$line`n",$utf8NoBom)}
-          foreach($line in @("cmake_exe=$($sel.cmake)","ctest_exe=$($sel.ctest)","cmake_bin=$($sel.bin)","cmake_source=$($sel.source)","cmake_sha256=$($sel.cmake_sha256)","ctest_sha256=$($sel.ctest_sha256)","vs_installation=$($vsi.installationPath)","vs_version=$($vsi.installationVersion)","vsdevcmd=$vsdev","msvc_toolset=$msvc")){[IO.File]::AppendAllText($env:GITHUB_OUTPUT,"$line`n",$utf8NoBom)}
-      - name: Upload self-hosted preflight artifact
-        id: self-upload
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: NC-003B-self-hosted-preflight-${{ github.run_id }}
-          path: ${{ github.workspace }}\_artifact_probe_upload_${{ github.run_id }}_${{ github.run_attempt }}
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 3
-      - name: Enforce self-hosted upload success
-        shell: powershell
-        run: |
-          if ('${{ steps.self-upload.outcome }}' -ne 'success') { throw 'Self-hosted artifact upload failed after file proof.' }
-          foreach($v in @('${{ steps.cmake-discovery.outputs.cmake_exe }}','${{ steps.cmake-discovery.outputs.ctest_exe }}','${{ steps.cmake-discovery.outputs.cmake_bin }}')){if([string]::IsNullOrWhiteSpace($v)){throw 'Toolchain output missing.'}}
+          try{
+            $pairs=New-Object System.Collections.Generic.List[object]
+            $pathCmake=@(Get-Command cmake.exe -All -ErrorAction SilentlyContinue|ForEach-Object Source)
+            foreach($cm in $pathCmake){$pairs.Add([pscustomobject]@{source='PATH';cmake=$cm;ctest=(Join-Path (Split-Path $cm -Parent) 'ctest.exe')})}
+            foreach($rootPath in @($env:ProgramFiles,${env:ProgramFiles(x86)})){if($rootPath){$pairs.Add([pscustomobject]@{source="ProgramFiles:$rootPath";cmake=(Join-Path $rootPath 'CMake\bin\cmake.exe');ctest=(Join-Path $rootPath 'CMake\bin\ctest.exe')})}}
+            $vsRoot=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio'
+            foreach($edition in @('Enterprise','Professional','Community','BuildTools')){foreach($year in @('2022','2019')){$bin=Join-Path $vsRoot "$year\$edition\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin";$pairs.Add([pscustomobject]@{source="VisualStudioCommonExtensions:$year/$edition";cmake=(Join-Path $bin 'cmake.exe');ctest=(Join-Path $bin 'ctest.exe')})}}
+            foreach($name in @('CMAKE_ROOT','CMAKE_HOME','ChocolateyInstall')){$value=[Environment]::GetEnvironmentVariable($name);if($value){$pairs.Add([pscustomobject]@{source="Environment:$name/bin";cmake=(Join-Path $value 'bin\cmake.exe');ctest=(Join-Path $value 'bin\ctest.exe')});$pairs.Add([pscustomobject]@{source="Environment:$name/cmake/bin";cmake=(Join-Path $value 'cmake\bin\cmake.exe');ctest=(Join-Path $value 'cmake\bin\ctest.exe')})}else{Record-Location "Environment:$name" $null $null}}
+            foreach($pair in @($pairs|Sort-Object cmake,ctest -Unique)){Record-Location $pair.source $pair.cmake $pair.ctest;Probe-Pair $pair.source $pair.cmake $pair.ctest}
+            $valid=@($candidates|Where-Object {-not$_.rejection_reason})
+            if($valid.Count-eq1){$classification='CMAKE_PAIR_PASS';$status='PASS';$selected=$valid[0]}elseif($valid.Count-gt1){$classification='CMAKE_PAIR_AMBIGUOUS';$firstError='Multiple complete CMake/CTest pairs found.'}else{$cmakeExists=@($candidates|Where-Object {$_.cmake_exists});$ctestMissing=@($candidates|Where-Object {$_.cmake_exists-and-not$_.ctest_exists});$cmakeInvoke=@($candidates|Where-Object {$_.rejection_reason-eq'cmake invocation failed'});$ctestInvoke=@($candidates|Where-Object {$_.rejection_reason-eq'ctest invocation failed'});$parse=@($candidates|Where-Object {$_.rejection_reason-eq'version parse failed'});if(-not$cmakeExists){$classification='CMAKE_NOT_FOUND';$firstError='No cmake.exe found in deterministic locations.'}elseif($ctestMissing){$classification='CTEST_NOT_FOUND';$firstError='CMake exists but matching ctest.exe is missing.'}elseif($cmakeInvoke){$classification='CMAKE_INVOCATION_FAILED';$firstError='CMake invocation failed.'}elseif($ctestInvoke){$classification='CTEST_INVOCATION_FAILED';$firstError='CTest invocation failed.'}elseif($parse){$classification='VERSION_PARSE_FAILED';$firstError='CMake or CTest version output could not be parsed.'}else{$classification='CMAKE_NOT_FOUND';$firstError='No complete CMake/CTest pair found.'}}
+          }catch{$classification='CMAKE_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$_.Exception.ToString()}finally{foreach($row in $candidates){$log.Add(($row|ConvertTo-Json -Compress -Depth 8))};[ordered]@{status=$status;classification=$classification;first_error=$firstError;checked_locations=@($checked);candidates=@($candidates);selected=$selected}|ConvertTo-Json -Depth 12|Set-Content -LiteralPath (Join-Path $root 'cmake-discovery.json') -Encoding utf8;$log|Set-Content -LiteralPath (Join-Path $root 'cmake-discovery.log') -Encoding utf8;Set-Content -LiteralPath (Join-Path $root 'cmake-first-error.txt') -Value $(if($firstError){$firstError}else{''}) -Encoding utf8;Write-Host "CMAKE_CLASSIFICATION=$classification"}
+          if($classification-ne'CMAKE_PAIR_PASS'){exit 1}
 
-  final-windows-gate:
-    name: "PR #42 final self-hosted Windows exact-head gate"
-    needs: [announce-run, control-artifact-probe, self-hosted-preflight]
-    if: needs.control-artifact-probe.outputs.upload_outcome == 'success' && needs.self-hosted-preflight.outputs.upload_outcome == 'success' && needs.self-hosted-preflight.outputs.cmake_exe != '' && needs.self-hosted-preflight.outputs.ctest_exe != '' && needs.self-hosted-preflight.outputs.cmake_bin != ''
-    runs-on: [self-hosted, Windows, X64, unreal-5.8]
-    timeout-minutes: 180
-    env:
-      PSExecutionPolicyPreference: Bypass
-      CMAKE_EXE: ${{ needs.self-hosted-preflight.outputs.cmake_exe }}
-      CTEST_EXE: ${{ needs.self-hosted-preflight.outputs.ctest_exe }}
-      CMAKE_BIN_DIR: ${{ needs.self-hosted-preflight.outputs.cmake_bin }}
-      CMAKE_DISCOVERY_SOURCE: ${{ needs.self-hosted-preflight.outputs.cmake_source }}
-      EXPECTED_CMAKE_SHA256: ${{ needs.self-hosted-preflight.outputs.cmake_sha256 }}
-      EXPECTED_CTEST_SHA256: ${{ needs.self-hosted-preflight.outputs.ctest_sha256 }}
-      VS_INSTALLATION_PATH: ${{ needs.self-hosted-preflight.outputs.vs_installation }}
-      VS_INSTALLATION_VERSION: ${{ needs.self-hosted-preflight.outputs.vs_version }}
-      VSDEVCMD_PATH: ${{ needs.self-hosted-preflight.outputs.vsdevcmd }}
-      MSVC_TOOLSET_VERSION: ${{ needs.self-hosted-preflight.outputs.msvc_toolset }}
-      EVIDENCE_ROOT: ${{ github.workspace }}\_nc003b_pr42_evidence_${{ github.run_id }}_${{ github.run_attempt }}
-      PACKAGE_ROOT: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}
-    steps:
-      - name: Runner proof and evidence initialization
+      - name: Discover Visual Studio and MSVC
+        id: msvc-discovery
+        continue-on-error: true
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop';$E=$env:EVIDENCE_ROOT;if(Test-Path $E){throw "Unique evidence root exists: $E"};New-Item -ItemType Directory -Path $E|Out-Null
-          foreach($p in @($env:CMAKE_EXE,$env:CTEST_EXE)){if(-not(Test-Path -LiteralPath $p -PathType Leaf)){throw 'Discovered tool no longer exists.'}}
-          if((Split-Path $env:CMAKE_EXE -Parent)-ine$env:CMAKE_BIN_DIR-or(Split-Path $env:CTEST_EXE -Parent)-ine$env:CMAKE_BIN_DIR){throw 'CMake bin directory mismatch.'}
-          if((Get-FileHash $env:CMAKE_EXE -Algorithm SHA256).Hash-ine$env:EXPECTED_CMAKE_SHA256-or(Get-FileHash $env:CTEST_EXE -Algorithm SHA256).Hash-ine$env:EXPECTED_CTEST_SHA256){throw 'Toolchain hash changed after preflight.'}
-          $cmakeVersion=(& $env:CMAKE_EXE --version 2>&1)-join"`n";if($LASTEXITCODE-ne0){throw 'Discovered CMake invocation failed.'};$ctestVersion=(& $env:CTEST_EXE --version 2>&1)-join"`n";if($LASTEXITCODE-ne0){throw 'Discovered CTest invocation failed.'}
-          $utf8NoBom=New-Object System.Text.UTF8Encoding($false);[IO.File]::AppendAllText($env:GITHUB_PATH,"$env:CMAKE_BIN_DIR`n",$utf8NoBom)
-          $cm=(Get-Item $env:CMAKE_EXE);$ct=(Get-Item $env:CTEST_EXE)
-          $runner=[ordered]@{run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;runner_name='${{ runner.name }}';runner_os='${{ runner.os }}';runner_arch='${{ runner.arch }}';script_path=$PSCommandPath;script_extension=[IO.Path]::GetExtension($PSCommandPath);policy_env=$env:PSExecutionPolicyPreference;effective_policy=(Get-ExecutionPolicy);process_policy=(Get-ExecutionPolicy -Scope Process);cmake_exe=$env:CMAKE_EXE;ctest_exe=$env:CTEST_EXE;cmake_bin=$env:CMAKE_BIN_DIR;cmake_source=$env:CMAKE_DISCOVERY_SOURCE}
-          $tool=[ordered]@{powershell=(Get-Command powershell.exe).Source;git=((& git --version)-join"`n");python=((& python --version 2>&1)-join"`n");cmake_path=$env:CMAKE_EXE;ctest_path=$env:CTEST_EXE;cmake_version=$cmakeVersion;ctest_version=$ctestVersion;cmake_sha256=$env:EXPECTED_CMAKE_SHA256;ctest_sha256=$env:EXPECTED_CTEST_SHA256;cmake_size=$cm.Length;ctest_size=$ct.Length;cmake_source=$env:CMAKE_DISCOVERY_SOURCE;visual_studio_installation=$env:VS_INSTALLATION_PATH;visual_studio_version=$env:VS_INSTALLATION_VERSION;vsdevcmd=$env:VSDEVCMD_PATH;msvc_toolset=$env:MSVC_TOOLSET_VERSION}
-          $runner|ConvertTo-Json -Depth 8|Set-Content -Encoding utf8 (Join-Path $E 'runner-proof.json');$tool|ConvertTo-Json -Depth 8|Set-Content -Encoding utf8 (Join-Path $E 'toolchain-versions.json')
-          [ordered]@{status='PASS';selected=[ordered]@{cmake_exe=$env:CMAKE_EXE;ctest_exe=$env:CTEST_EXE;bin=$env:CMAKE_BIN_DIR;source=$env:CMAKE_DISCOVERY_SOURCE;cmake_version=$cmakeVersion;ctest_version=$ctestVersion;cmake_sha256=$env:EXPECTED_CMAKE_SHA256;ctest_sha256=$env:EXPECTED_CTEST_SHA256};candidates=@()}|ConvertTo-Json -Depth 8|Set-Content -Encoding utf8 (Join-Path $E 'cmake-discovery.json')
-          @("RESOLVED_PREFLIGHT_CMAKE=$env:CMAKE_EXE","RESOLVED_PREFLIGHT_CTEST=$env:CTEST_EXE","CMAKE_VERSION=$cmakeVersion","CTEST_VERSION=$ctestVersion","CMAKE_DISCOVERY_SOURCE=$env:CMAKE_DISCOVERY_SOURCE")|Set-Content -Encoding utf8 (Join-Path $E 'cmake-discovery.log')
-          git config --global --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'global-git-config-before.txt');git config --system --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'system-git-config-before.txt')
-      - name: Manual exact candidate checkout
-        shell: powershell
-        run: |
-          $root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";if(Test-Path $root){throw 'Unique checkout path exists'}
-          git init $root;git -C $root config --local core.autocrlf false;git -C $root config --local core.eol lf;git -C $root remote add origin https://github.com/Dziuras98/Nextcar.git
-          git -C $root fetch --no-tags --prune origin +refs/heads/agent/nc-003b-phase0-source-normalization-integration:refs/remotes/origin/candidate
-          git -C $root checkout --detach $env:CANDIDATE_SHA;if($LASTEXITCODE){throw 'Exact candidate checkout failed'}
-          "CHECKOUT_ROOT=$root"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Fail-closed topology and scope
-        shell: powershell
-        run: |
-          Set-Location $env:CHECKOUT_ROOT;function Eq($a,$e,$n){if(([string]$a).Trim()-ne$e){throw "$n mismatch"}}
-          Eq (git rev-parse HEAD) $env:CANDIDATE_SHA 'HEAD';Eq (git rev-parse 'HEAD^{tree}') $env:CANDIDATE_TREE 'HEAD tree';Eq (git rev-list --parents -n 1 HEAD) "$env:CANDIDATE_SHA $env:SOURCE_SHA" 'candidate parent';Eq (git rev-parse "$env:SOURCE_SHA^{tree}") $env:SOURCE_TREE 'source tree';Eq (git rev-list --parents -n 1 $env:SOURCE_SHA) "$env:SOURCE_SHA $env:B_SHA $env:G_SHA" 'source parents';Eq (git rev-parse "$env:B_SHA^{tree}") $env:B_TREE 'B tree';Eq (git rev-parse "$env:G_SHA^{tree}") $env:G_TREE 'G tree'
-          $s1=@(git diff --name-status $env:BASE_SHA $env:SOURCE_SHA);$s2=@(git diff --name-status $env:SOURCE_SHA $env:CANDIDATE_SHA);$s3=@(git diff --name-status $env:BASE_SHA $env:CANDIDATE_SHA);function C($x){[ordered]@{m=@($x|?{$_-match'^M\s'}).Count;d=@($x|?{$_-match'^D\s'}).Count;p=$x.Count;r=@($x|?{$_-match'^[RC]' }).Count}};$a=C $s1;$b=C $s2;$c=C $s3;if($a.m-ne8-or$a.d-ne13-or$a.p-ne21-or$b.m-ne4-or$b.d-ne0-or$b.p-ne4-or$c.m-ne12-or$c.d-ne13-or$c.p-ne25-or$a.r-or$b.r-or$c.r){throw 'Scope matrix mismatch'}
-          git diff --check $env:BASE_SHA $env:CANDIDATE_SHA;if($LASTEXITCODE){throw 'git diff --check failed'};$s3|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-name-status.txt');@("HEAD=$(git rev-parse HEAD)","HEAD_TREE=$(git rev-parse 'HEAD^{tree}')","SOURCE_PARENTS=$(git rev-list --parents -n 1 $env:SOURCE_SHA)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
-      - name: Download and verify P1 artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: powershell
-        run: |
-          $root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-p1-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";New-Item -ItemType Directory $root|Out-Null;$env:P1_ZIP=Join-Path $root 'artifact.zip';$env:P1_EXTRACTED=Join-Path $root 'extracted';$env:PROFILE_PATH=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
-          @'
-          import hashlib,json,os,urllib.request,zipfile
-          from pathlib import Path,PurePosixPath,PureWindowsPath
-          req=urllib.request.Request('https://api.github.com/repos/Dziuras98/Nextcar/actions/artifacts/8488882253/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
-          with urllib.request.urlopen(req) as r,open(os.environ['P1_ZIP'],'wb') as f:
-              while True:
-                  b=r.read(1048576)
-                  if not b: break
-                  f.write(b)
-          z=Path(os.environ['P1_ZIP']);data=z.read_bytes();assert len(data)==211595;assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b';out=Path(os.environ['P1_EXTRACTED']);out.mkdir()
-          with zipfile.ZipFile(z) as a:a.extractall(out)
-          manifest=json.loads((out/'hash-manifest.json').read_text('utf-8'));assert len(manifest)==40
-          for row in manifest:
-              b=(out/row['path']).read_bytes();assert len(b)==row['size'] and hashlib.sha256(b).hexdigest()==row['sha256']
-          profile=json.loads(Path(os.environ['PROFILE_PATH']).read_text('utf-8'));rows=[('positive',x) for x in profile['positive_traces']]+[('timeout',profile['timeout_trace']),('stall',profile['stall_trace'])];verified=[];prefix='Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/'
-          for kind,row in rows:
-              p=out/'selected-calibration'/row['path'].replace('\\','/')[len(prefix):];json.loads(p.read_text('utf-8'));h=hashlib.sha256(p.read_bytes()).hexdigest();assert h.lower()==(row.get('sha256') or row.get('sha256_hex') or row.get('hash')).lower();verified.append({'kind':kind,'path':row['path'],'sha256':h})
-          Path(os.environ['EVIDENCE_ROOT'],'artifact-source-metadata.json').write_text(json.dumps({'source_run':29814599329,'artifact_id':8488882253,'zip_size':211595,'zip_sha256':hashlib.sha256(data).hexdigest(),'manifest_pass':'40/40','total':'12/12'},indent=2)+'\n');Path(os.environ['EVIDENCE_ROOT'],'trace-verification.json').write_text(json.dumps({'result':'PASS','records':verified},indent=2)+'\n')
-          '@|python -
-          if($LASTEXITCODE){throw 'P1 verification failed'};"P1_EXTRACTED=$env:P1_EXTRACTED"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Mount traces and run full validation matrix
-        shell: powershell
-        run: |
-          $resolvedCMake=(Get-Command cmake.exe -ErrorAction Stop).Source;$resolvedCTest=(Get-Command ctest.exe -ErrorAction Stop).Source
-          if([IO.Path]::GetFullPath($resolvedCMake)-ine[IO.Path]::GetFullPath($env:CMAKE_EXE)){throw 'Resolved CMake differs from preflight CMake.'};if([IO.Path]::GetFullPath($resolvedCTest)-ine[IO.Path]::GetFullPath($env:CTEST_EXE)){throw 'Resolved CTest differs from preflight CTest.'}
-          Write-Host "RESOLVED_CMAKE=$resolvedCMake";Write-Host "RESOLVED_CTEST=$resolvedCTest";Write-Host "CMAKE_VERSION=$((& $env:CMAKE_EXE --version 2>&1)-join' ')";Write-Host "CTEST_VERSION=$((& $env:CTEST_EXE --version 2>&1)-join' ')";Write-Host "CMAKE_DISCOVERY_SOURCE=$env:CMAKE_DISCOVERY_SOURCE"
-          Set-Location $env:CHECKOUT_ROOT;$junction=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration';$target=Join-Path $env:P1_EXTRACTED 'selected-calibration';New-Item -ItemType Junction -Path $junction -Target $target|Out-Null
-          python -B scripts/validate_repository.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'repository-validator.log');if($LASTEXITCODE){throw 'Repository validator failed'}
-          $py=@('Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/verify_cold_start_profile.py');python -B -m py_compile @py;if($LASTEXITCODE){throw 'py_compile failed'}
-          python -B -m unittest discover -s Tools/EngineSimVendor/tests -p test_*.py -v 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'python-tests.log');if($LASTEXITCODE){throw 'Python tests failed'}
-          python -B Tools/EngineSimVendor/run_cold_start_calibration.py self-test;if($LASTEXITCODE){throw 'Cold-start self-test failed'};python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root .;if($LASTEXITCODE){throw 'Profile verifier failed'}
-          $profileGen=Join-Path $env:RUNNER_TEMP 'SubaruEJ25ColdStartProfile.generated.h';python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output $profileGen;if($LASTEXITCODE){throw 'Profile generator failed'};if((Get-FileHash $profileGen).Hash-ne(Get-FileHash 'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h').Hash){throw 'Profile generator determinism failed'}
-          python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py;python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py;python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py;python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py;python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py;if($LASTEXITCODE){throw 'Fixture or IR tests failed'}
-          $wav='Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav';$hdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h';python -B Tools/EngineSimVendor/verify_impulse_response.py --wav $wav --header $hdr --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root .;if($LASTEXITCODE){throw 'IR verifier failed'};$gen=Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h';python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $gen;if($LASTEXITCODE-or(Get-FileHash $gen).Hash-ne(Get-FileHash $hdr).Hash){throw 'IR determinism failed'}
-          $tokens=$null;$errors=$null;[Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'),[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){throw 'PowerShell AST failed'}
-          $summary=Get-Content (Join-Path $env:P1_EXTRACTED 'selected-calibration\selected-summary.json') -Raw|ConvertFrom-Json;$selected=Join-Path $env:RUNNER_TEMP 'selected-candidate-input.json';[ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$summary.selected_candidate}|ConvertTo-Json -Depth 20|Set-Content -Encoding utf8 $selected
-          $matrix=Join-Path $env:RUNNER_TEMP "nc003b-pr42-matrix-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";& .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $env:CANDIDATE_SHA -Phase Selected -SelectedCandidatePath $selected -ArtifactRoot $matrix;if($LASTEXITCODE){throw 'Matrix wrapper failed'};"MATRIX_ROOT=$matrix"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          Get-ChildItem $matrix -Recurse -File|ForEach-Object FullName|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'matrix-file-tree.txt');foreach($name in @('cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log')){$m=@(Get-ChildItem $matrix -Recurse -File -Filter $name);if($m.Count-ne1){throw "Missing matrix evidence $name"};Copy-Item $m[0].FullName (Join-Path $env:EVIDENCE_ROOT $name)};Copy-Item (Join-Path $matrix 'validation-status.json') (Join-Path $env:EVIDENCE_ROOT 'validation-status.json') -Force
-      - name: Junction cleanup and immutable-state proof
+          $ErrorActionPreference='Stop'
+          $root=$env:TOOLCHAIN_EVIDENCE_ROOT;$log=New-Object System.Collections.Generic.List[string];$instances=New-Object System.Collections.Generic.List[object]
+          $classification='MSVC_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$null;$selected=$null;$tempCmd=$null;$vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          try{
+            if(-not(Test-Path -LiteralPath $vswhere -PathType Leaf)){$classification='VSWHERE_MISSING';$firstError="vswhere.exe missing: $vswhere"}else{$allJson=(& $vswhere -products * -all -format json -utf8 2>&1)-join"`n";$allExit=$LASTEXITCODE;$log.Add("VSWHERE_PATH=$vswhere");$log.Add("VSWHERE_EXIT=$allExit");$log.Add($allJson);if($allExit-ne0){throw "vswhere failed with exit $allExit"};$all=@($allJson|ConvertFrom-Json);foreach($i in $all){$vcJson=(& $vswhere -products * -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json -utf8 2>&1)-join"`n";$hasVC=($vcJson|ConvertFrom-Json).Count-gt0;$cmJson=(& $vswhere -products * -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.CMake.Project -format json -utf8 2>&1)-join"`n";$hasCMake=($cmJson|ConvertFrom-Json).Count-gt0;$vsdev=Join-Path $i.installationPath 'Common7\Tools\VsDevCmd.bat';$instances.Add([pscustomobject]@{installation_path=$i.installationPath;installation_version=$i.installationVersion;product_id=$i.productId;display_name=$i.displayName;vc_tools_x86_x64=$hasVC;vc_cmake_project=$hasCMake;vsdevcmd_path=$vsdev;vsdevcmd_exists=(Test-Path -LiteralPath $vsdev -PathType Leaf);selection_reason=$null})};$eligible=@($instances|Where-Object {$_.vc_tools_x86_x64-and$_.vc_cmake_project-and$_.vsdevcmd_exists});if(-not$instances){$classification='VC_COMPONENT_MISSING';$firstError='No Visual Studio instances returned by vswhere.'}elseif(-not@($instances|Where-Object vc_tools_x86_x64)){$classification='VC_COMPONENT_MISSING';$firstError='VC.Tools.x86.x64 component missing.'}elseif(-not@($instances|Where-Object vc_cmake_project)){$classification='VSCMAKE_COMPONENT_MISSING';$firstError='VC.CMake.Project component missing.'}elseif(-not@($instances|Where-Object vsdevcmd_exists)){$classification='VSDEVCMD_MISSING';$firstError='VsDevCmd.bat missing.'}elseif($eligible.Count-gt1){$classification='MSVC_INSTANCE_AMBIGUOUS';$firstError='Multiple equally eligible Visual Studio instances found.'}elseif($eligible.Count-eq1){$selected=$eligible[0];$selected.selection_reason='Only instance with VC.Tools.x86.x64, VC.CMake.Project and VsDevCmd.bat.';$tempCmd=Join-Path $env:RUNNER_TEMP "nc003b-vsdevcmd-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.cmd";if(Test-Path -LiteralPath $tempCmd){throw "Temporary cmd already exists: $tempCmd"};@('@echo off',"call `"$($selected.vsdevcmd_path)`" -no_logo -arch=x64 -host_arch=x64",'if errorlevel 1 exit /b %errorlevel%','set')|Set-Content -LiteralPath $tempCmd -Encoding ascii;$stdout=Join-Path $root 'vsdevcmd-stdout.txt';$stderr=Join-Path $root 'vsdevcmd-stderr.txt';& cmd.exe /d /c $tempCmd 1>$stdout 2>$stderr;$exit=$LASTEXITCODE;$log.Add("TEMPORARY_CMD=$tempCmd");$log.Add("VSDEVCMD_EXIT=$exit");if($exit-ne0){$classification='VSDEVCMD_FAILED';$firstError="VsDevCmd failed with exit $exit"}else{$lines=Get-Content -LiteralPath $stdout;$envMap=@{};foreach($line in $lines){if($line-match'^([^=]+)=(.*)$'){$envMap[$matches[1]]=$matches[2]}};if(-not$envMap.ContainsKey('PATH')-or[string]::IsNullOrWhiteSpace($envMap['PATH'])){$classification='VSDEVCMD_PATH_MISSING';$firstError='VsDevCmd output did not contain PATH.'}else{$clPaths=@();foreach($dir in ($envMap['PATH']-split';')){if($dir){$candidate=Join-Path $dir 'cl.exe';if(Test-Path -LiteralPath $candidate -PathType Leaf){$clPaths+=[IO.Path]::GetFullPath($candidate)}}};$clPaths=@($clPaths|Sort-Object -Unique);if(-not$clPaths){$classification='CL_NOT_FOUND';$firstError='cl.exe not found in VsDevCmd PATH.'}elseif($clPaths.Count-gt1){$classification='MSVC_INSTANCE_AMBIGUOUS';$firstError='Multiple cl.exe paths found in VsDevCmd PATH.'}else{$cl=$clPaths[0];$clOut=(& $cl 2>&1)-join"`n";$clExit=$LASTEXITCODE;$log.Add("CL_PATH=$cl");$log.Add("CL_EXIT=$clExit");$log.Add($clOut);if($clExit-ne0-and$clExit-ne2){$classification='CL_INVOCATION_FAILED';$firstError="cl.exe invocation failed with exit $clExit"}else{$toolsetDir=Split-Path (Split-Path (Split-Path $cl -Parent) -Parent) -Parent;$selected|Add-Member -NotePropertyName vsdevcmd_exit_code -NotePropertyValue $exit -Force;$selected|Add-Member -NotePropertyName vsdevcmd_path_value -NotePropertyValue $envMap['PATH'] -Force;$selected|Add-Member -NotePropertyName cl_path -NotePropertyValue $cl -Force;$selected|Add-Member -NotePropertyName cl_exit_code -NotePropertyValue $clExit -Force;$selected|Add-Member -NotePropertyName cl_version_output -NotePropertyValue $clOut -Force;$selected|Add-Member -NotePropertyName msvc_toolset_directory -NotePropertyValue $toolsetDir -Force;$classification='MSVC_PASS';$status='PASS'}}}}}}
+          }catch{$classification='MSVC_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$_.Exception.ToString()}finally{if($tempCmd-and(Test-Path -LiteralPath $tempCmd)){Remove-Item -LiteralPath $tempCmd -Force -ErrorAction SilentlyContinue};[ordered]@{status=$status;classification=$classification;first_error=$firstError;vswhere_path=$vswhere;instances=@($instances);selected=$selected}|ConvertTo-Json -Depth 12|Set-Content -LiteralPath (Join-Path $root 'msvc-discovery.json') -Encoding utf8;$log|Set-Content -LiteralPath (Join-Path $root 'msvc-discovery.log') -Encoding utf8;Set-Content -LiteralPath (Join-Path $root 'msvc-first-error.txt') -Value $(if($firstError){$firstError}else{''}) -Encoding utf8;Write-Host "MSVC_CLASSIFICATION=$classification"}
+          if($classification-ne'MSVC_PASS'){exit 1}
+
+      - name: Classify toolchain discovery
+        id: classification
         if: always()
         shell: powershell
         run: |
-          $E=$env:EVIDENCE_ROOT;$c=@();if($env:CHECKOUT_ROOT-and(Test-Path $env:CHECKOUT_ROOT)){Set-Location $env:CHECKOUT_ROOT;$j=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration';if(Test-Path $j){cmd /c "rmdir `"$j`"";$c+='junction cleanup: PASS'}else{$c+='junction cleanup: not required'};$c+="junction exists after cleanup: $(Test-Path $j)";$c+="tracked deletions: $(@(git ls-files --deleted).Count)";$c+="staged changes: $(@(git diff --cached --name-only).Count)";git status --porcelain|Set-Content -Encoding utf8 (Join-Path $E 'final-git-status.txt');$c+=if(git status --porcelain){'working tree clean: FAIL'}else{'working tree clean: PASS'};$c+=if((git rev-parse HEAD).Trim()-eq$env:CANDIDATE_SHA){'HEAD unchanged: PASS'}else{'HEAD unchanged: FAIL'};$c+=if((git rev-parse 'HEAD^{tree}').Trim()-eq$env:CANDIDATE_TREE){'tree unchanged: PASS'}else{'tree unchanged: FAIL'}}
-          git config --global --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'global-git-config-after.txt');git config --system --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'system-git-config-after.txt');$c|Set-Content -Encoding utf8 (Join-Path $E 'cleanup.log')
-      - name: Seal and verify complete evidence
-        shell: powershell
-        run: |
-          $E=$env:EVIDENCE_ROOT;$required=@('runner-proof.json','toolchain-versions.json','cmake-discovery.json','cmake-discovery.log','global-git-config-before.txt','global-git-config-after.txt','system-git-config-before.txt','system-git-config-after.txt','git-topology.txt','scope-name-status.txt','artifact-source-metadata.json','trace-verification.json','repository-validator.log','python-tests.log','matrix-file-tree.txt','cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log','cleanup.log','final-git-status.txt','validation-status.json');$missing=@($required|?{-not(Test-Path (Join-Path $E $_)-PathType Leaf)});if($missing){throw "Missing evidence: $($missing-join', ')"}
-          $r=Get-Content (Join-Path $E 'runner-proof.json') -Raw|ConvertFrom-Json;if($r.runner_name-ne'DESKTOP-P4CTGHS'-or$r.runner_os-ne'Windows'-or$r.runner_arch-ne'X64'-or$r.process_policy-ne'Bypass'){throw 'Runner semantic seal failed'};$s=Get-Content (Join-Path $E 'validation-status.json') -Raw|ConvertFrom-Json;foreach($k in @('status','release_result','debug_result','asan_result','timeout_result','stall_result','clean_reproducibility')){if($s.$k-ne'PASS'){throw "Validation $k failed"}};if($s.selected_trials_result-ne'10/10 PASS'-or[int]$s.project_warning_count-ne0){throw 'Validation semantic seal failed'}
-          [ordered]@{status='PASS';required_files=$required.Count;run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;candidate_sha=$env:CANDIDATE_SHA}|ConvertTo-Json|Set-Content -Encoding utf8 (Join-Path $E 'evidence-seal.json')
-          @'
-          import hashlib,json,os
-          from pathlib import Path
-          root=Path(os.environ['EVIDENCE_ROOT']);rows=[]
-          for p in sorted(x for x in root.rglob('*') if x.is_file() and x.name!='hash-manifest.json'):
-              b=p.read_bytes();rows.append({'path':p.relative_to(root).as_posix(),'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
-          (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n')
-          for row in rows:
-              b=(root/row['path']).read_bytes();assert len(b)==row['size'] and hashlib.sha256(b).hexdigest()==row['sha256']
-          '@|python -
-      - name: Build and self-verify deterministic evidence ZIP
-        shell: powershell
-        run: |
-          @'
-          import hashlib,json,os
-          from pathlib import Path,PurePosixPath,PureWindowsPath
-          from zipfile import ZIP_DEFLATED,ZipFile,ZipInfo
-          source=Path(os.environ['EVIDENCE_ROOT']);target=Path(os.environ['PACKAGE_ROOT'])/'evidence.zip';target.parent.mkdir(parents=True,exist_ok=False);files=sorted(p for p in source.rglob('*') if p.is_file());names=[p.relative_to(source).as_posix() for p in files]
-          with ZipFile(target,'w',compression=ZIP_DEFLATED,compresslevel=9) as archive:
-              for path,relative in zip(files,names):
-                  info=ZipInfo(relative);info.date_time=(1980,1,1,0,0,0);info.compress_type=ZIP_DEFLATED;info.external_attr=0o100644<<16;info.flag_bits|=0x800;archive.writestr(info,path.read_bytes(),compress_type=ZIP_DEFLATED,compresslevel=9)
-          with ZipFile(target) as archive:
-              manifest=json.loads(archive.read('hash-manifest.json').decode('utf-8'));assert len(manifest)==len(archive.infolist())-1
-              for row in manifest:
-                  b=archive.read(row['path']);assert len(b)==row['size'] and hashlib.sha256(b).hexdigest()==row['sha256']
-          data=target.read_bytes();print(f'EVIDENCE_ZIP_SIZE={len(data)}');print(f'EVIDENCE_ZIP_SHA256={hashlib.sha256(data).hexdigest()}');print(f'EVIDENCE_ZIP_MEMBERS={len(names)}')
-          '@|python -
-          if($LASTEXITCODE){throw 'Deterministic evidence ZIP verification failed'}
-      - name: Upload final evidence package
+          $ErrorActionPreference='Stop';$root=$env:TOOLCHAIN_EVIDENCE_ROOT;$result='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT';$status='FAIL';$code='DISCOVERY_SCRIPT_DEFECT';$firstError=$null
+          try{$cmPath=Join-Path $root 'cmake-discovery.json';$msPath=Join-Path $root 'msvc-discovery.json';if(-not(Test-Path $cmPath -PathType Leaf)-or-not(Test-Path $msPath -PathType Leaf)){throw 'Required discovery JSON missing.'};$cm=Get-Content $cmPath -Raw|ConvertFrom-Json;$ms=Get-Content $msPath -Raw|ConvertFrom-Json;$cc=[string]$cm.classification;$mc=[string]$ms.classification;if($cc-eq'CMAKE_PAIR_PASS'-and$cm.status-ne'PASS'){throw 'Contradictory CMake status.'};if($mc-eq'MSVC_PASS'-and$ms.status-ne'PASS'){throw 'Contradictory MSVC status.'};if($cc-eq'CMAKE_DISCOVERY_SCRIPT_ERROR'-or$mc-eq'MSVC_DISCOVERY_SCRIPT_ERROR'){$result='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT';$code='DISCOVERY_SCRIPT_DEFECT'}elseif($cc-eq'CMAKE_NOT_FOUND'){$result='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE';$code=$cc}elseif($cc-in @('CTEST_NOT_FOUND','CMAKE_INVOCATION_FAILED','CTEST_INVOCATION_FAILED','VERSION_PARSE_FAILED','CMAKE_PAIR_AMBIGUOUS')){$result='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE';$code=$cc}elseif($cc-ne'CMAKE_PAIR_PASS'){throw "Unknown CMake classification: $cc"}elseif($mc-eq'MSVC_PASS'){$result='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS';$status='PASS';$code='TOOLCHAIN_PASS'}elseif($mc-in @('VSWHERE_MISSING','VC_COMPONENT_MISSING','VSCMAKE_COMPONENT_MISSING','VSDEVCMD_MISSING','VSDEVCMD_FAILED','VSDEVCMD_PATH_MISSING','CL_NOT_FOUND','CL_INVOCATION_FAILED','MSVC_INSTANCE_AMBIGUOUS')){$result='STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE';$code=$mc}else{throw "Unknown MSVC classification: $mc"};$firstError=if($status-eq'PASS'){$null}elseif($cc-ne'CMAKE_PAIR_PASS'){$cm.first_error}else{$ms.first_error}}catch{$result='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT';$status='FAIL';$code='DISCOVERY_SCRIPT_DEFECT';$firstError=$_.Exception.ToString()}
+          [ordered]@{status=$status;classification=$result;code=$code;first_error=$firstError}|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $root 'toolchain-classification.json') -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $root 'toolchain-classification.txt') -Value $result -Encoding utf8
+          "classification=$result"|Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "classification_status=$status"|Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host $result
+          if($status-eq'PASS'){Write-Host 'FINAL WINDOWS GATE MAY BE RESTORED'}
+
+      - name: Upload toolchain discovery evidence
+        id: discovery-upload
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: NC-003B-PR42-final-self-hosted-windows-gate-${{ github.run_id }}-1b2bc3599a0811be88a3b55987a4d27c72672a46
-          path: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}\evidence.zip
+          name: NC-003B-toolchain-discovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}\_toolchain_discovery_${{ github.run_id }}_${{ github.run_attempt }}
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: 7
 
-  publish-final-status:
-    name: "Publish PR #42 final gate status"
-    needs: [announce-run, control-artifact-probe, self-hosted-preflight, final-windows-gate]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish terminal candidate status
+      - name: Enforce toolchain diagnostic result
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-          CONTROL_RESULT: ${{ needs.control-artifact-probe.result }}
-          CONTROL_UPLOAD: ${{ needs.control-artifact-probe.outputs.upload_outcome }}
-          SELF_RESULT: ${{ needs.self-hosted-preflight.result }}
-          SELF_UPLOAD: ${{ needs.self-hosted-preflight.outputs.upload_outcome }}
-          CMAKE_EXE: ${{ needs.self-hosted-preflight.outputs.cmake_exe }}
-          CTEST_EXE: ${{ needs.self-hosted-preflight.outputs.ctest_exe }}
-          GATE_RESULT: ${{ needs.final-windows-gate.result }}
-        shell: bash
+          UPLOAD_OUTCOME: ${{ steps.discovery-upload.outcome }}
+          CLASSIFICATION: ${{ steps.classification.outputs.classification }}
+          CLASSIFICATION_STATUS: ${{ steps.classification.outputs.classification_status }}
+        shell: powershell
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json,os,urllib.request
-          cr=os.environ.get('CONTROL_RESULT','');cu=os.environ.get('CONTROL_UPLOAD','');sr=os.environ.get('SELF_RESULT','');su=os.environ.get('SELF_UPLOAD','');cm=os.environ.get('CMAKE_EXE','');ct=os.environ.get('CTEST_EXE','');gr=os.environ.get('GATE_RESULT','')
-          if cr=='success' and cu=='success' and sr=='success' and su=='success' and cm and ct and gr=='success': state='success';description='Final self-hosted Windows validation and evidence upload passed'
-          elif sr=='failure' and not cm: state='failure';description='Self-hosted CMake/MSVC discovery preflight failed; candidate not checked out'
-          elif su!='success': state='failure';description='Self-hosted artifact upload failed after file proof'
-          elif cu!='success': state='failure';description='GitHub-hosted artifact control upload failed'
-          else: state='failure';description='Final self-hosted Windows exact-head validation failed'
-          body=json.dumps({'state':state,'context':os.environ['STATUS_CONTEXT'],'description':description,'target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode('utf-8')
-          req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
-          with urllib.request.urlopen(req) as response: assert response.status==201
-          PY
+          $ErrorActionPreference='Stop';$classification=$env:CLASSIFICATION;$state='failure';$description=$null
+          if($env:UPLOAD_OUTCOME-ne'success'){$classification='STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED';$description='TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED'}elseif($env:CLASSIFICATION_STATUS-eq'PASS'){$state='success';$description='CMake, CTest and MSVC discovery passed'}else{$description=($classification -replace '^STOP — ','')}
+          $body=@{state=$state;context=$env:STATUS_CONTEXT;description=$description;target_url="https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"}|ConvertTo-Json -Compress
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" -Headers $headers -ContentType 'application/json' -Body $body|Out-Null
+          if($env:UPLOAD_OUTCOME-ne'success'){throw $classification}
+          if($env:CLASSIFICATION_STATUS-ne'PASS'){throw $classification}
+          Write-Host 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'
+          Write-Host 'FINAL WINDOWS GATE MAY BE RESTORED'
+
+  final-windows-gate:
+    name: "PR #42 final self-hosted Windows exact-head gate (disabled)"
+    if: ${{ false }}
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    steps:
+      - shell: cmd
+        run: exit /b 1
