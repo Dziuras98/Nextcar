@@ -68,51 +68,95 @@ jobs:
           New-Item -ItemType Directory -Force -Path $root|Out-Null
           function Utf8([string]$p,[object]$v){[IO.File]::WriteAllText($p,[string]$v,(New-Object Text.UTF8Encoding($false)))}
           function Text([string]$n,[object]$v){$p=Join-Path $root $n;$t="$p.tmp";Utf8 $t $v;$null=Get-Content $t -Raw;Move-Item $t $p -Force}
-          function Json([string]$n,[object]$v){$p=Join-Path $root $n;$t="$p.tmp";Utf8 $t ($v|ConvertTo-Json -Depth 24);$null=Get-Content $t -Raw|ConvertFrom-Json;Move-Item $t $p -Force;$null=Get-Content $p -Raw|ConvertFrom-Json}
+          function Json([string]$n,[object]$v){$p=Join-Path $root $n;$t="$p.tmp";Utf8 $t ($v|ConvertTo-Json -Depth 32);$null=Get-Content $t -Raw|ConvertFrom-Json;Move-Item $t $p -Force;$null=Get-Content $p -Raw|ConvertFrom-Json}
+          function Quote-NativeArgument([string]$Value){
+            if($null-eq$Value){return '""'}
+            if($Value-notmatch '[\s"]'){return $Value}
+            return '"'+([regex]::Replace($Value,'(\\*)"','$1$1\"') -replace '(\\+)$','$1$1')+'"'
+          }
+          function Join-NativeArguments([string[]]$Values){return (($Values|ForEach-Object{Quote-NativeArgument $_})-join' ')}
+          function Invoke-NativeCaptured {
+            param([Parameter(Mandatory=$true)][string]$FilePath,[string[]]$ArgumentList=@(),[hashtable]$Environment=@{})
+            $result=[ordered]@{file_path=$FilePath;arguments=(Join-NativeArguments $ArgumentList);exit_code=$null;stdout='';stderr='';combined_output=''}
+            if(-not(Test-Path $FilePath -PathType Leaf)){return [pscustomobject]$result}
+            $psi=New-Object Diagnostics.ProcessStartInfo
+            $psi.FileName=$FilePath;$psi.Arguments=$result.arguments;$psi.UseShellExecute=$false;$psi.CreateNoWindow=$true;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+            foreach($k in $Environment.Keys){$psi.EnvironmentVariables[[string]$k]=[string]$Environment[$k]}
+            $p=New-Object Diagnostics.Process;$p.StartInfo=$psi
+            $so=New-Object Text.StringBuilder;$se=New-Object Text.StringBuilder
+            $outHandler=[Diagnostics.DataReceivedEventHandler]{param($sender,$e) if($null-ne$e.Data){[void]$so.AppendLine($e.Data)}}
+            $errHandler=[Diagnostics.DataReceivedEventHandler]{param($sender,$e) if($null-ne$e.Data){[void]$se.AppendLine($e.Data)}}
+            $p.add_OutputDataReceived($outHandler);$p.add_ErrorDataReceived($errHandler)
+            try{
+              if(-not$p.Start()){throw "Native process did not start: $FilePath"}
+              $p.BeginOutputReadLine();$p.BeginErrorReadLine();$p.WaitForExit();$p.WaitForExit()
+              $result.exit_code=$p.ExitCode;$result.stdout=$so.ToString();$result.stderr=$se.ToString();$result.combined_output=($result.stdout+$result.stderr)
+            }finally{$p.remove_OutputDataReceived($outHandler);$p.remove_ErrorDataReceived($errHandler);$p.Dispose()}
+            return [pscustomobject]$result
+          }
           $sent=[ordered]@{status='FAIL';classification='DISCOVERY_NOT_COMPLETED';first_error='Discovery did not reach final persistence.'}
           Json 'cmake-discovery.json' $sent;Text 'cmake-discovery.log' $sent.first_error;Text 'cmake-first-error.txt' $sent.first_error
           Json 'msvc-discovery.json' $sent;Text 'msvc-discovery.log' $sent.first_error;Text 'msvc-first-error.txt' $sent.first_error
           Text 'run-id.txt' $env:GITHUB_RUN_ID;Text 'run-attempt.txt' $env:GITHUB_RUN_ATTEMPT;Text 'runner-name.txt' $env:RUNNER_NAME;Text 'runner-os.txt' $env:RUNNER_OS;Text 'runner-arch.txt' $env:RUNNER_ARCH;Text 'candidate-checkout.txt' 'CANDIDATE NOT CHECKED OUT'
           try {
-            $vswhere=@((Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'),(Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe'))|Where-Object{$_ -and (Test-Path $_ -PathType Leaf)}|Sort-Object -Unique|Select-Object -First 1
-            if(-not $vswhere){throw 'vswhere.exe not found.'}
-            $raw=(& $vswhere -all -products '*' -format json -utf8 2>&1)-join"`n";if($LASTEXITCODE-ne0){throw "vswhere exit $LASTEXITCODE"}
-            $instances=@($raw|ConvertFrom-Json);$rows=@()
-            foreach($i in $instances){
-              $p=[string]$i.installationPath
-              $vc=(& $vswhere -products '*' -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>&1)-join"`n";$hasVc=($LASTEXITCODE-eq0 -and (($vc-split"`r?`n") -contains $p))
-              $cc=(& $vswhere -products '*' -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath 2>&1)-join"`n";$hasCm=($LASTEXITCODE-eq0 -and (($cc-split"`r?`n") -contains $p))
-              $vd=Join-Path $p 'Common7\Tools\VsDevCmd.bat';$bin=Join-Path $p 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
-              $rows+=[pscustomobject]@{installationPath=$p;installationVersion=[string]$i.installationVersion;productId=[string]$i.productId;displayName=[string]$i.displayName;vc_tools_component=$hasVc;vc_cmake_component=$hasCm;vsdevcmd_path=$vd;vsdevcmd_exists=(Test-Path $vd -PathType Leaf);cmake_path=(Join-Path $bin 'cmake.exe');ctest_path=(Join-Path $bin 'ctest.exe')}
+            $vswhere=@((Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'),(Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe'))|Where-Object{$_ -and(Test-Path $_ -PathType Leaf)}|Sort-Object -Unique|Select-Object -First 1
+            $rows=@();$sv=$null;$vsMain=$null
+            if($vswhere){
+              $vsMain=Invoke-NativeCaptured -FilePath $vswhere -ArgumentList @('-all','-products','*','-format','json','-utf8')
+              Text 'vswhere-stdout.txt' $vsMain.stdout;Text 'vswhere-stderr.txt' $vsMain.stderr;Text 'vswhere-exit-code.txt' $vsMain.exit_code
+              if($vsMain.exit_code-eq0){
+                $instances=@($vsMain.stdout|ConvertFrom-Json)
+                foreach($i in $instances){
+                  $p=[string]$i.installationPath;$range="[$($i.installationVersion),$($i.installationVersion)]"
+                  $vcCall=Invoke-NativeCaptured -FilePath $vswhere -ArgumentList @('-products','*','-version',$range,'-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath')
+                  $cmCall=Invoke-NativeCaptured -FilePath $vswhere -ArgumentList @('-products','*','-version',$range,'-requires','Microsoft.VisualStudio.Component.VC.CMake.Project','-property','installationPath')
+                  $hasVc=($vcCall.exit_code-eq0-and(($vcCall.stdout-split"`r?`n")-contains$p));$hasCm=($cmCall.exit_code-eq0-and(($cmCall.stdout-split"`r?`n")-contains$p))
+                  $vd=Join-Path $p 'Common7\Tools\VsDevCmd.bat';$bin=Join-Path $p 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+                  $rows+=[pscustomobject]@{installationPath=$p;installationVersion=[string]$i.installationVersion;productId=[string]$i.productId;displayName=[string]$i.displayName;vc_tools_component=$hasVc;vc_cmake_component=$hasCm;vsdevcmd_path=$vd;vsdevcmd_exists=(Test-Path $vd -PathType Leaf);cmake_path=(Join-Path $bin 'cmake.exe');ctest_path=(Join-Path $bin 'ctest.exe');vc_probe_exit_code=$vcCall.exit_code;vc_probe_stdout=$vcCall.stdout;vc_probe_stderr=$vcCall.stderr;cmake_probe_exit_code=$cmCall.exit_code;cmake_probe_stdout=$cmCall.stdout;cmake_probe_stderr=$cmCall.stderr}
+                }
+                $eligible=@($rows|Where-Object{$_.vc_tools_component-and$_.vc_cmake_component-and$_.vsdevcmd_exists}|Sort-Object @{e={[version]$_.installationVersion};Descending=$true},@{e={$_.installationPath.ToLowerInvariant()}})
+                if($eligible){$sv=$eligible[0]}
+              }
+            }else{Text 'vswhere-stdout.txt' '';Text 'vswhere-stderr.txt' 'vswhere.exe not found';Text 'vswhere-exit-code.txt' ''}
+            $emap=@{};$vdCall=$null;$clCall=$null;$cl=$null
+            if($sv){
+              $cmd=Join-Path $env:RUNNER_TEMP "nc003b-vsenv-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.cmd"
+              @('@echo off',"call `"$($sv.vsdevcmd_path)`" -no_logo -arch=x64 -host_arch=x64",'set')|Set-Content $cmd -Encoding ascii
+              $vdCall=Invoke-NativeCaptured -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList @('/d','/s','/c',"`"$cmd`"")
+              Remove-Item $cmd -Force -ErrorAction SilentlyContinue
+              if($vdCall.exit_code-eq0){foreach($line in($vdCall.stdout-split"`r?`n")){if($line-match'^([^=]+)=(.*)$'){$emap[$matches[1]]=$matches[2]}}}
             }
-            $eligible=@($rows|Where-Object{$_.vc_tools_component -and $_.vc_cmake_component -and $_.vsdevcmd_exists}|Sort-Object @{e={[version]$_.installationVersion};Descending=$true},@{e={$_.installationPath.ToLowerInvariant()}})
-            if(-not $eligible){throw 'No qualifying Visual Studio instance.'};$sv=$eligible[0]
-            $cmd=Join-Path $env:RUNNER_TEMP "nc003b-vsenv-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.cmd";$stdout=Join-Path $root 'vsdevcmd-stdout.txt';$stderr=Join-Path $root 'vsdevcmd-stderr.txt'
-            @('@echo off',"call `"$($sv.vsdevcmd_path)`" -no_logo -arch=x64 -host_arch=x64",'set')|Set-Content $cmd -Encoding ascii
-            & cmd.exe /d /c $cmd 1>$stdout 2>$stderr;$vdExit=$LASTEXITCODE;$vdOut=Get-Content $stdout -Raw;$vdErr=Get-Content $stderr -Raw;Remove-Item $cmd -Force -ErrorAction SilentlyContinue
-            $emap=@{};if($vdExit-eq0){foreach($line in($vdOut-split"`r?`n")){if($line-match'^([^=]+)=(.*)$'){$emap[$matches[1]]=$matches[2]}}}
-            $cl=$null;if($emap['PATH']){foreach($dir in @($emap['PATH'] -split ';' | Where-Object { $_ })){$q=Join-Path $dir 'cl.exe';if(Test-Path $q -PathType Leaf){$cl=$q;break}}}
-            $clOut='';$clExit=$null
-            if($cl){$old=@{};foreach($k in $emap.Keys){$old[$k]=[Environment]::GetEnvironmentVariable($k,'Process');[Environment]::SetEnvironmentVariable($k,$emap[$k],'Process')};try{$clOut=(& $cl '/?' 2>&1)-join"`n";$clExit=$LASTEXITCODE}finally{foreach($k in $old.Keys){[Environment]::SetEnvironmentVariable($k,$old[$k],'Process')}}}
-            $sdkDir=[string]$emap['WindowsSdkDir'];$sdkVer=[string]$emap['WindowsSDKVersion'];$sdk=[ordered]@{include_path=(Join-Path $sdkDir "Include\$sdkVer");lib_path=(Join-Path $sdkDir "Lib\$sdkVer");bin_path=(Join-Path $sdkDir "bin\$sdkVer")};$sdk.include_exists=Test-Path $sdk.include_path;$sdk.lib_exists=Test-Path $sdk.lib_path;$sdk.bin_exists=Test-Path $sdk.bin_path
-            $msErr=$null;if($vdExit-ne0){$msErr="VsDevCmd exit $vdExit"}elseif(-not $cl){$msErr='cl.exe not found'}elseif($clExit-notin@(0,2)){$msErr="cl.exe exit $clExit"}elseif(-not($sdk.include_exists -and $sdk.lib_exists -and $sdk.bin_exists)){$msErr='Windows SDK evidence incomplete'}
-            $ms=[ordered]@{status=$(if($msErr){'FAIL'}else{'PASS'});classification=$(if($msErr){'MSVC_INCOMPLETE'}else{'MSVC_PASS'});first_error=$msErr;vswhere_path=$vswhere;all_instances=$rows;selected_installation_path=$sv.installationPath;installation_version=$sv.installationVersion;product_id=$sv.productId;display_name=$sv.displayName;vc_tools_component=$sv.vc_tools_component;vc_cmake_component=$sv.vc_cmake_component;vsdevcmd_path=$sv.vsdevcmd_path;vsdevcmd_exit_code=$vdExit;vsdevcmd_stdout=$vdOut;vsdevcmd_stderr=$vdErr;cl_path=$cl;cl_invocation_command=$(if($cl){"$cl /?"}else{$null});cl_invocation_output=$clOut;cl_invocation_exit_code=$clExit;msvc_toolset_directory=[string]$emap['VCToolsInstallDir'];VCToolsVersion=[string]$emap['VCToolsVersion'];WindowsSdkDir=$sdkDir;WindowsSDKVersion=$sdkVer;windows_sdk_evidence=$sdk;selection_reason='Both components and VsDevCmd; highest installationVersion; ordinal-ignore-case path tie-break.'}
-            Json 'msvc-discovery.json' $ms;Text 'msvc-discovery.log' ($ms|ConvertTo-Json -Depth 24);Text 'msvc-first-error.txt' $msErr
+            Text 'vsdevcmd-stdout.txt' $(if($vdCall){$vdCall.stdout}else{''});Text 'vsdevcmd-stderr.txt' $(if($vdCall){$vdCall.stderr}else{'VsDevCmd not invoked'});Text 'vsdevcmd-exit-code.txt' $(if($vdCall){$vdCall.exit_code}else{''})
+            if($emap['PATH']){foreach($dir in @($emap['PATH']-split';'|Where-Object{$_})){$q=Join-Path $dir 'cl.exe';if(Test-Path $q -PathType Leaf){$cl=$q;break}}}
+            if($cl){$clCall=Invoke-NativeCaptured -FilePath $cl -ArgumentList @('/?') -Environment $emap}
+            $clCombined=$(if($clCall){$clCall.combined_output}else{''});$banner=($clCombined-match'Microsoft \(R\) C/C\+\+ Optimizing Compiler Version');$vm=[regex]::Match($clCombined,'Microsoft \(R\) C/C\+\+ Optimizing Compiler Version\s+([^\s]+)')
+            $sdkDir=[string]$emap['WindowsSdkDir'];$sdkVer=[string]$emap['WindowsSDKVersion'];$sdk=[ordered]@{include_path=$(if($sdkDir-and$sdkVer){Join-Path $sdkDir "Include\$sdkVer"}else{$null});lib_path=$(if($sdkDir-and$sdkVer){Join-Path $sdkDir "Lib\$sdkVer"}else{$null});bin_path=$(if($sdkDir-and$sdkVer){Join-Path $sdkDir "bin\$sdkVer"}else{$null})};$sdk.include_exists=($sdk.include_path-and(Test-Path $sdk.include_path));$sdk.lib_exists=($sdk.lib_path-and(Test-Path $sdk.lib_path));$sdk.bin_exists=($sdk.bin_path-and(Test-Path $sdk.bin_path))
+            $msErr=$null;if(-not$vswhere){$msErr='vswhere.exe not found'}elseif(-not$vsMain-or$vsMain.exit_code-ne0){$msErr='vswhere invocation failed'}elseif(-not$sv){$msErr='No qualifying Visual Studio instance'}elseif(-not$vdCall-or$vdCall.exit_code-ne0){$msErr='VsDevCmd invocation failed'}elseif(-not$cl){$msErr='cl.exe not found'}elseif($clCall.exit_code-notin@(0,2)){$msErr="cl.exe exit $($clCall.exit_code)"}elseif(-not$banner){$msErr='cl.exe banner not detected'}elseif(-not$vm.Success){$msErr='cl.exe version not parsed'}elseif(-not($sdk.include_exists-and$sdk.lib_exists-and$sdk.bin_exists)){$msErr='Windows SDK evidence incomplete'}
+            $ms=[ordered]@{status=$(if($msErr){'FAIL'}else{'PASS'});classification=$(if($msErr){'MSVC_INCOMPLETE'}else{'MSVC_PASS'});first_error=$msErr;vswhere_path=$vswhere;vswhere_exit_code=$(if($vsMain){$vsMain.exit_code}else{$null});vswhere_stdout=$(if($vsMain){$vsMain.stdout}else{''});vswhere_stderr=$(if($vsMain){$vsMain.stderr}else{''});all_instances=$rows;selected_installation_path=$(if($sv){$sv.installationPath}else{$null});installation_version=$(if($sv){$sv.installationVersion}else{$null});product_id=$(if($sv){$sv.productId}else{$null});display_name=$(if($sv){$sv.displayName}else{$null});vc_tools_component=$(if($sv){$sv.vc_tools_component}else{$false});vc_cmake_component=$(if($sv){$sv.vc_cmake_component}else{$false});vsdevcmd_path=$(if($sv){$sv.vsdevcmd_path}else{$null});vsdevcmd_exit_code=$(if($vdCall){$vdCall.exit_code}else{$null});vsdevcmd_stdout=$(if($vdCall){$vdCall.stdout}else{''});vsdevcmd_stderr=$(if($vdCall){$vdCall.stderr}else{''});cl_path=$cl;cl_arguments='/ ?'.Replace(' ','');cl_invocation_exit_code=$(if($clCall){$clCall.exit_code}else{$null});cl_stdout=$(if($clCall){$clCall.stdout}else{''});cl_stderr=$(if($clCall){$clCall.stderr}else{''});cl_combined_output=$clCombined;cl_banner_detected=$banner;cl_version=$(if($vm.Success){$vm.Groups[1].Value}else{$null});msvc_toolset_directory=[string]$emap['VCToolsInstallDir'];VCToolsVersion=[string]$emap['VCToolsVersion'];WindowsSdkDir=$sdkDir;WindowsSDKVersion=$sdkVer;windows_sdk_evidence=$sdk;selection_reason='Both components and VsDevCmd; highest installationVersion; ordinal-ignore-case path tie-break.'}
+            Json 'msvc-discovery.json' $ms;Text 'msvc-discovery.log' ($ms|ConvertTo-Json -Depth 32);Text 'msvc-first-error.txt' $msErr
             $pairs=@();$priority=0
-            function AddPair($source,$cmake,$ctest,$reason){$script:priority++;$script:pairs+=[pscustomobject]@{selection_priority=$script:priority;discovery_source=$source;cmake_path=$cmake;ctest_path=$ctest;selection_reason=$reason}}
-            AddPair 'selected-visual-studio' $sv.cmake_path $sv.ctest_path 'Selected Visual Studio bundled pair'
-            if($emap['PATH']){foreach($dir in @($emap['PATH'] -split ';' | Where-Object { $_ })){AddPair 'vsdevcmd-path' (Join-Path $dir 'cmake.exe') (Join-Path $dir 'ctest.exe') 'VsDevCmd process PATH'}}
+            function AddPair($source,$cmake,$ctest,$reason){if(-not$cmake){return};$script:priority++;$script:pairs+=[pscustomobject]@{selection_priority=$script:priority;discovery_source=$source;cmake_path=$cmake;ctest_path=$ctest;selection_reason=$reason}}
+            if($sv){AddPair 'selected-visual-studio' $sv.cmake_path $sv.ctest_path 'Selected Visual Studio bundled pair'}
+            if($emap['PATH']){foreach($dir in @($emap['PATH']-split';'|Where-Object{$_})){AddPair 'vsdevcmd-path' (Join-Path $dir 'cmake.exe') (Join-Path $dir 'ctest.exe') 'VsDevCmd process PATH'}}
             foreach($q in @(Get-Command cmake.exe -All -ErrorAction SilentlyContinue)){AddPair 'process-path' $q.Source (Join-Path (Split-Path $q.Source -Parent) 'ctest.exe') 'Process PATH'}
             foreach($pf in @($env:ProgramFiles,${env:ProgramFiles(x86)})|Where-Object{$_}){AddPair 'program-files' (Join-Path $pf 'CMake\bin\cmake.exe') (Join-Path $pf 'CMake\bin\ctest.exe') 'Standard Program Files location'}
-            $attempts=@();$selected=$null
+            $attempts=@();$selected=$null;$seen=@{}
             foreach($p in $pairs){
-              $a=[ordered]@{selection_priority=$p.selection_priority;discovery_source=$p.discovery_source;cmake_path=$p.cmake_path;ctest_path=$p.ctest_path;selection_reason=$p.selection_reason;cmake_exists=(Test-Path $p.cmake_path -PathType Leaf);ctest_exists=(Test-Path $p.ctest_path -PathType Leaf);same_bin_directory=$false;cmake_version_output=$null;ctest_version_output=$null;cmake_version=$null;ctest_version=$null;cmake_invocation_exit_code=$null;ctest_invocation_exit_code=$null;cmake_sha256=$null;ctest_sha256=$null;cmake_size=$null;ctest_size=$null;rejection_reason=$null}
-              if(-not $a.cmake_exists){$a.rejection_reason='cmake missing'}elseif(-not $a.ctest_exists){$a.rejection_reason='ctest missing'}else{$a.same_bin_directory=((Split-Path $p.cmake_path -Parent)-ieq(Split-Path $p.ctest_path -Parent));if(-not $a.same_bin_directory){$a.rejection_reason='different bin'}else{$co=(& $p.cmake_path --version 2>&1)-join"`n";$ce=$LASTEXITCODE;$to=(& $p.ctest_path --version 2>&1)-join"`n";$te=$LASTEXITCODE;$a.cmake_version_output=$co;$a.ctest_version_output=$to;$a.cmake_invocation_exit_code=$ce;$a.ctest_invocation_exit_code=$te;$cm=[regex]::Match($co,'cmake version\s+([0-9]+(?:\.[0-9]+)+)');$ct=[regex]::Match($to,'ctest version\s+([0-9]+(?:\.[0-9]+)+)');if($ce-ne0){$a.rejection_reason='cmake invocation failed'}elseif($te-ne0){$a.rejection_reason='ctest invocation failed'}elseif(-not $cm.Success -or -not $ct.Success){$a.rejection_reason='version parse failed'}else{$a.cmake_version=$cm.Groups[1].Value;$a.ctest_version=$ct.Groups[1].Value;$a.cmake_sha256=(Get-FileHash $p.cmake_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.ctest_sha256=(Get-FileHash $p.ctest_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.cmake_size=(Get-Item $p.cmake_path).Length;$a.ctest_size=(Get-Item $p.ctest_path).Length}}}
-              $attempts+=[pscustomobject]$a;if(-not $a.rejection_reason -and -not $selected){$selected=[pscustomobject]$a}
+              $key=([string]$p.cmake_path).ToLowerInvariant()+'|'+([string]$p.ctest_path).ToLowerInvariant();if($seen[$key]){continue};$seen[$key]=$true
+              $a=[ordered]@{selection_priority=$p.selection_priority;discovery_source=$p.discovery_source;cmake_path=$p.cmake_path;ctest_path=$p.ctest_path;selection_reason=$p.selection_reason;cmake_exists=(Test-Path $p.cmake_path -PathType Leaf);ctest_exists=(Test-Path $p.ctest_path -PathType Leaf);same_bin_directory=$false;cmake_stdout='';cmake_stderr='';cmake_combined_output='';ctest_stdout='';ctest_stderr='';ctest_combined_output='';cmake_version=$null;ctest_version=$null;cmake_invocation_exit_code=$null;ctest_invocation_exit_code=$null;cmake_sha256=$null;ctest_sha256=$null;cmake_size=$null;ctest_size=$null;rejection_reason=$null}
+              if(-not$a.cmake_exists){$a.rejection_reason='cmake missing'}elseif(-not$a.ctest_exists){$a.rejection_reason='ctest missing'}else{
+                $a.same_bin_directory=((Split-Path $p.cmake_path -Parent)-ieq(Split-Path $p.ctest_path -Parent));if(-not$a.same_bin_directory){$a.rejection_reason='different bin'}else{
+                  $co=Invoke-NativeCaptured -FilePath $p.cmake_path -ArgumentList @('--version');$to=Invoke-NativeCaptured -FilePath $p.ctest_path -ArgumentList @('--version')
+                  $a.cmake_stdout=$co.stdout;$a.cmake_stderr=$co.stderr;$a.cmake_combined_output=$co.combined_output;$a.ctest_stdout=$to.stdout;$a.ctest_stderr=$to.stderr;$a.ctest_combined_output=$to.combined_output;$a.cmake_invocation_exit_code=$co.exit_code;$a.ctest_invocation_exit_code=$to.exit_code
+                  $cmv=[regex]::Match($co.combined_output,'cmake version\s+([0-9]+(?:\.[0-9]+)+)');$ctv=[regex]::Match($to.combined_output,'ctest version\s+([0-9]+(?:\.[0-9]+)+)')
+                  if($co.exit_code-ne0){$a.rejection_reason='cmake invocation failed'}elseif($to.exit_code-ne0){$a.rejection_reason='ctest invocation failed'}elseif(-not$cmv.Success){$a.rejection_reason='cmake version parse failed'}elseif(-not$ctv.Success){$a.rejection_reason='ctest version parse failed'}else{$a.cmake_version=$cmv.Groups[1].Value;$a.ctest_version=$ctv.Groups[1].Value;$a.cmake_sha256=(Get-FileHash $p.cmake_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.ctest_sha256=(Get-FileHash $p.ctest_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.cmake_size=(Get-Item $p.cmake_path).Length;$a.ctest_size=(Get-Item $p.ctest_path).Length;if(-not$a.cmake_sha256-or-not$a.ctest_sha256-or$a.cmake_size-le0-or$a.ctest_size-le0){$a.rejection_reason='binary evidence incomplete'}}
+                }
+              }
+              $attempts+=[pscustomobject]$a;if(-not$a.rejection_reason-and-not$selected){$selected=[pscustomobject]$a}
             }
             $cmErr=$(if($selected){$null}elseif(@($attempts|Where-Object{$_.cmake_exists}).Count){'No valid complete CMake/CTest pair'}else{'No cmake.exe found'})
-            $cm=[ordered]@{status=$(if($selected){'PASS'}else{'FAIL'});classification=$(if($selected){'CMAKE_CTEST_PASS'}elseif(@($attempts|Where-Object{$_.cmake_exists}).Count){'CMAKE_TOOLCHAIN_INCOMPLETE'}else{'CMAKE_NOT_FOUND'});first_error=$cmErr;selected=$selected;attempts=$attempts;selected_visual_studio_installation_path=$sv.installationPath}
-            Json 'cmake-discovery.json' $cm;Text 'cmake-discovery.log' ($attempts|ConvertTo-Json -Depth 24);Text 'cmake-first-error.txt' $cmErr
+            $cm=[ordered]@{status=$(if($selected){'PASS'}else{'FAIL'});classification=$(if($selected){'CMAKE_CTEST_PASS'}elseif(@($attempts|Where-Object{$_.cmake_exists}).Count){'CMAKE_TOOLCHAIN_INCOMPLETE'}else{'CMAKE_NOT_FOUND'});first_error=$cmErr;selected=$selected;attempts=$attempts;selected_visual_studio_installation_path=$(if($sv){$sv.installationPath}else{$null})}
+            Json 'cmake-discovery.json' $cm;Text 'cmake-discovery.log' ($attempts|ConvertTo-Json -Depth 32);Text 'cmake-first-error.txt' $cmErr
           } catch {
             $e=$_.Exception.ToString();$cm=[ordered]@{status='FAIL';classification='DISCOVERY_SCRIPT_DEFECT';first_error=$e;selected=$null;attempts=@()};$ms=[ordered]@{status='FAIL';classification='DISCOVERY_SCRIPT_DEFECT';first_error=$e};Json 'cmake-discovery.json' $cm;Text 'cmake-discovery.log' $e;Text 'cmake-first-error.txt' $e;Json 'msvc-discovery.json' $ms;Text 'msvc-discovery.log' $e;Text 'msvc-first-error.txt' $e
           }
@@ -126,7 +170,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop';$root=$env:EVIDENCE_ROOT;$upload=$env:UPLOAD_ROOT
           function Utf8($p,$v){[IO.File]::WriteAllText($p,[string]$v,(New-Object Text.UTF8Encoding($false)))}
-          $required=@('cmake-discovery.json','cmake-discovery.log','cmake-first-error.txt','msvc-discovery.json','msvc-discovery.log','msvc-first-error.txt','classification.txt','candidate-checkout.txt','run-id.txt','run-attempt.txt','runner-name.txt','runner-os.txt','runner-arch.txt')
+          $required=@('cmake-discovery.json','cmake-discovery.log','cmake-first-error.txt','msvc-discovery.json','msvc-discovery.log','msvc-first-error.txt','classification.txt','candidate-checkout.txt','run-id.txt','run-attempt.txt','runner-name.txt','runner-os.txt','runner-arch.txt','vswhere-stdout.txt','vswhere-stderr.txt','vswhere-exit-code.txt','vsdevcmd-stdout.txt','vsdevcmd-stderr.txt','vsdevcmd-exit-code.txt')
           foreach($n in $required){$p=Join-Path $root $n;if(-not(Test-Path $p -PathType Leaf)){throw "Missing required evidence: $n"};if($n.EndsWith('.json')){$null=Get-Content $p -Raw|ConvertFrom-Json}}
           $entries=@();foreach($f in @(Get-ChildItem $root -File -Recurse|Sort-Object FullName)){$rel=$f.FullName.Substring($root.Length).TrimStart('\').Replace('\','/');$entries+=[ordered]@{relative_path=$rel;size=[int64]$f.Length;sha256=(Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}}
           $manifest=[ordered]@{schema='nc003b-toolchain-discovery-evidence-file-manifest-v1';run_id=$env:GITHUB_RUN_ID;run_attempt=$env:GITHUB_RUN_ATTEMPT;file_count=$entries.Count;files=$entries};$mp=Join-Path $root 'evidence-file-manifest.json';$tmp="$mp.tmp";Utf8 $tmp ($manifest|ConvertTo-Json -Depth 8);$parsed=Get-Content $tmp -Raw|ConvertFrom-Json;if([int]$parsed.file_count-ne$entries.Count){throw 'Manifest parse/count mismatch'};Move-Item $tmp $mp -Force;$null=Get-Content $mp -Raw|ConvertFrom-Json;Utf8 (Join-Path $root 'evidence-file-manifest.txt') (($entries|ForEach-Object{"$($_.sha256)  $($_.size)  $($_.relative_path)"})-join"`n")
@@ -134,7 +178,7 @@ jobs:
           Remove-Item $upload -Recurse -Force -ErrorAction SilentlyContinue;New-Item -ItemType Directory -Force -Path $upload|Out-Null;$zipName="NC-003B-toolchain-discovery-evidence-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.zip";$zip=Join-Path $upload $zipName
           Add-Type -AssemblyName System.IO.Compression;Add-Type -AssemblyName System.IO.Compression.FileSystem
           $fs=[IO.File]::Open($zip,[IO.FileMode]::CreateNew);try{$za=New-Object IO.Compression.ZipArchive($fs,[IO.Compression.ZipArchiveMode]::Create,$false);try{foreach($f in @(Get-ChildItem $root -File -Recurse|Sort-Object FullName)){$rel=$f.FullName.Substring($root.Length).TrimStart('\').Replace('\','/');$ze=$za.CreateEntry($rel,[IO.Compression.CompressionLevel]::NoCompression);$ze.LastWriteTime=[DateTimeOffset]::new(1980,1,1,0,0,0,[TimeSpan]::Zero);$src=[IO.File]::OpenRead($f.FullName);$dst=$ze.Open();try{$src.CopyTo($dst)}finally{$dst.Dispose();$src.Dispose()}}}finally{$za.Dispose()}}finally{$fs.Dispose()}
-          if(-not(Test-Path $zip -PathType Leaf)){throw 'Local ZIP missing'};$zi=Get-Item $zip;if($zi.Length-le0){throw 'Local ZIP empty'};$z=[IO.Compression.ZipFile]::OpenRead($zip);try{$names=@($z.Entries|Where-Object{-not$_.FullName.EndsWith('/')}|ForEach-Object{$_.FullName});$names|ForEach-Object{Write-Host "ZIP_ENTRY $_"};if(-not($names-contains'evidence-file-manifest.json')){throw 'Manifest absent from ZIP'}}finally{$z.Dispose()}
+          if(-not(Test-Path $zip -PathType Leaf)){throw 'Local ZIP missing'};$zi=Get-Item $zip;if($zi.Length-le0){throw 'Local ZIP empty'};$z=[IO.Compression.ZipFile]::OpenRead($zip);try{$names=@($z.Entries|Where-Object{-not$_.FullName.EndsWith('/')}|ForEach-Object{$_.FullName});if(-not($names-contains'evidence-file-manifest.json')){throw 'Manifest absent from ZIP'}}finally{$z.Dispose()}
           $verify=Join-Path $env:RUNNER_TEMP "nc003b-verify-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";Remove-Item $verify -Recurse -Force -ErrorAction SilentlyContinue;[IO.Compression.ZipFile]::ExtractToDirectory($zip,$verify);$vm=Get-Content (Join-Path $verify 'evidence-file-manifest.json') -Raw|ConvertFrom-Json;foreach($e in $vm.files){$p=Join-Path $verify ($e.relative_path.Replace('/','\'));if(-not(Test-Path $p -PathType Leaf)){throw "ZIP missing $($e.relative_path)"};if((Get-Item $p).Length-ne[long]$e.size){throw "ZIP size mismatch $($e.relative_path)"};if((Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant()-ne$e.sha256){throw "ZIP hash mismatch $($e.relative_path)"}};Remove-Item $verify -Recurse -Force
           $class=(Get-Content (Join-Path $root 'classification.txt') -Raw).Trim();$hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();$name="NC-003B-toolchain-discovery-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           "local_zip_path=$zip"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"local_zip_name=$zipName"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"local_zip_size=$($zi.Length)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"local_zip_sha256=$hash"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"evidence_file_count=$($entries.Count)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"discovery_classification=$class"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"expected_artifact_name=$name"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -183,11 +227,16 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import hashlib,json,os,pathlib,sys,time,urllib.request,zipfile
+          import hashlib,json,os,pathlib,re,sys,time,urllib.request,zipfile
           out=pathlib.Path('verification-report');out.mkdir();log=[];terminal='STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED'
           def w(n,v): (out/n).write_text(json.dumps(v,indent=2,sort_keys=True) if isinstance(v,(dict,list)) else str(v),encoding='utf-8')
           def emit(k,v):
             with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as f:f.write(f'{k}={v}\n')
+          def normalize_sha256(value):
+            value=(value or '').strip().lower()
+            if value.startswith('sha256:'): value=value[7:]
+            if not re.fullmatch(r'[0-9a-f]{64}',value): raise ValueError('invalid SHA-256 representation')
+            return value
           h={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
           try:
             for k in ['EXPECTED_NAME','UPLOAD_OUTCOME','UPLOAD_ID','UPLOAD_URL','UPLOAD_DIGEST','LOCAL_NAME','LOCAL_HASH','LOCAL_SIZE','DISCOVERY_CLASS']:
@@ -201,19 +250,21 @@ jobs:
               if i<6:time.sleep(5)
             w('artifact-api-response.json',log)
             if artifact is None:raise RuntimeError('artifact not uniquely visible')
-            wr=artifact.get('workflow_run') or {};checks=[artifact.get('expired') is False,str(wr.get('id'))==os.environ['GITHUB_RUN_ID'],wr.get('head_sha')==os.environ['GITHUB_SHA'],int(artifact.get('id') or 0)>0,int(artifact.get('size_in_bytes') or 0)>0,bool(artifact.get('digest')),str(artifact.get('id'))==os.environ['UPLOAD_ID'],artifact.get('digest')==os.environ['UPLOAD_DIGEST']]
+            api_raw=artifact.get('digest');upload_raw=os.environ['UPLOAD_DIGEST'];api_norm=normalize_sha256(api_raw);upload_norm=normalize_sha256(upload_raw)
+            wr=artifact.get('workflow_run') or {};checks=[artifact.get('expired') is False,str(wr.get('id'))==os.environ['GITHUB_RUN_ID'],wr.get('head_sha')==os.environ['GITHUB_SHA'],int(artifact.get('id') or 0)>0,int(artifact.get('size_in_bytes') or 0)>0,str(artifact.get('id'))==os.environ['UPLOAD_ID']]
             if not all(checks):raise RuntimeError(f'API/output contradiction {checks}')
             with urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{artifact['id']}/zip",headers=h)) as r:data=r.read();status=r.status
             if status!=200 or not data:raise RuntimeError('download failed')
             pathlib.Path('outer.zip').write_bytes(data);outer_hash=hashlib.sha256(data).hexdigest();w('outer-zip-sha256.txt',outer_hash)
-            pathlib.Path('outer').mkdir();
+            if not(api_norm==upload_norm==outer_hash):raise RuntimeError(f'digest mismatch api={api_norm} upload={upload_norm} outer={outer_hash}')
+            pathlib.Path('outer').mkdir()
             with zipfile.ZipFile('outer.zip') as z:
               names=[x.filename for x in z.infolist() if not x.is_dir()]
               if names!=[os.environ['LOCAL_NAME']]:raise RuntimeError(f'outer entries {names}')
               z.extractall('outer')
             local=pathlib.Path('outer')/os.environ['LOCAL_NAME'];ld=local.read_bytes();lh=hashlib.sha256(ld).hexdigest();w('local-evidence-zip-sha256.txt',lh)
             if lh!=os.environ['LOCAL_HASH'] or len(ld)!=int(os.environ['LOCAL_SIZE']):raise RuntimeError('local ZIP mismatch')
-            pathlib.Path('evidence').mkdir();
+            pathlib.Path('evidence').mkdir()
             with zipfile.ZipFile(local) as z:names=[x.filename for x in z.infolist() if not x.is_dir()];w('artifact-file-list.txt','\n'.join(names)+'\n');z.extractall('evidence')
             root=pathlib.Path('evidence');manifest=json.loads((root/'evidence-file-manifest.json').read_text(encoding='utf-8-sig'));lines=[]
             for e in manifest['files']:
@@ -222,23 +273,23 @@ jobs:
             w('manifest-verification.txt','\n'.join(lines)+'\n')
             text=lambda n:(root/n).read_text(encoding='utf-8-sig').strip();cm=json.loads((root/'cmake-discovery.json').read_text(encoding='utf-8-sig'));ms=json.loads((root/'msvc-discovery.json').read_text(encoding='utf-8-sig'))
             if text('candidate-checkout.txt')!='CANDIDATE NOT CHECKED OUT' or text('run-id.txt')!=os.environ['GITHUB_RUN_ID'] or text('run-attempt.txt')!=os.environ['GITHUB_RUN_ATTEMPT'] or text('runner-os.txt')!='Windows' or text('runner-arch.txt')!='X64':raise RuntimeError('identity evidence mismatch')
-            cls=text('classification.txt');
+            cls=text('classification.txt')
             if cls!=os.environ['DISCOVERY_CLASS']:raise RuntimeError('classification mismatch')
             if cls=='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS':
-              s=cm.get('selected') or {};sdk=ms.get('windows_sdk_evidence') or {};checks=[cm.get('status')=='PASS',ms.get('status')=='PASS',bool(s),s.get('same_bin_directory') is True,s.get('cmake_invocation_exit_code')==0,s.get('ctest_invocation_exit_code')==0,bool(s.get('cmake_version')),bool(s.get('ctest_version')),bool(s.get('cmake_sha256')),bool(s.get('ctest_sha256')),int(s.get('cmake_size') or 0)>0,int(s.get('ctest_size') or 0)>0,bool(ms.get('vswhere_path')),bool(ms.get('selected_installation_path')),ms.get('vc_tools_component') is True,ms.get('vc_cmake_component') is True,ms.get('vsdevcmd_exit_code')==0,bool(ms.get('cl_path')),bool(ms.get('msvc_toolset_directory')),bool(ms.get('VCToolsVersion')),bool(ms.get('WindowsSdkDir')),bool(ms.get('WindowsSDKVersion')),sdk.get('include_exists') is True,sdk.get('lib_exists') is True,sdk.get('bin_exists') is True]
+              s=cm.get('selected') or {};sdk=ms.get('windows_sdk_evidence') or {};checks=[cm.get('status')=='PASS',ms.get('status')=='PASS',bool(s),s.get('same_bin_directory') is True,s.get('cmake_invocation_exit_code')==0,s.get('ctest_invocation_exit_code')==0,bool(s.get('cmake_version')),bool(s.get('ctest_version')),bool(s.get('cmake_sha256')),bool(s.get('ctest_sha256')),int(s.get('cmake_size') or 0)>0,int(s.get('ctest_size') or 0)>0,bool(ms.get('vswhere_path')),ms.get('vswhere_exit_code')==0,bool(ms.get('selected_installation_path')),ms.get('vc_tools_component') is True,ms.get('vc_cmake_component') is True,ms.get('vsdevcmd_exit_code')==0,bool(ms.get('cl_path')),ms.get('cl_invocation_exit_code') in [0,2],ms.get('cl_banner_detected') is True,bool(ms.get('cl_version')),bool(ms.get('msvc_toolset_directory')),bool(ms.get('VCToolsVersion')),bool(ms.get('WindowsSdkDir')),bool(ms.get('WindowsSDKVersion')),sdk.get('include_exists') is True,sdk.get('lib_exists') is True,sdk.get('bin_exists') is True]
               if not all(checks):terminal='STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED';raise RuntimeError(f'PASS evidence incomplete {checks}')
               terminal=cls
             elif cls in ['STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT','STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE','STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE','STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE']:terminal=cls
             else:terminal='STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED';raise RuntimeError(f'unknown class {cls}')
-            w('artifact-verification.json',{'result':'PASS','terminal_classification':terminal,'artifact':artifact,'outer_zip_sha256':outer_hash,'outer_zip_size':len(data),'local_zip_sha256':lh,'local_zip_size':len(ld),'manifest_file_count':len(manifest['files']),'runner_name':text('runner-name.txt'),'cmake':cm,'msvc':ms})
-            emit('api_artifact_id',artifact['id']);emit('api_artifact_name',artifact['name']);emit('api_artifact_size',artifact['size_in_bytes']);emit('api_artifact_digest',artifact['digest']);emit('outer_zip_sha256',outer_hash);emit('local_evidence_zip_sha256',lh);emit('manifest_result','PASS');emit('runner_name',text('runner-name.txt'))
+            w('artifact-verification.json',{'result':'PASS','terminal_classification':terminal,'api_digest_raw':api_raw,'upload_digest_raw':upload_raw,'api_digest_normalized':api_norm,'upload_digest_normalized':upload_norm,'outer_zip_sha256':outer_hash,'outer_zip_size':len(data),'local_zip_sha256':lh,'local_zip_size':len(ld),'manifest_file_count':len(manifest['files']),'runner_name':text('runner-name.txt'),'artifact':artifact,'cmake':cm,'msvc':ms})
+            emit('api_artifact_id',artifact['id']);emit('api_artifact_name',artifact['name']);emit('api_artifact_size',artifact['size_in_bytes']);emit('api_artifact_digest',api_raw);emit('outer_zip_sha256',outer_hash);emit('local_evidence_zip_sha256',lh);emit('manifest_result','PASS');emit('runner_name',text('runner-name.txt'))
           except Exception as e:
             print(e,file=sys.stderr)
             if not (out/'artifact-api-response.json').exists():w('artifact-api-response.json',log)
             for n in ['artifact-file-list.txt','outer-zip-sha256.txt','local-evidence-zip-sha256.txt']:
               if not (out/n).exists():w(n,'')
             if not (out/'manifest-verification.txt').exists():w('manifest-verification.txt',f'FAIL {e}\n')
-            w('artifact-verification.json',{'result':'FAIL','terminal_classification':terminal,'error':str(e)})
+            w('artifact-verification.json',{'result':'FAIL','terminal_classification':terminal,'error':str(e),'api_digest_raw':locals().get('api_raw'),'upload_digest_raw':locals().get('upload_raw'),'api_digest_normalized':locals().get('api_norm'),'upload_digest_normalized':locals().get('upload_norm'),'outer_zip_sha256':locals().get('outer_hash')})
           finally:w('terminal-classification.txt',terminal+'\n');emit('terminal_classification',terminal)
           PY
       - name: Upload independent verification artifact
