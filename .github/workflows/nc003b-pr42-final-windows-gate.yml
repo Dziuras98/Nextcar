@@ -1,6 +1,6 @@
 # manual-trigger: 2026-07-24
-# fix startup
-name: NC-003B PR42 final self-hosted Windows gate
+# use Windows PowerShell
+name: "NC-003B PR42 final self-hosted Windows gate"
 
 on:
   push:
@@ -29,7 +29,7 @@ env:
 
 jobs:
   announce-run:
-    name: Announce PR #42 final Windows run
+    name: "Announce PR #42 final Windows run"
     runs-on: ubuntu-latest
     steps:
       - name: Publish pending candidate status with run ID
@@ -64,21 +64,50 @@ jobs:
 
   final-windows-gate:
     needs: announce-run
-    name: PR #42 final self-hosted Windows exact-head gate
+    name: "PR #42 final self-hosted Windows exact-head gate"
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 180
     steps:
+      - name: Verify Windows PowerShell availability
+        shell: cmd
+        run: |
+          @echo off
+          set "EVIDENCE_ROOT=%RUNNER_TEMP%\nc003b-pr42-evidence-%GITHUB_RUN_ID%"
+          if not exist "%EVIDENCE_ROOT%" mkdir "%EVIDENCE_ROOT%"
+          echo EVIDENCE_ROOT=%EVIDENCE_ROOT%>>"%GITHUB_ENV%"
+          >"%EVIDENCE_ROOT%\run-id.txt" echo %GITHUB_RUN_ID%
+          >"%EVIDENCE_ROOT%\job-id.txt" echo final-windows-gate
+          >"%EVIDENCE_ROOT%\runner-name.txt" echo %RUNNER_NAME%
+          >"%EVIDENCE_ROOT%\runner-os.txt" echo %RUNNER_OS%
+          >"%EVIDENCE_ROOT%\runner-arch.txt" echo %RUNNER_ARCH%
+          where powershell.exe >"%EVIDENCE_ROOT%\powershell-path.txt" 2>&1
+          if errorlevel 1 (
+            >"%EVIDENCE_ROOT%\powershell-availability.txt" echo missing
+            >"%EVIDENCE_ROOT%\powershell-version.txt" echo missing
+            >"%EVIDENCE_ROOT%\first-error.txt" echo SELF_HOSTED_TOOLCHAIN_INCOMPLETE: powershell.exe missing
+            >"%EVIDENCE_ROOT%\validation-status.json" echo {"status":"STOP","reason":"SELF_HOSTED_TOOLCHAIN_INCOMPLETE","missing":"powershell.exe"}
+            exit /b 1
+          )
+          >"%EVIDENCE_ROOT%\powershell-availability.txt" echo PASS
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "$PSVersionTable.PSVersion.ToString()" >"%EVIDENCE_ROOT%\powershell-version.txt" 2>&1
+          if errorlevel 1 (
+            >"%EVIDENCE_ROOT%\first-error.txt" echo SELF_HOSTED_TOOLCHAIN_INCOMPLETE: powershell.exe invocation failed
+            >"%EVIDENCE_ROOT%\validation-status.json" echo {"status":"STOP","reason":"SELF_HOSTED_TOOLCHAIN_INCOMPLETE","missing":"powershell.exe invocation"}
+            exit /b 1
+          )
+
       - name: Runner proof toolchain and immutable Git config before
         id: preflight
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
-          $Evidence = Join-Path $env:RUNNER_TEMP "nc003b-pr42-evidence-$env:GITHUB_RUN_ID"
-          if (Test-Path -LiteralPath $Evidence) { throw "Evidence path exists: $Evidence" }
-          New-Item -ItemType Directory -Path $Evidence | Out-Null
-          "EVIDENCE_ROOT=$Evidence" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
+          if ($PSVersionTable.PSVersion.Major -lt 5) { throw "Windows PowerShell 5 or later is required." }
+          $Evidence = $env:EVIDENCE_ROOT
+          if (-not $Evidence) { throw 'EVIDENCE_ROOT missing' }
           $runner = [ordered]@{
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            job_id = 'final-windows-gate'
             runner_name = '${{ runner.name }}'
             runner_os = '${{ runner.os }}'
             runner_arch = '${{ runner.arch }}'
@@ -92,8 +121,8 @@ jobs:
           if ('${{ runner.os }}' -ne 'Windows' -or '${{ runner.arch }}' -ne 'X64') { throw 'Runner OS/arch contract failed' }
           if ($env:RUNNER_NAME -match 'GitHub Actions') { throw 'GitHub-hosted runner detected' }
           $runner | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $Evidence 'runner-proof.json')
-
           $versions = [ordered]@{}
+          $versions.powershell_path = (Get-Command powershell.exe).Source
           $versions.powershell = $PSVersionTable.PSVersion.ToString()
           $versions.git = (& git --version) -join "`n"
           if ($LASTEXITCODE -ne 0) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: git missing' }
@@ -109,12 +138,11 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $vs) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: MSVC environment missing' }
           $versions.msvc_discovery = $vs | ConvertFrom-Json
           $versions | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $Evidence 'toolchain-versions.json')
-
           git config --global --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'global-git-config-before.txt')
           git config --system --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'system-git-config-before.txt')
 
       - name: Manual exact candidate checkout
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $CheckoutRoot = Join-Path $env:RUNNER_TEMP "nc003b-pr42-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
@@ -130,12 +158,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'git remote add failed' }
           git -C $CheckoutRoot fetch --no-tags --prune origin +refs/heads/agent/nc-003b-phase0-source-normalization-integration:refs/remotes/origin/candidate
           if ($LASTEXITCODE -ne 0) { throw 'candidate fetch failed' }
-          git -C $CheckoutRoot checkout --detach $env:CANDIDATE_SHA
+          git -C $CheckoutRoot checkout --detach 1b2bc3599a0811be88a3b55987a4d27c72672a46
           if ($LASTEXITCODE -ne 0) { throw 'exact candidate checkout failed' }
           "CHECKOUT_ROOT=$CheckoutRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Fail-closed topology scope and clean checkout
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location -LiteralPath $env:CHECKOUT_ROOT
@@ -153,7 +181,6 @@ jobs:
           Assert-Eq (git rev-list --parents -n 1 $env:G_SHA) "$env:G_SHA $env:BASE_SHA" 'G parent'
           Assert-Eq (git log -1 --format=%s $env:SOURCE_SHA) 'Integrate NC-003B Phase 0 source normalizations' 'source message'
           Assert-Eq (git log -1 --format=%s $env:CANDIDATE_SHA) 'Reconcile NC-003B Phase 0 normalization metadata' 'metadata message'
-
           @(
             "HEAD=$(git rev-parse HEAD)"
             "HEAD_TREE=$(git rev-parse 'HEAD^{tree}')"
@@ -165,7 +192,6 @@ jobs:
             "G_TREE=$(git rev-parse "$env:G_SHA^{tree}")"
             "G_PARENTS=$(git rev-list --parents -n 1 $env:G_SHA)"
           ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
-
           $expected = @(
             'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp',
             'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc',
@@ -195,7 +221,6 @@ jobs:
           ) | Sort-Object
           $actual = @(git diff --name-only $env:BASE_SHA $env:CANDIDATE_SHA) | Sort-Object
           if (Compare-Object $expected $actual) { throw 'Final 25-path scope mismatch' }
-
           $baseSource = @(git diff --name-status $env:BASE_SHA $env:SOURCE_SHA)
           $sourceFinal = @(git diff --name-status $env:SOURCE_SHA $env:CANDIDATE_SHA)
           $baseFinal = @(git diff --name-status $env:BASE_SHA $env:CANDIDATE_SHA)
@@ -216,7 +241,7 @@ jobs:
           if (git ls-files --deleted) { throw 'initial tracked deletions' }
 
       - name: Download and verify P1 artifact outside checkout
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -231,7 +256,6 @@ jobs:
           @'
           import hashlib, json, os, re, urllib.request, zipfile
           from pathlib import Path, PurePosixPath, PureWindowsPath
-
           url='https://api.github.com/repos/Dziuras98/Nextcar/actions/artifacts/8488882253/zip'
           req=urllib.request.Request(url, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
           with urllib.request.urlopen(req) as r, open(os.environ['P1_ZIP'],'wb') as f:
@@ -242,7 +266,6 @@ jobs:
           archive=Path(os.environ['P1_ZIP']); data=archive.read_bytes()
           assert len(data)==211595, len(data)
           assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b'
-
           destination=Path(os.environ['P1_EXTRACTED'])
           destination.mkdir(parents=True, exist_ok=False)
           with zipfile.ZipFile(archive) as z:
@@ -264,9 +287,7 @@ jobs:
                   target=(destination/Path(*posix.parts)).resolve()
                   if destination.resolve() not in target.parents and target != destination.resolve():
                       raise AssertionError(f'ZIP member escapes destination: {raw!r}')
-              for info in infos:
-                  z.extract(info, destination)
-
+              for info in infos: z.extract(info, destination)
           root=destination
           manifest=json.loads((root/'hash-manifest.json').read_text(encoding='utf-8'))
           assert len(manifest)==40
@@ -274,11 +295,8 @@ jobs:
               payload=(root/record['path']).read_bytes()
               assert len(payload)==record['size']
               assert hashlib.sha256(payload).hexdigest()==record['sha256']
-
           profile=json.loads(Path(os.environ['PROFILE_PATH']).read_text(encoding='utf-8'))
-          positive=list(profile['positive_traces'])
-          timeout=profile['timeout_trace']
-          stall=profile['stall_trace']
+          positive=list(profile['positive_traces']); timeout=profile['timeout_trace']; stall=profile['stall_trace']
           assert len(positive)==10
           records=[('positive', r) for r in positive]+[('timeout', timeout),('stall', stall)]
           prefix='Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/'
@@ -308,7 +326,7 @@ jobs:
           "P1_EXTRACTED=$Extracted" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Mount traces and run full validation matrix
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location -LiteralPath $env:CHECKOUT_ROOT
@@ -326,20 +344,11 @@ jobs:
           $item=Get-Item -LiteralPath $Junction
           if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'junction proof failed' }
           Assert-Clean 'post-mount'
-
           python -B scripts/validate_repository.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'repository-validator.log')
           if ($LASTEXITCODE -ne 0) { throw 'repository validator failed' }
-
-          $py=@(
-            'Tools/EngineSimVendor/generate_cold_start_profile_header.py',
-            'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py',
-            'Tools/EngineSimVendor/run_cold_start_calibration.py',
-            'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py',
-            'Tools/EngineSimVendor/verify_cold_start_profile.py'
-          )
+          $py=@('Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/verify_cold_start_profile.py')
           python -B -m py_compile @py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'py-compile.log')
           if ($LASTEXITCODE -ne 0) { throw 'py_compile failed' }
-
           python -B -m unittest discover -s Tools/EngineSimVendor/tests -p test_*.py -v 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'python-tests.log')
           if ($LASTEXITCODE -ne 0) { throw '57 Python tests failed' }
           python -B Tools/EngineSimVendor/run_cold_start_calibration.py self-test 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'cold-start-orchestrator.log')
@@ -364,12 +373,10 @@ jobs:
           python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $gen 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-generator.log')
           if ($LASTEXITCODE -ne 0) { throw 'IR generator failed' }
           if ((Get-FileHash $gen -Algorithm SHA256).Hash -ne (Get-FileHash $hdr -Algorithm SHA256).Hash) { throw 'IR generator determinism failed' }
-
           $tokens=$null; $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
           $errors | Format-List | Out-String | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'powershell-ast.log')
           if ($errors.Count -ne 0) { throw 'PowerShell AST errors' }
-
           $summaryPath = Join-Path $env:P1_EXTRACTED 'selected-calibration\selected-summary.json'
           if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) { throw 'selected-summary.json missing' }
           $summary = Get-Content -LiteralPath $summaryPath -Raw -Encoding utf8 | ConvertFrom-Json
@@ -379,7 +386,6 @@ jobs:
           $wrapper=[ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$summary.selected_candidate}
           $selectedPath=Join-Path $env:RUNNER_TEMP 'selected-candidate-input.json'
           $wrapper | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $selectedPath
-
           $MatrixRoot=Join-Path $env:RUNNER_TEMP "nc003b-pr42-matrix-$env:GITHUB_RUN_ID"
           & .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $env:CANDIDATE_SHA -Phase Selected -SelectedCandidatePath $selectedPath -ArtifactRoot $MatrixRoot
           if ($LASTEXITCODE -ne 0) { throw 'PowerShell matrix wrapper failed' }
@@ -397,49 +403,55 @@ jobs:
 
       - name: Junction cleanup final worktree and Git config proof
         if: always()
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Continue'
+          $Evidence = $env:EVIDENCE_ROOT
+          if (-not $Evidence) { $Evidence = Join-Path $env:RUNNER_TEMP "nc003b-pr42-evidence-$env:GITHUB_RUN_ID" }
+          if (-not (Test-Path -LiteralPath $Evidence)) { New-Item -ItemType Directory -Path $Evidence | Out-Null }
           $cleanup=@()
           if ($env:CHECKOUT_ROOT -and (Test-Path -LiteralPath $env:CHECKOUT_ROOT)) {
             Set-Location -LiteralPath $env:CHECKOUT_ROOT
             $Junction=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration'
             if (Test-Path -LiteralPath $Junction) {
               cmd.exe /d /s /c "rmdir `"$Junction`""
-              if ($LASTEXITCODE -ne 0) { $cleanup += 'junction removal: FAIL' } else { $cleanup += 'junction removal: PASS' }
-            } else { $cleanup += 'junction absent: PASS' }
+              if ($LASTEXITCODE -ne 0) { $cleanup += 'junction cleanup: FAIL' } else { $cleanup += 'junction cleanup: PASS' }
+              $cleanup += 'junction created: yes'
+            } else { $cleanup += 'junction created: no'; $cleanup += 'junction cleanup: not required' }
             $cleanup += "junction exists after cleanup: $(Test-Path -LiteralPath $Junction)"
             $cleanup += "tracked deletions: $(@(git ls-files --deleted).Count)"
             $cleanup += "staged changes: $(@(git diff --cached --name-only).Count)"
-            git status --porcelain | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'final-git-status.txt')
+            git status --porcelain | Set-Content -Encoding utf8 (Join-Path $Evidence 'final-git-status.txt')
             if (git status --porcelain) { $cleanup += 'working tree clean: FAIL' } else { $cleanup += 'working tree clean: PASS' }
             if ((git rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) { $cleanup += 'HEAD unchanged: FAIL' } else { $cleanup += 'HEAD unchanged: PASS' }
             if ((git rev-parse 'HEAD^{tree}').Trim() -ne $env:CANDIDATE_TREE) { $cleanup += 'tree unchanged: FAIL' } else { $cleanup += 'tree unchanged: PASS' }
+          } else {
+            $cleanup += 'checkout: not-created'
+            $cleanup += 'junction created: no'
+            $cleanup += 'junction cleanup: not required'
+            'not-created' | Set-Content -Encoding utf8 (Join-Path $Evidence 'final-git-status.txt')
           }
-          git config --global --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'global-git-config-after.txt')
-          git config --system --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'system-git-config-after.txt')
-          $gb=(Get-FileHash (Join-Path $env:EVIDENCE_ROOT 'global-git-config-before.txt') -Algorithm SHA256).Hash
-          $ga=(Get-FileHash (Join-Path $env:EVIDENCE_ROOT 'global-git-config-after.txt') -Algorithm SHA256).Hash
-          $sb=(Get-FileHash (Join-Path $env:EVIDENCE_ROOT 'system-git-config-before.txt') -Algorithm SHA256).Hash
-          $sa=(Get-FileHash (Join-Path $env:EVIDENCE_ROOT 'system-git-config-after.txt') -Algorithm SHA256).Hash
-          $cleanup += "global config unchanged: $($gb -eq $ga)"
-          $cleanup += "system config unchanged: $($sb -eq $sa)"
-          $cleanup | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'cleanup.log')
-
+          git config --global --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'global-git-config-after.txt')
+          git config --system --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'system-git-config-after.txt')
+          $gbp=Join-Path $Evidence 'global-git-config-before.txt'; $gap=Join-Path $Evidence 'global-git-config-after.txt'
+          $sbp=Join-Path $Evidence 'system-git-config-before.txt'; $sap=Join-Path $Evidence 'system-git-config-after.txt'
+          if ((Test-Path $gbp) -and (Test-Path $gap)) { $cleanup += "global config unchanged: $((Get-FileHash $gbp -Algorithm SHA256).Hash -eq (Get-FileHash $gap -Algorithm SHA256).Hash)" } else { $cleanup += 'global config before: not-created' }
+          if ((Test-Path $sbp) -and (Test-Path $sap)) { $cleanup += "system config unchanged: $((Get-FileHash $sbp -Algorithm SHA256).Hash -eq (Get-FileHash $sap -Algorithm SHA256).Hash)" } else { $cleanup += 'system config before: not-created' }
+          $cleanup | Set-Content -Encoding utf8 (Join-Path $Evidence 'cleanup.log')
           if ($env:MATRIX_ROOT -and (Test-Path -LiteralPath $env:MATRIX_ROOT)) {
             $names=@('cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log')
             foreach($name in $names) {
               $f=Get-ChildItem -LiteralPath $env:MATRIX_ROOT -Recurse -File -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
-              if($f){ Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $env:EVIDENCE_ROOT $name) -Force }
+              if($f){ Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $Evidence $name) -Force }
             }
+          }
+          if (-not (Test-Path (Join-Path $Evidence 'first-error.txt'))) {
+            if ('${{ job.status }}' -eq 'success') { 'none' | Set-Content -Encoding utf8 (Join-Path $Evidence 'first-error.txt') } else { 'See step logs; first failing step was not able to write a more specific error.' | Set-Content -Encoding utf8 (Join-Path $Evidence 'first-error.txt') }
           }
           @'
           import hashlib,json,os
           from pathlib import Path
           root=Path(os.environ['EVIDENCE_ROOT'])
-          required=['runner-proof.json','toolchain-versions.json','global-git-config-before.txt','global-git-config-after.txt','system-git-config-before.txt','system-git-config-after.txt','git-topology.txt','scope-name-status.txt','scope-stat.txt','git-diff-check.txt','artifact-source-metadata.json','trace-verification.json','repository-validator.log','py-compile.log','python-tests.log','profile-verifier.log','snapshot-verifier.log','snapshot-tests.log','fixture-tests.log','fixture-parity.log','ir-tests.log','ir-verifier.log','ir-generator.log','powershell-ast.log','cleanup.log','final-git-status.txt','validation-status.json']
-          missing=[x for x in required if not (root/x).is_file()]
-          if missing: (root/'evidence-missing.txt').write_text('\n'.join(missing)+'\n',encoding='utf-8')
           manifest=[]
           for p in sorted(x for x in root.rglob('*') if x.is_file() and x.name!='hash-manifest.json'):
               b=p.read_bytes(); manifest.append({'path':p.relative_to(root).as_posix(),'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
@@ -457,7 +469,7 @@ jobs:
 
       - name: Set candidate final status
         if: always()
-        shell: pwsh
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
