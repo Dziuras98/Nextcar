@@ -1,6 +1,4 @@
-# manual-trigger: 2026-07-24
-# literal artifact paths and deterministic evidence package
-name: "NC-003B PR42 final self-hosted Windows gate"
+name: "NC-003B PR42 artifact transport diagnostics"
 
 on:
   push:
@@ -15,276 +13,234 @@ permissions:
   statuses: write
 
 env:
-  PYTHONDONTWRITEBYTECODE: "1"
   CANDIDATE_SHA: 1b2bc3599a0811be88a3b55987a4d27c72672a46
-  CANDIDATE_TREE: 242fd115c2935367dc34d1185c4fe9cf25a0a6a7
-  BASE_SHA: 3c67a53a1c2a8d940736e21218cfd89a0b9870b6
-  SOURCE_SHA: 8548a70387aa36d9b567652eee4cd0f1319d527a
-  SOURCE_TREE: 69f3faa5d1b82dddab1d9985ab8da0b9fae1cddc
-  B_SHA: baff818ad6cce157dbcd94088d74f4a2c22c16fb
-  B_TREE: 22c8ffe428b96b60c0bc401bbc3ff22bdddf97f5
-  G_SHA: ab70fb2b0227e4274387357145e734d7d2fde29a
-  G_TREE: 6b4a9479ba764754ea4f59cc11fb3fe6cae981c9
-  STATUS_CONTEXT: NC-003B Phase 0 / Final self-hosted Windows exact-head gate
+  DIAGNOSTIC_CONTEXT: NC-003B Phase 0 / Artifact transport diagnostics
 
 jobs:
-  announce-run:
-    name: "Announce PR #42 final Windows run"
+  control-artifact-probe:
+    name: "GitHub-hosted artifact control probe"
     runs-on: ubuntu-latest
+    outputs:
+      upload_outcome: ${{ steps.control-upload.outcome }}
     steps:
-      - name: Publish pending candidate status with run ID
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Create control probe
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, os, urllib.request
-          body=json.dumps({"state":"pending","context":os.environ["STATUS_CONTEXT"],"description":"Self-hosted Windows exact-head validation queued","target_url":f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method="POST",headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"})
-          with urllib.request.urlopen(req) as r:
-              assert r.status == 201
-          PY
+          cat > control-probe.txt <<EOF
+          repository=Dziuras98/Nextcar
+          run_id=${GITHUB_RUN_ID}
+          runner=github-hosted
+          purpose=artifact-control-probe
+          EOF
+          test -f control-probe.txt
+          wc -c control-probe.txt
+      - name: Upload GitHub-hosted artifact control probe
+        id: control-upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: NC-003B-artifact-control-probe-${{ github.run_id }}
+          path: control-probe.txt
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
 
-  final-windows-gate:
-    needs: announce-run
-    name: "PR #42 final self-hosted Windows exact-head gate"
+  self-hosted-network-diagnostics:
+    name: "Self-hosted artifact network diagnostics"
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
-    timeout-minutes: 180
-    env:
-      EVIDENCE_ROOT: ${{ github.workspace }}\_nc003b_pr42_evidence_${{ github.run_id }}_${{ github.run_attempt }}
-      PACKAGE_ROOT: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}
-      PROBE_ROOT: ${{ github.workspace }}\_nc003b_artifact_probe_${{ github.run_id }}_${{ github.run_attempt }}
+    timeout-minutes: 30
+    outputs:
+      runner_version: ${{ steps.runner-info.outputs.runner_version }}
     steps:
-      - name: Initialize static evidence path and verify Windows PowerShell
+      - name: Runner and PowerShell information
+        id: runner-info
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $ErrorActionPreference='Stop'
-          $Evidence=$env:EVIDENCE_ROOT
-          if ([string]::IsNullOrWhiteSpace($Evidence)) { throw 'Static EVIDENCE_ROOT is unavailable.' }
-          if (Test-Path -LiteralPath $Evidence) { throw "Unique evidence directory already exists: $Evidence" }
-          New-Item -ItemType Directory -Path $Evidence | Out-Null
-          $env:GITHUB_RUN_ID | Set-Content -Encoding utf8 (Join-Path $Evidence 'run-id.txt')
-          $env:GITHUB_RUN_ATTEMPT | Set-Content -Encoding utf8 (Join-Path $Evidence 'run-attempt.txt')
-          'final-windows-gate' | Set-Content -Encoding utf8 (Join-Path $Evidence 'job-id.txt')
-          $env:RUNNER_NAME | Set-Content -Encoding utf8 (Join-Path $Evidence 'runner-name.txt')
-          $env:RUNNER_OS | Set-Content -Encoding utf8 (Join-Path $Evidence 'runner-os.txt')
-          $env:RUNNER_ARCH | Set-Content -Encoding utf8 (Join-Path $Evidence 'runner-arch.txt')
-          $cmd=Get-Command powershell.exe -ErrorAction Stop
-          $cmd.Source | Set-Content -Encoding utf8 (Join-Path $Evidence 'powershell-path.txt')
-          $PSVersionTable.PSVersion.ToString() | Set-Content -Encoding utf8 (Join-Path $Evidence 'powershell-version.txt')
-          'PASS' | Set-Content -Encoding utf8 (Join-Path $Evidence 'powershell-availability.txt')
+          $ErrorActionPreference = 'Continue'
+          Write-Host "runner_name=$env:RUNNER_NAME"
+          Write-Host "runner_os=$env:RUNNER_OS"
+          Write-Host "runner_arch=$env:RUNNER_ARCH"
+          Write-Host "windows_account=$(whoami)"
+          Write-Host "powershell_version=$($PSVersionTable.PSVersion)"
+          Write-Host "utc_time=$([DateTime]::UtcNow.ToString('o'))"
+          Write-Host "local_time=$([DateTime]::Now.ToString('o'))"
+          Write-Host "time_zone=$([TimeZoneInfo]::Local.Id)"
+          $runnerVersion = 'unknown'
+          $diag = Join-Path $env:RUNNER_TEMP '_diag'
+          if (Test-Path $diag) {
+            $runnerVersion = (Get-Content $diag -Raw -ErrorAction SilentlyContinue)
+          }
+          "runner_version=$runnerVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Runner proof toolchain and immutable Git config before
+      - name: Safe Actions environment and proxy diagnostics
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $ErrorActionPreference='Stop'; $Evidence=$env:EVIDENCE_ROOT
-          $runner=[ordered]@{run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;job_id='final-windows-gate';runner_name='${{ runner.name }}';runner_os='${{ runner.os }}';runner_arch='${{ runner.arch }}';required_labels=@('self-hosted','Windows','X64','unreal-5.8')}
-          if ($runner.runner_name -ne 'DESKTOP-P4CTGHS' -or $runner.runner_os -ne 'Windows' -or $runner.runner_arch -ne 'X64') { throw 'Runner contract failed' }
-          $runner | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $Evidence 'runner-proof.json')
-          $v=[ordered]@{powershell_path=(Get-Command powershell.exe).Source;powershell=$PSVersionTable.PSVersion.ToString();git=((& git --version)-join "`n");python=((& python --version 2>&1)-join "`n");cmake=((& cmake --version 2>&1)-join "`n");ctest=((& ctest --version 2>&1)-join "`n")}
-          $vswhere="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"; if(-not(Test-Path $vswhere)){throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: vswhere missing'}
-          $v.msvc_discovery=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)
-          $v | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $Evidence 'toolchain-versions.json')
-          git config --global --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'global-git-config-before.txt')
-          git config --system --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'system-git-config-before.txt')
+          $ErrorActionPreference = 'Continue'
+          $names = @(
+            'ACTIONS_RESULTS_URL',
+            'ACTIONS_RUNTIME_URL',
+            'ACTIONS_CACHE_URL',
+            'ACTIONS_RUNTIME_TOKEN',
+            'GITHUB_TOKEN',
+            'HTTP_PROXY',
+            'HTTPS_PROXY',
+            'NO_PROXY'
+          )
+          foreach ($name in $names) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ($name -match 'TOKEN') {
+              Write-Host "$name present=$(-not [string]::IsNullOrWhiteSpace($value))"
+              continue
+            }
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              Write-Host "$name present=false"
+              continue
+            }
+            if ($name -match '_URL$') {
+              try {
+                $uri = [Uri]$value
+                Write-Host ("{0} present=true scheme={1} host={2} port={3} path={4}" -f $name,$uri.Scheme,$uri.Host,$uri.Port,$uri.AbsolutePath)
+              } catch {
+                Write-Host "$name present=true parse=failed"
+              }
+              continue
+            }
+            Write-Host "$name present=true"
+          }
+          Write-Host 'WINHTTP_PROXY_BEGIN'
+          netsh winhttp show proxy
+          Write-Host 'WINHTTP_PROXY_END'
+          Write-Host "windows_account=$(whoami)"
 
-      - name: Prepare artifact service probe
+      - name: DNS TCP TLS and HTTP diagnostics
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $ErrorActionPreference='Stop'
-          if (Test-Path -LiteralPath $env:PROBE_ROOT) { throw "Unique probe directory already exists: $env:PROBE_ROOT" }
-          New-Item -ItemType Directory -Path $env:PROBE_ROOT | Out-Null
+          $ErrorActionPreference = 'Continue'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          $targets = New-Object System.Collections.Generic.List[object]
+          function Add-Target([string]$Source,[string]$Value) {
+            if ([string]::IsNullOrWhiteSpace($Value)) { return }
+            try {
+              $u = [Uri]$Value
+              if ($u.Scheme -ne 'https') { return }
+              $targets.Add([pscustomobject]@{Source=$Source;Host=$u.Host;Uri=("{0}://{1}:{2}{3}" -f $u.Scheme,$u.Host,$u.Port,$u.AbsolutePath)})
+            } catch {
+              Write-Host "TARGET_PARSE_FAILED source=$Source"
+            }
+          }
+          foreach ($h in @('github.com','api.github.com','codeload.github.com','results-receiver.actions.githubusercontent.com')) {
+            $targets.Add([pscustomobject]@{Source='required';Host=$h;Uri="https://$h/"})
+          }
+          Add-Target 'ACTIONS_RESULTS_URL' $env:ACTIONS_RESULTS_URL
+          Add-Target 'ACTIONS_RUNTIME_URL' $env:ACTIONS_RUNTIME_URL
+          Add-Target 'ACTIONS_CACHE_URL' $env:ACTIONS_CACHE_URL
+          $targets = @($targets | Sort-Object Host,Uri -Unique)
+          foreach ($t in $targets) {
+            Write-Host "=== TARGET source=$($t.Source) host=$($t.Host) uri=$($t.Uri) ==="
+            try {
+              $dns = Resolve-DnsName -Name $t.Host -ErrorAction Stop
+              foreach ($r in $dns) {
+                if ($r.Type -in @('A','AAAA','CNAME')) {
+                  Write-Host ("DNS type={0} name={1} address={2} target={3}" -f $r.Type,$r.Name,$r.IPAddress,$r.NameHost)
+                }
+              }
+            } catch {
+              Write-Host "DNS_ERROR type=$($_.Exception.GetType().FullName)"
+              Write-Host "DNS_ERROR message=$($_.Exception.Message)"
+            }
+            try {
+              $tcp = Test-NetConnection -ComputerName $t.Host -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
+              Write-Host "TCP RemoteAddress=$($tcp.RemoteAddress)"
+              Write-Host "TCP NameResolutionResults=$(@($tcp.NameResolutionResults) -join ',')"
+              Write-Host "TCP TcpTestSucceeded=$($tcp.TcpTestSucceeded)"
+              Write-Host "TCP SourceAddress=$($tcp.SourceAddress)"
+              Write-Host "TCP InterfaceAlias=$($tcp.InterfaceAlias)"
+            } catch {
+              Write-Host "TCP_ERROR type=$($_.Exception.GetType().FullName)"
+              Write-Host "TCP_ERROR message=$($_.Exception.Message)"
+            }
+            try {
+              $response = Invoke-WebRequest -Uri $t.Uri -Method Head -UseBasicParsing -TimeoutSec 30
+              Write-Host "HTTP_SUCCESS status=$($response.StatusCode)"
+            } catch {
+              $response = $_.Exception.Response
+              if ($null -ne $response) {
+                Write-Host "HTTP_REACHABLE status=$([int]$response.StatusCode)"
+              } else {
+                Write-Host "HTTP_FAILED type=$($_.Exception.GetType().FullName)"
+                Write-Host "HTTP_FAILED message=$($_.Exception.Message)"
+              }
+            }
+          }
+
+      - name: Certificate store inventory
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Get-ChildItem Cert:\LocalMachine\Root |
+            Select-Object Subject, Thumbprint, NotBefore, NotAfter |
+            Format-Table -AutoSize
+
+  self-hosted-artifact-probe:
+    name: "Self-hosted artifact upload probe"
+    needs:
+      - control-artifact-probe
+      - self-hosted-network-diagnostics
+    runs-on: [self-hosted, Windows, X64, unreal-5.8]
+    timeout-minutes: 20
+    steps:
+      - name: Create literal self-hosted probe
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "${{ github.workspace }}\_nc003b_selfhosted_probe_${{ github.run_id }}"
+          $file = Join-Path $root 'probe.txt'
+          if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          New-Item -ItemType Directory -Path $root | Out-Null
           @(
             'repository=Dziuras98/Nextcar'
             "run_id=$env:GITHUB_RUN_ID"
-            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
-            'runner=DESKTOP-P4CTGHS'
-            'purpose=artifact-service-probe'
-          ) | Set-Content -Encoding utf8 (Join-Path $env:PROBE_ROOT 'probe.txt')
+            'runner=self-hosted'
+            'purpose=artifact-self-hosted-probe'
+          ) | Set-Content -LiteralPath $file -Encoding utf8
+          Write-Host "probe_path=$file"
+          Write-Host "probe_exists=$(Test-Path -LiteralPath $file)"
+          Get-Item -LiteralPath $file | Format-List FullName,Length,CreationTimeUtc,LastWriteTimeUtc
 
-      - name: Upload artifact service probe
+      - name: Upload self-hosted artifact probe
+        id: self-upload
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: NC-003B-artifact-service-probe-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}\_nc003b_artifact_probe_${{ github.run_id }}_${{ github.run_attempt }}\probe.txt
+          name: NC-003B-self-hosted-artifact-probe-${{ github.run_id }}
+          path: ${{ github.workspace }}\_nc003b_selfhosted_probe_${{ github.run_id }}\probe.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
 
-      - name: Manual exact candidate checkout
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Stop'
-          $CheckoutRoot=Join-Path $env:RUNNER_TEMP "nc003b-pr42-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"; if(Test-Path $CheckoutRoot){throw 'Unique checkout path exists'}
-          git init $CheckoutRoot; git -C $CheckoutRoot config --local core.autocrlf false; git -C $CheckoutRoot config --local core.eol lf
-          git -C $CheckoutRoot remote add origin https://github.com/Dziuras98/Nextcar.git
-          git -C $CheckoutRoot fetch --no-tags --prune origin +refs/heads/agent/nc-003b-phase0-source-normalization-integration:refs/remotes/origin/candidate
-          git -C $CheckoutRoot checkout --detach $env:CANDIDATE_SHA
-          if($LASTEXITCODE -ne 0){throw 'exact candidate checkout failed'}
-          "CHECKOUT_ROOT=$CheckoutRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Fail-closed topology scope and clean checkout
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Stop'; Set-Location $env:CHECKOUT_ROOT
-          function Eq($a,$e,$n){if(([string]$a).Trim() -ne $e){throw "$n mismatch"}}
-          Eq (git rev-parse HEAD) $env:CANDIDATE_SHA 'HEAD'; Eq (git rev-parse 'HEAD^{tree}') $env:CANDIDATE_TREE 'tree'; Eq (git rev-list --parents -n 1 HEAD) "$env:CANDIDATE_SHA $env:SOURCE_SHA" 'candidate parents'
-          Eq (git rev-parse "$env:SOURCE_SHA^{tree}") $env:SOURCE_TREE 'source tree'; Eq (git rev-list --parents -n 1 $env:SOURCE_SHA) "$env:SOURCE_SHA $env:B_SHA $env:G_SHA" 'source ordered parents'
-          Eq (git rev-parse "$env:B_SHA^{tree}") $env:B_TREE 'B tree'; Eq (git rev-parse "$env:G_SHA^{tree}") $env:G_TREE 'G tree'
-          @("HEAD=$(git rev-parse HEAD)","HEAD_TREE=$(git rev-parse 'HEAD^{tree}')","SOURCE_PARENTS=$(git rev-list --parents -n 1 $env:SOURCE_SHA)") | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
-          $s1=@(git diff --name-status $env:BASE_SHA $env:SOURCE_SHA); $s2=@(git diff --name-status $env:SOURCE_SHA $env:CANDIDATE_SHA); $s3=@(git diff --name-status $env:BASE_SHA $env:CANDIDATE_SHA)
-          function C($x){[ordered]@{m=@($x|?{$_ -match '^M\s'}).Count;d=@($x|?{$_ -match '^D\s'}).Count;p=$x.Count;r=@($x|?{$_ -match '^[RC]'}).Count}}
-          $a=C $s1;$b=C $s2;$c=C $s3; if($a.m-ne 8-or$a.d-ne 13-or$a.p-ne 21-or$b.m-ne 4-or$b.d-ne 0-or$b.p-ne 4-or$c.m-ne 12-or$c.d-ne 13-or$c.p-ne 25-or$a.r-or$b.r-or$c.r){throw 'scope matrix mismatch'}
-          $s3 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-name-status.txt'); git diff --stat $env:BASE_SHA $env:CANDIDATE_SHA | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-stat.txt')
-          git diff --check $env:BASE_SHA $env:CANDIDATE_SHA 2>&1 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-diff-check.txt'); if($LASTEXITCODE){throw 'git diff --check failed'}
-          if(git status --porcelain){throw 'initial worktree not clean'}
-
-      - name: Download and verify P1 artifact outside checkout
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Stop'; $Root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-p1-$env:GITHUB_RUN_ID"; New-Item -ItemType Directory $Root|Out-Null
-          $env:P1_ZIP=Join-Path $Root artifact.zip; $env:P1_EXTRACTED=Join-Path $Root extracted; $env:PROFILE_PATH=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
-          @'
-          import hashlib,json,os,urllib.request,zipfile
-          from pathlib import Path,PurePosixPath,PureWindowsPath
-          req=urllib.request.Request('https://api.github.com/repos/Dziuras98/Nextcar/actions/artifacts/8488882253/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
-          with urllib.request.urlopen(req) as r,open(os.environ['P1_ZIP'],'wb') as f:
-              while b:=r.read(1048576): f.write(b)
-          zpath=Path(os.environ['P1_ZIP']); data=zpath.read_bytes(); assert len(data)==211595; assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b'
-          out=Path(os.environ['P1_EXTRACTED']); out.mkdir()
-          with zipfile.ZipFile(zpath) as z:
-              infos=z.infolist(); assert len(infos)==41; seen=set()
-              for i in infos:
-                  p=PurePosixPath(i.filename.replace('\\','/')); w=PureWindowsPath(i.filename); assert i.filename and not w.is_absolute() and not w.drive and all(x not in ('','.','..') for x in p.parts); n='/'.join(p.parts).casefold(); assert n not in seen; seen.add(n)
-              z.extractall(out)
-          m=json.loads((out/'hash-manifest.json').read_text('utf-8')); assert len(m)==40
-          for r in m:
-              b=(out/r['path']).read_bytes(); assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
-          profile=json.loads(Path(os.environ['PROFILE_PATH']).read_text('utf-8')); rows=[('positive',x) for x in profile['positive_traces']]+[('timeout',profile['timeout_trace']),('stall',profile['stall_trace'])]; verified=[]
-          prefix='Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/'
-          for kind,r in rows:
-              rel=r['path'].replace('\\','/')[len(prefix):]; p=out/'selected-calibration'/rel; json.loads(p.read_text('utf-8')); h=hashlib.sha256(p.read_bytes()).hexdigest(); exp=r.get('sha256') or r.get('sha256_hex') or r.get('hash'); assert h.lower()==exp.lower(); verified.append({'kind':kind,'canonical_path':r['path'],'sha256':h})
-          meta={'source_run':29814599329,'artifact_id':8488882253,'zip_size':211595,'zip_sha256':hashlib.sha256(data).hexdigest(),'members':41,'manifest_entries':40,'manifest_pass':'40/40','positive':'10/10','timeout':'1/1','stall':'1/1','total':'12/12'}
-          Path(os.environ['EVIDENCE_ROOT'],'artifact-source-metadata.json').write_text(json.dumps(meta,indent=2)+'\n'); Path(os.environ['EVIDENCE_ROOT'],'trace-verification.json').write_text(json.dumps({'result':'PASS','records':verified},indent=2)+'\n')
-          '@ | python -
-          if($LASTEXITCODE){throw 'P1 verification failed'}
-          "P1_EXTRACTED=$env:P1_EXTRACTED"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Mount traces and run full validation matrix
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Stop'; Set-Location $env:CHECKOUT_ROOT
-          $Junction=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration'; $Target=Join-Path $env:P1_EXTRACTED 'selected-calibration'; New-Item -ItemType Junction -Path $Junction -Target $Target|Out-Null
-          python -B scripts/validate_repository.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'repository-validator.log'); if($LASTEXITCODE){throw 'repository validator failed'}
-          $py=@('Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/verify_cold_start_profile.py')
-          python -B -m py_compile @py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'py-compile.log'); if($LASTEXITCODE){throw 'py_compile failed'}
-          python -B -m unittest discover -s Tools/EngineSimVendor/tests -p test_*.py -v 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'python-tests.log'); if($LASTEXITCODE){throw 'Python tests failed'}
-          python -B Tools/EngineSimVendor/run_cold_start_calibration.py self-test 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'cold-start-orchestrator.log'); if($LASTEXITCODE){throw 'cold-start self-test failed'}
-          python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root . 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'profile-verifier.log'); if($LASTEXITCODE){throw 'profile verifier failed'}
-          python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-verifier.log'); if($LASTEXITCODE){throw 'snapshot verifier failed'}
-          python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-tests.log'); if($LASTEXITCODE){throw 'snapshot tests failed'}
-          python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-tests.log'); if($LASTEXITCODE){throw 'fixture tests failed'}
-          python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-parity.log'); if($LASTEXITCODE){throw 'fixture parity failed'}
-          python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-tests.log'); if($LASTEXITCODE){throw 'IR tests failed'}
-          $wav='Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav';$hdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h'
-          python -B Tools/EngineSimVendor/verify_impulse_response.py --wav $wav --header $hdr --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-verifier.log'); if($LASTEXITCODE){throw 'IR verifier failed'}
-          $gen=Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'; python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $gen 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-generator.log'); if((Get-FileHash $gen).Hash-ne(Get-FileHash $hdr).Hash){throw 'IR determinism failed'}
-          $t=$null;$e=$null;[Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'),[ref]$t,[ref]$e)|Out-Null;$e|Out-String|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'powershell-ast.log');if($e.Count){throw 'PowerShell AST failed'}
-          $summary=Get-Content (Join-Path $env:P1_EXTRACTED 'selected-calibration\selected-summary.json') -Raw|ConvertFrom-Json;$selected=Join-Path $env:RUNNER_TEMP 'selected-candidate-input.json';[ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$summary.selected_candidate}|ConvertTo-Json -Depth 20|Set-Content -Encoding utf8 $selected
-          $MatrixRoot=Join-Path $env:RUNNER_TEMP "nc003b-pr42-matrix-$env:GITHUB_RUN_ID"; & .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $env:CANDIDATE_SHA -Phase Selected -SelectedCandidatePath $selected -ArtifactRoot $MatrixRoot; if($LASTEXITCODE){throw 'matrix wrapper failed'}
-          "MATRIX_ROOT=$MatrixRoot"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          Get-ChildItem -LiteralPath $MatrixRoot -Recurse -File|% FullName|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'matrix-file-tree.txt')
-          $names=@('cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log')
-          foreach($Name in $names){$matches=@(Get-ChildItem -LiteralPath $MatrixRoot -Recurse -File -Filter $Name -ErrorAction SilentlyContinue);if($matches.Count-ne 1){throw "Expected exactly one matrix evidence file '$Name'; found $($matches.Count)."};Copy-Item $matches[0].FullName (Join-Path $env:EVIDENCE_ROOT $Name)}
-          Copy-Item (Join-Path $MatrixRoot 'validation-status.json') (Join-Path $env:EVIDENCE_ROOT 'validation-status.json') -Force
-
-      - name: Junction cleanup final worktree and Git config proof
-        if: always()
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Continue';$Evidence=$env:EVIDENCE_ROOT;$c=@()
-          if($env:CHECKOUT_ROOT -and(Test-Path $env:CHECKOUT_ROOT)){Set-Location $env:CHECKOUT_ROOT;$j=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration';if(Test-Path $j){cmd /c "rmdir `"$j`"";$c+='junction cleanup: PASS'}else{$c+='junction cleanup: not required'};$c+="junction exists after cleanup: $(Test-Path $j)";$c+="tracked deletions: $(@(git ls-files --deleted).Count)";$c+="staged changes: $(@(git diff --cached --name-only).Count)";git status --porcelain|Set-Content -Encoding utf8 (Join-Path $Evidence 'final-git-status.txt');$c+=if(git status --porcelain){'working tree clean: FAIL'}else{'working tree clean: PASS'};$c+=if((git rev-parse HEAD).Trim()-eq$env:CANDIDATE_SHA){'HEAD unchanged: PASS'}else{'HEAD unchanged: FAIL'};$c+=if((git rev-parse 'HEAD^{tree}').Trim()-eq$env:CANDIDATE_TREE){'tree unchanged: PASS'}else{'tree unchanged: FAIL'}}
-          git config --global --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $Evidence 'global-git-config-after.txt');git config --system --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $Evidence 'system-git-config-after.txt')
-          $c+="global config unchanged: $((Get-FileHash (Join-Path $Evidence 'global-git-config-before.txt')).Hash-eq(Get-FileHash (Join-Path $Evidence 'global-git-config-after.txt')).Hash)";$c+="system config unchanged: $((Get-FileHash (Join-Path $Evidence 'system-git-config-before.txt')).Hash-eq(Get-FileHash (Join-Path $Evidence 'system-git-config-after.txt')).Hash)";$c|Set-Content -Encoding utf8 (Join-Path $Evidence 'cleanup.log')
-          if(-not(Test-Path (Join-Path $Evidence 'first-error.txt'))){if('${{ job.status }}'-eq'success'){'none'}else{'See failing step logs.'}|Set-Content -Encoding utf8 (Join-Path $Evidence 'first-error.txt')}
-
-      - name: Seal and verify complete evidence
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Stop';$E=$env:EVIDENCE_ROOT
-          $Required=@('run-id.txt','run-attempt.txt','job-id.txt','runner-name.txt','runner-os.txt','runner-arch.txt','powershell-path.txt','powershell-version.txt','powershell-availability.txt','runner-proof.json','toolchain-versions.json','global-git-config-before.txt','global-git-config-after.txt','system-git-config-before.txt','system-git-config-after.txt','git-topology.txt','scope-name-status.txt','scope-stat.txt','git-diff-check.txt','artifact-source-metadata.json','trace-verification.json','repository-validator.log','py-compile.log','python-tests.log','cold-start-orchestrator.log','profile-verifier.log','snapshot-verifier.log','snapshot-tests.log','fixture-tests.log','fixture-parity.log','ir-tests.log','ir-verifier.log','ir-generator.log','powershell-ast.log','matrix-file-tree.txt','cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log','cleanup.log','final-git-status.txt','validation-status.json','first-error.txt')
-          $Missing=@();foreach($n in $Required){if(-not(Test-Path (Join-Path $E $n) -PathType Leaf)){$Missing+=$n}};if($Missing.Count){$Missing|Set-Content -Encoding utf8 (Join-Path $E 'evidence-missing.txt');throw "Evidence seal failed. Missing: $($Missing-join', ')"}
-          foreach($n in $Required|?{$_-notin@('git-diff-check.txt','final-git-status.txt')}){if((Get-Item (Join-Path $E $n)).Length-le 0){throw "Empty evidence: $n"}}
-          $r=Get-Content (Join-Path $E 'runner-proof.json') -Raw|ConvertFrom-Json;if($r.runner_name-ne'DESKTOP-P4CTGHS'-or$r.runner_os-ne'Windows'-or$r.runner_arch-ne'X64'){throw 'runner semantic seal failed'}
-          $a=Get-Content (Join-Path $E 'artifact-source-metadata.json') -Raw|ConvertFrom-Json;if($a.source_run-ne29814599329-or$a.artifact_id-ne8488882253-or$a.zip_size-ne211595-or$a.members-ne41-or$a.manifest_pass-ne'40/40'-or$a.total-ne'12/12'){throw 'artifact semantic seal failed'}
-          $t=Get-Content (Join-Path $E 'trace-verification.json') -Raw|ConvertFrom-Json;if($t.result-ne'PASS'-or@($t.records).Count-ne12){throw 'trace semantic seal failed'}
-          $s=Get-Content (Join-Path $E 'validation-status.json') -Raw|ConvertFrom-Json;foreach($k in @('status','release_result','debug_result','asan_result','timeout_result','stall_result','clean_reproducibility')){if($s.$k-ne'PASS'){throw "validation $k failed"}};if($s.selected_trials_result-ne'10/10 PASS'-or[int]$s.project_warning_count-ne0){throw 'validation semantic seal failed'}
-          $cl=Get-Content (Join-Path $E 'cleanup.log') -Raw;foreach($x in @('junction cleanup: PASS','junction exists after cleanup: False','tracked deletions: 0','staged changes: 0','working tree clean: PASS','HEAD unchanged: PASS','tree unchanged: PASS','global config unchanged: True','system config unchanged: True')){if($cl-notmatch[regex]::Escape($x)){throw "cleanup semantic seal missing: $x"}}
-          $seal=[ordered]@{status='PASS';required_files=$Required.Count;actual_files_excluding_manifest=0;manifest_entries=0;missing_files=@();duplicate_paths=0;run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;candidate_sha=$env:CANDIDATE_SHA};$seal|ConvertTo-Json -Depth 5|Set-Content -Encoding utf8 (Join-Path $E 'evidence-seal.json')
-          @'
-          import hashlib,json,os
-          from pathlib import Path,PurePosixPath
-          root=Path(os.environ['EVIDENCE_ROOT'])
-          def build():
-              files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='hash-manifest.json'); rows=[]; seen=set()
-              for p in files:
-                  rel=p.relative_to(root).as_posix(); q=PurePosixPath(rel); assert not q.is_absolute() and '..' not in q.parts and rel not in seen; seen.add(rel); b=p.read_bytes(); rows.append({'path':rel,'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
-              (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n',encoding='utf-8'); return files,rows
-          files,rows=build(); seal=json.loads((root/'evidence-seal.json').read_text('utf-8-sig')); seal['actual_files_excluding_manifest']=len(files);seal['manifest_entries']=len(rows);(root/'evidence-seal.json').write_text(json.dumps(seal,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          files,rows=build(); assert len(rows)==len(files)==len({r['path'] for r in rows})
-          for r in rows:
-              b=(root/r['path']).read_bytes(); assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
-          '@|python -
-          if($LASTEXITCODE){throw 'hash manifest self-verification failed'}
-
-      - name: Build and self-verify deterministic evidence ZIP
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference='Stop'
-          if (Test-Path -LiteralPath $env:PACKAGE_ROOT) { throw "Unique package directory already exists: $env:PACKAGE_ROOT" }
-          @'
-          import hashlib,json,os
-          from pathlib import Path,PurePosixPath,PureWindowsPath
-          from zipfile import ZIP_DEFLATED,ZipFile,ZipInfo
-          source=Path(os.environ['EVIDENCE_ROOT']); target=Path(os.environ['PACKAGE_ROOT'])/'evidence.zip'; target.parent.mkdir(parents=True,exist_ok=False)
-          files=sorted(p for p in source.rglob('*') if p.is_file()); names=[p.relative_to(source).as_posix() for p in files]; assert len(names)==len(set(names))
-          with ZipFile(target,'w',compression=ZIP_DEFLATED,compresslevel=9) as archive:
-              for path,relative in zip(files,names):
-                  q=PurePosixPath(relative); w=PureWindowsPath(relative); assert relative and not q.is_absolute() and not w.is_absolute() and not w.drive and '..' not in q.parts
-                  info=ZipInfo(relative); info.date_time=(1980,1,1,0,0,0); info.compress_type=ZIP_DEFLATED; info.external_attr=0o100644<<16; info.flag_bits|=0x800
-                  archive.writestr(info,path.read_bytes(),compress_type=ZIP_DEFLATED,compresslevel=9)
-          with ZipFile(target) as archive:
-              infos=archive.infolist(); got=[i.filename for i in infos]; assert got==names and len(got)==len(set(got))==len(files)
-              for n in got:
-                  q=PurePosixPath(n); w=PureWindowsPath(n); assert n and not q.is_absolute() and not w.is_absolute() and not w.drive and '..' not in q.parts
-              manifest=json.loads(archive.read('hash-manifest.json').decode('utf-8')); assert len(manifest)==len(got)-1
-              for r in manifest:
-                  b=archive.read(r['path']); assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
-              seal=json.loads(archive.read('evidence-seal.json').decode('utf-8-sig')); status=json.loads(archive.read('validation-status.json').decode('utf-8-sig')); runner=json.loads(archive.read('runner-proof.json').decode('utf-8-sig')); art=json.loads(archive.read('artifact-source-metadata.json').decode('utf-8-sig')); traces=json.loads(archive.read('trace-verification.json').decode('utf-8-sig'))
-              assert seal['status']=='PASS' and status['status']=='PASS' and runner['runner_name']=='DESKTOP-P4CTGHS' and art['manifest_pass']=='40/40' and art['total']=='12/12' and traces['result']=='PASS'
-          data=target.read_bytes(); print(f'EVIDENCE_ZIP_SIZE={len(data)}'); print(f'EVIDENCE_ZIP_SHA256={hashlib.sha256(data).hexdigest()}'); print(f'EVIDENCE_ZIP_MEMBERS={len(names)}')
-          '@|python -
-          if($LASTEXITCODE){throw 'deterministic evidence ZIP verification failed'}
-
-      - name: Upload final evidence package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: NC-003B-PR42-final-self-hosted-windows-gate-${{ github.run_id }}-1b2bc3599a0811be88a3b55987a4d27c72672a46
-          path: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}\evidence.zip
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
-      - name: Set candidate final status
+      - name: Record probe and publish diagnostic status
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          CONTROL_OUTCOME: ${{ needs.control-artifact-probe.outputs.upload_outcome }}
+          SELF_OUTCOME: ${{ steps.self-upload.outcome }}
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $state=if('${{ job.status }}'-eq'success'){'success'}else{'failure'}
-          $description=if($state-eq'success'){'Final self-hosted Windows validation and evidence upload passed'}elseif('${{ steps.upload-probe.outcome }}'-eq'failure'){'GitHub Actions artifact service unavailable'}else{'Final Windows evidence publication failed'}
-          $body=@{state=$state;context=$env:STATUS_CONTEXT;description=$description;target_url="https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"}|ConvertTo-Json
-          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} -ContentType application/json -Body $body|Out-Null
+          $ErrorActionPreference = 'Stop'
+          Write-Host "control-upload outcome=$env:CONTROL_OUTCOME"
+          Write-Host "self-upload outcome=$env:SELF_OUTCOME"
+          Write-Host "job status=${{ job.status }}"
+          $state = if ($env:CONTROL_OUTCOME -eq 'success' -and $env:SELF_OUTCOME -eq 'success') { 'success' } else { 'failure' }
+          $description = if ($state -eq 'success') { 'Artifact transport diagnostic completed' } else { 'Artifact transport diagnostic failed' }
+          $body = @{
+            state = $state
+            context = $env:DIAGNOSTIC_CONTEXT
+            description = $description
+            target_url = "https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"
+          } | ConvertTo-Json
+          Invoke-RestMethod -Method Post `
+            -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" `
+            -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} `
+            -ContentType application/json `
+            -Body $body | Out-Null
+          if ($state -ne 'success') { throw 'Artifact transport diagnostic failed.' }
