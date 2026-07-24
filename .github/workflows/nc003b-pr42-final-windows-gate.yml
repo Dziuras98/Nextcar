@@ -19,15 +19,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Publish pending discovery status with run ID
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json,os,urllib.request
-          b=json.dumps({'state':'pending','context':os.environ['STATUS_CONTEXT'],'description':'Self-hosted Windows toolchain discovery running','target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode()
-          q=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=b,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
-          with urllib.request.urlopen(q) as r: assert r.status==201
+          import json, os, urllib.request
+          body = json.dumps({
+              'state': 'pending',
+              'context': os.environ['STATUS_CONTEXT'],
+              'description': 'Self-hosted Windows toolchain discovery running',
+              'target_url': f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          }).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",
+              data=body,
+              method='POST',
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json'
+              })
+          with urllib.request.urlopen(req) as response:
+              assert response.status == 201
           PY
 
   control-artifact-probe:
@@ -51,6 +67,18 @@ jobs:
     env:
       PSExecutionPolicyPreference: Bypass
       TOOLCHAIN_EVIDENCE_ROOT: ${{ github.workspace }}\_toolchain_discovery_${{ github.run_id }}_${{ github.run_attempt }}
+      TOOLCHAIN_UPLOAD_ROOT: ${{ github.workspace }}\_toolchain_discovery_upload_${{ github.run_id }}_${{ github.run_attempt }}
+    outputs:
+      artifact-id: ${{ steps.evidence-upload.outputs.artifact-id }}
+      artifact-url: ${{ steps.evidence-upload.outputs.artifact-url }}
+      artifact-digest: ${{ steps.evidence-upload.outputs.artifact-digest }}
+      upload-outcome: ${{ steps.evidence-upload.outcome }}
+      expected-artifact-name: ${{ steps.seal.outputs.expected_artifact_name }}
+      local-zip-name: ${{ steps.seal.outputs.local_zip_name }}
+      local-zip-sha256: ${{ steps.seal.outputs.local_zip_sha256 }}
+      local-zip-size: ${{ steps.seal.outputs.local_zip_size }}
+      evidence-file-count: ${{ steps.seal.outputs.evidence_file_count }}
+      discovery-classification: ${{ steps.seal.outputs.discovery_classification }}
     steps:
       - name: Discover and persist evidence
         id: discovery
@@ -77,33 +105,245 @@ jobs:
             $sdkDir=[string]$emap['WindowsSdkDir'];$sdkVer=[string]$emap['WindowsSDKVersion'];$sdk=[ordered]@{include_path=(Join-Path $sdkDir "Include\$sdkVer");lib_path=(Join-Path $sdkDir "Lib\$sdkVer");bin_path=(Join-Path $sdkDir "bin\$sdkVer");include_exists=$false;lib_exists=$false;bin_exists=$false};$sdk.include_exists=Test-Path $sdk.include_path;$sdk.lib_exists=Test-Path $sdk.lib_path;$sdk.bin_exists=Test-Path $sdk.bin_path
             $msErr=$null;if($vdExit-ne0){$msErr="VsDevCmd exit $vdExit"}elseif(-not$cl){$msErr='cl.exe not found'}elseif($clExit-notin@(0,2)){$msErr="cl.exe exit $clExit"}elseif(-not($sdk.include_exists-and$sdk.lib_exists-and$sdk.bin_exists)){$msErr='Windows SDK evidence incomplete'}
             $ms=[ordered]@{status=$(if($msErr){'FAIL'}else{'PASS'});classification=$(if($msErr){'MSVC_INCOMPLETE'}else{'MSVC_PASS'});first_error=$msErr;vswhere_path=$vswhere;all_instances=$rows;selected_installation_path=$sv.installationPath;installation_version=$sv.installationVersion;product_id=$sv.productId;display_name=$sv.displayName;vc_tools_component=$sv.vc_tools_component;vc_cmake_component=$sv.vc_cmake_component;vsdevcmd_path=$sv.vsdevcmd_path;vsdevcmd_exit_code=$vdExit;vsdevcmd_stdout=$vdOut;vsdevcmd_stderr=$vdErr;cl_path=$cl;cl_invocation_command=$(if($cl){"$cl /?"}else{$null});cl_invocation_output=$clOut;cl_invocation_exit_code=$clExit;msvc_toolset_directory=[string]$emap['VCToolsInstallDir'];VCToolsVersion=[string]$emap['VCToolsVersion'];WindowsSdkDir=$sdkDir;WindowsSDKVersion=$sdkVer;windows_sdk_evidence=$sdk;selection_reason='Both components and VsDevCmd; highest installationVersion; ordinal-ignore-case path tie-break.'};PJson 'msvc-discovery.json' $ms @('status','classification','first_error','vswhere_path','all_instances','selected_installation_path','installation_version','product_id','vc_tools_component','vc_cmake_component','vsdevcmd_path','vsdevcmd_exit_code','vsdevcmd_stdout','vsdevcmd_stderr','cl_path','cl_invocation_command','cl_invocation_output','cl_invocation_exit_code','msvc_toolset_directory','VCToolsVersion','WindowsSdkDir','WindowsSDKVersion','windows_sdk_evidence','selection_reason');PText 'msvc-discovery.log' ($ms|ConvertTo-Json -Depth 24);PText 'msvc-first-error.txt' $msErr
-            $pairs=@();$pri=0;function AddPair($s,$c,$t,$r){$script:pri++;$script:pairs+=[pscustomobject]@{selection_priority=$script:pri;discovery_source=$s;cmake_path=$c;ctest_path=$t;selection_reason=$r}};AddPair 'selected-visual-studio' $sv.cmake_path $sv.ctest_path 'Selected Visual Studio bundled pair';if($emap['PATH']){foreach($d in($emap['PATH']-split';'|Where-Object{$_}) ){AddPair 'vsdevcmd-path' (Join-Path $d 'cmake.exe')(Join-Path $d 'ctest.exe')'VsDevCmd process PATH'}};foreach($q in@(Get-Command cmake.exe -All -ErrorAction SilentlyContinue)){AddPair 'process-path' $q.Source (Join-Path(Split-Path $q.Source -Parent)'ctest.exe')'Process PATH'};foreach($v in@($rows|Where-Object{$_.installationPath-ne$sv.installationPath}|Sort-Object @{e={[version]$_.installationVersion};Descending=$true},@{e={$_.installationPath.ToLowerInvariant()}})){AddPair 'other-visual-studio' $v.cmake_path $v.ctest_path 'Other Visual Studio instance'};foreach($pf in@($env:ProgramFiles,${env:ProgramFiles(x86)})|Where-Object{$_}){AddPair 'program-files' (Join-Path $pf 'CMake\bin\cmake.exe')(Join-Path $pf 'CMake\bin\ctest.exe')'Standard Program Files location'}
+            $pairs=@();$pri=0;function AddPair($s,$c,$t,$r){$script:pri++;$script:pairs+=[pscustomobject]@{selection_priority=$script:pri;discovery_source=$s;cmake_path=$c;ctest_path=$t;selection_reason=$r}};AddPair 'selected-visual-studio' $sv.cmake_path $sv.ctest_path 'Selected Visual Studio bundled pair';if($emap['PATH']){foreach($d in($emap['PATH']-split';'|Where-Object{$_})){AddPair 'vsdevcmd-path' (Join-Path $d 'cmake.exe') (Join-Path $d 'ctest.exe') 'VsDevCmd process PATH'}};foreach($q in@(Get-Command cmake.exe -All -ErrorAction SilentlyContinue)){AddPair 'process-path' $q.Source (Join-Path(Split-Path $q.Source -Parent)'ctest.exe') 'Process PATH'};foreach($v in@($rows|Where-Object{$_.installationPath-ne$sv.installationPath}|Sort-Object @{e={[version]$_.installationVersion};Descending=$true},@{e={$_.installationPath.ToLowerInvariant()}})){AddPair 'other-visual-studio' $v.cmake_path $v.ctest_path 'Other Visual Studio instance'};foreach($pf in@($env:ProgramFiles,${env:ProgramFiles(x86)})|Where-Object{$_}){AddPair 'program-files' (Join-Path $pf 'CMake\bin\cmake.exe') (Join-Path $pf 'CMake\bin\ctest.exe') 'Standard Program Files location'}
             $attempts=@();$sel=$null;foreach($p in$pairs){$a=[ordered]@{selection_priority=$p.selection_priority;discovery_source=$p.discovery_source;cmake_path=$p.cmake_path;ctest_path=$p.ctest_path;selection_reason=$p.selection_reason;cmake_exists=(Test-Path $p.cmake_path -PathType Leaf);ctest_exists=(Test-Path $p.ctest_path -PathType Leaf);same_bin_directory=$false;cmake_version_output=$null;ctest_version_output=$null;cmake_version=$null;ctest_version=$null;cmake_invocation_exit_code=$null;ctest_invocation_exit_code=$null;cmake_sha256=$null;ctest_sha256=$null;cmake_size=$null;ctest_size=$null;rejection_reason=$null};if(-not$a.cmake_exists){$a.rejection_reason='cmake missing'}elseif(-not$a.ctest_exists){$a.rejection_reason='ctest missing'}else{$a.same_bin_directory=((Split-Path $p.cmake_path -Parent)-ieq(Split-Path $p.ctest_path -Parent));if(-not$a.same_bin_directory){$a.rejection_reason='different bin'}else{$co=(& $p.cmake_path --version 2>&1)-join"`n";$ce=$LASTEXITCODE;$to=(& $p.ctest_path --version 2>&1)-join"`n";$te=$LASTEXITCODE;$a.cmake_version_output=$co;$a.ctest_version_output=$to;$a.cmake_invocation_exit_code=$ce;$a.ctest_invocation_exit_code=$te;$cm=[regex]::Match($co,'cmake version\s+([0-9]+(?:\.[0-9]+)+)');$ct=[regex]::Match($to,'ctest version\s+([0-9]+(?:\.[0-9]+)+)');if($ce-ne0){$a.rejection_reason='cmake invocation failed'}elseif($te-ne0){$a.rejection_reason='ctest invocation failed'}elseif(-not$cm.Success-or-not$ct.Success){$a.rejection_reason='version parse failed'}else{$a.cmake_version=$cm.Groups[1].Value;$a.ctest_version=$ct.Groups[1].Value;$a.cmake_sha256=(Get-FileHash $p.cmake_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.ctest_sha256=(Get-FileHash $p.ctest_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.cmake_size=(Get-Item $p.cmake_path).Length;$a.ctest_size=(Get-Item $p.ctest_path).Length}}};$attempts+=[pscustomobject]$a;if(-not$a.rejection_reason-and-not$sel){$sel=[pscustomobject]$a}}
             $cmErr=$(if($sel){$null}elseif(@($attempts|Where-Object{$_.cmake_exists}).Count){'No valid complete CMake/CTest pair'}else{'No cmake.exe found'});$cm=[ordered]@{status=$(if($sel){'PASS'}else{'FAIL'});classification=$(if($sel){'CMAKE_CTEST_PASS'}elseif(@($attempts|Where-Object{$_.cmake_exists}).Count){'CMAKE_TOOLCHAIN_INCOMPLETE'}else{'CMAKE_NOT_FOUND'});first_error=$cmErr;selected=$sel;attempts=$attempts;selected_visual_studio_installation_path=$sv.installationPath};PJson 'cmake-discovery.json' $cm @('status','classification','first_error','selected','attempts','selected_visual_studio_installation_path');PText 'cmake-discovery.log' ($attempts|ConvertTo-Json -Depth 24);PText 'cmake-first-error.txt' $cmErr
           }catch{$e=$_.Exception.ToString();$cm=[ordered]@{status='FAIL';classification='DISCOVERY_SCRIPT_DEFECT';first_error=$e;selected=$null;attempts=@()};$ms=[ordered]@{status='FAIL';classification='DISCOVERY_SCRIPT_DEFECT';first_error=$e};PJson 'cmake-discovery.json' $cm @('status','classification','first_error','selected','attempts');PText 'cmake-discovery.log' $e;PText 'cmake-first-error.txt' $e;PJson 'msvc-discovery.json' $ms @('status','classification','first_error');PText 'msvc-discovery.log' $e;PText 'msvc-first-error.txt' $e}
           $c=Get-Content (Join-Path $root 'cmake-discovery.json') -Raw|ConvertFrom-Json;$m=Get-Content (Join-Path $root 'msvc-discovery.json') -Raw|ConvertFrom-Json
-          if($c.classification-eq'DISCOVERY_SCRIPT_DEFECT'-or$m.classification-eq'DISCOVERY_SCRIPT_DEFECT'){$class='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT'}elseif($c.status-eq'PASS'-and$m.status-eq'PASS'){$class='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'}elseif($c.classification-eq'CMAKE_NOT_FOUND'){$class='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE'}elseif($c.status-ne'PASS'){$class='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE'}else{$class='STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE'};PText 'classification.txt' $class;"classification=$class"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;Write-Host $class
+          if($c.classification-eq'DISCOVERY_SCRIPT_DEFECT'-or$m.classification-eq'DISCOVERY_SCRIPT_DEFECT'){$class='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT'}elseif($c.status-eq'PASS'-and$m.status-eq'PASS'){$class='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'}elseif($c.classification-eq'CMAKE_NOT_FOUND'){$class='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE'}elseif($c.status-ne'PASS'){$class='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE'}else{$class='STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE'};PText 'classification.txt' $class;Write-Host $class
+
+      - name: Seal and package discovery evidence
+        id: seal
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop';$root=$env:TOOLCHAIN_EVIDENCE_ROOT;$upload=$env:TOOLCHAIN_UPLOAD_ROOT
+          function Utf8($p,$s){[IO.File]::WriteAllText($p,[string]$s,(New-Object Text.UTF8Encoding($false)))}
+          $required=@('cmake-discovery.json','cmake-discovery.log','cmake-first-error.txt','msvc-discovery.json','msvc-discovery.log','msvc-first-error.txt','classification.txt','candidate-checkout.txt','run-id.txt','run-attempt.txt','runner-name.txt','runner-os.txt','runner-arch.txt')
+          foreach($n in $required){$p=Join-Path $root $n;if(-not(Test-Path $p -PathType Leaf)){throw "Missing required evidence: $n"};$null=Get-Item $p;if($n.EndsWith('.json')){$null=Get-Content $p -Raw|ConvertFrom-Json}}
+          $files=@(Get-ChildItem $root -File -Recurse|Sort-Object FullName);if(-not$files){throw 'Evidence root is empty.'}
+          $entries=@();foreach($f in $files){$rel=$f.FullName.Substring($root.Length).TrimStart('\').Replace('\','/');$entries+=[ordered]@{relative_path=$rel;size=[int64]$f.Length;sha256=(Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}}
+          $manifest=[ordered]@{schema='nc003b-toolchain-discovery-evidence-file-manifest-v1';run_id=$env:GITHUB_RUN_ID;run_attempt=$env:GITHUB_RUN_ATTEMPT;file_count=$entries.Count;files=$entries}
+          $json=Join-Path $root 'evidence-file-manifest.json';$tmp=$json+'.'+[guid]::NewGuid().ToString('N')+'.tmp';Utf8 $tmp ($manifest|ConvertTo-Json -Depth 8);$parsed=Get-Content $tmp -Raw|ConvertFrom-Json;if([int]$parsed.file_count-ne$entries.Count){throw 'Manifest parse/count mismatch.'};Move-Item $tmp $json -Force;$null=Get-Content $json -Raw|ConvertFrom-Json
+          $txt=Join-Path $root 'evidence-file-manifest.txt';Utf8 $txt (($entries|ForEach-Object{"$($_.sha256)  $($_.size)  $($_.relative_path)"})-join"`n")
+          foreach($e in $entries){$p=Join-Path $root ($e.relative_path.Replace('/','\'));$i=Get-Item $p;if($i.Length-ne[long]$e.size){throw "Manifest size mismatch: $($e.relative_path)"};$h=(Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant();if($h-ne$e.sha256){throw "Manifest hash mismatch: $($e.relative_path)"}}
+          Remove-Item $upload -Recurse -Force -ErrorAction SilentlyContinue;New-Item -ItemType Directory -Force -Path $upload|Out-Null
+          $zipName="NC-003B-toolchain-discovery-evidence-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.zip";$zip=Join-Path $upload $zipName
+          Add-Type -AssemblyName System.IO.Compression
+          $fs=[IO.File]::Open($zip,[IO.FileMode]::CreateNew);try{$za=New-Object IO.Compression.ZipArchive($fs,[IO.Compression.ZipArchiveMode]::Create,$false);try{foreach($f in @(Get-ChildItem $root -File -Recurse|Sort-Object FullName)){$rel=$f.FullName.Substring($root.Length).TrimStart('\').Replace('\','/');$ze=$za.CreateEntry($rel,[IO.Compression.CompressionLevel]::NoCompression);$ze.LastWriteTime=[DateTimeOffset]::new(1980,1,1,0,0,0,[TimeSpan]::Zero);$src=[IO.File]::OpenRead($f.FullName);$dst=$ze.Open();try{$src.CopyTo($dst)}finally{$dst.Dispose();$src.Dispose()}}}finally{$za.Dispose()}}finally{$fs.Dispose()}
+          if(-not(Test-Path $zip -PathType Leaf)){throw 'Local evidence ZIP missing.'};$zi=Get-Item $zip;if($zi.Length-le0){throw 'Local evidence ZIP empty.'}
+          $read=[IO.Compression.ZipFile]::OpenRead($zip);try{$zipEntries=@($read.Entries|Where-Object{-not$_.FullName.EndsWith('/')});$zipEntries.FullName|ForEach-Object{Write-Host "ZIP_ENTRY $_"};if(-not($zipEntries.FullName-contains'evidence-file-manifest.json')){throw 'Manifest absent from ZIP.'}}finally{$read.Dispose()}
+          $verify=Join-Path $env:RUNNER_TEMP ("nc003b-seal-verify-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT");Remove-Item $verify -Recurse -Force -ErrorAction SilentlyContinue;[IO.Compression.ZipFile]::ExtractToDirectory($zip,$verify);$vm=Get-Content (Join-Path $verify 'evidence-file-manifest.json') -Raw|ConvertFrom-Json;foreach($e in $vm.files){$p=Join-Path $verify ($e.relative_path.Replace('/','\'));if(-not(Test-Path $p -PathType Leaf)){throw "ZIP manifest missing $($e.relative_path)"};if((Get-Item $p).Length-ne[long]$e.size){throw "ZIP manifest size mismatch $($e.relative_path)"};if((Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant()-ne$e.sha256){throw "ZIP manifest hash mismatch $($e.relative_path)"}};Remove-Item $verify -Recurse -Force
+          $class=(Get-Content (Join-Path $root 'classification.txt') -Raw).Trim();$hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();$artifactName="NC-003B-toolchain-discovery-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          "local_zip_path=$zip"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"local_zip_name=$zipName"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"local_zip_size=$($zi.Length)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"local_zip_sha256=$hash"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"evidence_file_count=$($entries.Count)"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"discovery_classification=$class"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append;"expected_artifact_name=$artifactName"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Upload discovery artifact
         id: evidence-upload
+        if: always() && steps.seal.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-toolchain-discovery-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.TOOLCHAIN_EVIDENCE_ROOT }}
+          path: ${{ steps.seal.outputs.local_zip_path }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
+
+      - name: Assert upload outputs are structurally complete
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host "classification=${{ steps.seal.outputs.discovery_classification }}"
+          Write-Host "upload_outcome=${{ steps.evidence-upload.outcome }}"
+          Write-Host "artifact_id=${{ steps.evidence-upload.outputs.artifact-id }}"
+          Write-Host "artifact_url=${{ steps.evidence-upload.outputs.artifact-url }}"
+          Write-Host "artifact_digest=${{ steps.evidence-upload.outputs.artifact-digest }}"
+          if('${{ steps.evidence-upload.outcome }}'-ne'success'){Write-Warning 'Upload step did not report success.'}
+          if([string]::IsNullOrWhiteSpace('${{ steps.evidence-upload.outputs.artifact-id }}')-or[string]::IsNullOrWhiteSpace('${{ steps.evidence-upload.outputs.artifact-url }}')-or[string]::IsNullOrWhiteSpace('${{ steps.evidence-upload.outputs.artifact-digest }}')){Write-Warning 'Upload outputs incomplete; GitHub-hosted verification will fail closed.'}
+
+  verify-discovery-artifact:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - announce-run
+      - control-artifact-probe
+      - self-hosted-toolchain-discovery
+    outputs:
+      terminal-classification: ${{ steps.verify.outputs.terminal_classification }}
+      api-artifact-id: ${{ steps.verify.outputs.api_artifact_id }}
+      api-artifact-name: ${{ steps.verify.outputs.api_artifact_name }}
+      api-artifact-size: ${{ steps.verify.outputs.api_artifact_size }}
+      api-artifact-digest: ${{ steps.verify.outputs.api_artifact_digest }}
+      outer-zip-sha256: ${{ steps.verify.outputs.outer_zip_sha256 }}
+      local-evidence-zip-sha256: ${{ steps.verify.outputs.local_evidence_zip_sha256 }}
+      manifest-result: ${{ steps.verify.outputs.manifest_result }}
+      runner-name: ${{ steps.verify.outputs.runner_name }}
+      cmake-path: ${{ steps.verify.outputs.cmake_path }}
+      ctest-path: ${{ steps.verify.outputs.ctest_path }}
+      msvc-path: ${{ steps.verify.outputs.msvc_path }}
+      verification-artifact-id: ${{ steps.verification-upload.outputs.artifact-id }}
+      verification-artifact-digest: ${{ steps.verification-upload.outputs.artifact-digest }}
+    steps:
+      - name: Poll API, download, and independently verify discovery artifact
+        id: verify
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_NAME: ${{ needs.self-hosted-toolchain-discovery.outputs.expected-artifact-name }}
+          UPLOAD_OUTCOME: ${{ needs.self-hosted-toolchain-discovery.outputs.upload-outcome }}
+          UPLOAD_ARTIFACT_ID: ${{ needs.self-hosted-toolchain-discovery.outputs.artifact-id }}
+          UPLOAD_ARTIFACT_URL: ${{ needs.self-hosted-toolchain-discovery.outputs.artifact-url }}
+          UPLOAD_ARTIFACT_DIGEST: ${{ needs.self-hosted-toolchain-discovery.outputs.artifact-digest }}
+          LOCAL_ZIP_NAME: ${{ needs.self-hosted-toolchain-discovery.outputs.local-zip-name }}
+          LOCAL_ZIP_SHA256: ${{ needs.self-hosted-toolchain-discovery.outputs.local-zip-sha256 }}
+          LOCAL_ZIP_SIZE: ${{ needs.self-hosted-toolchain-discovery.outputs.local-zip-size }}
+          DISCOVERY_CLASSIFICATION: ${{ needs.self-hosted-toolchain-discovery.outputs.discovery-classification }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil, sys, time, urllib.request, zipfile
+          out = pathlib.Path('verification-report'); out.mkdir(exist_ok=True)
+          api_log=[]; terminal='STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED'; artifact=None
+          def emit(k,v):
+              with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as f: f.write(f'{k}={v}\n')
+          def write(name,data):
+              p=out/name
+              if isinstance(data,(dict,list)): p.write_text(json.dumps(data,indent=2,sort_keys=True),encoding='utf-8')
+              else: p.write_text(str(data),encoding='utf-8')
+          headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          try:
+              required_env=['EXPECTED_NAME','UPLOAD_OUTCOME','UPLOAD_ARTIFACT_ID','UPLOAD_ARTIFACT_URL','UPLOAD_ARTIFACT_DIGEST','LOCAL_ZIP_NAME','LOCAL_ZIP_SHA256','LOCAL_ZIP_SIZE','DISCOVERY_CLASSIFICATION']
+              if any(not os.environ.get(k,'').strip() for k in required_env): raise RuntimeError('Required self-hosted upload output is empty.')
+              if os.environ['UPLOAD_OUTCOME']!='success': raise RuntimeError('Upload outcome is not success.')
+              url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100"
+              for attempt in range(1,7):
+                  req=urllib.request.Request(url,headers=headers)
+                  with urllib.request.urlopen(req) as r:
+                      raw=r.read(); payload=json.loads(raw); status=r.status
+                  matches=[a for a in payload.get('artifacts',[]) if a.get('name')==os.environ['EXPECTED_NAME']]
+                  api_log.append({'attempt':attempt,'http_status':status,'total_count':payload.get('total_count'),'matching_count':len(matches),'response':payload})
+                  print(f'API_POLL attempt={attempt} status={status} total={payload.get("total_count")} matches={len(matches)}')
+                  if len(matches)==1: artifact=matches[0]; break
+                  if attempt<6: time.sleep(5)
+              write('artifact-api-response.json',api_log)
+              if artifact is None: raise RuntimeError('Expected artifact not uniquely visible after polling.')
+              wr=artifact.get('workflow_run') or {}
+              checks=[
+                  len([a for a in api_log[-1]['response'].get('artifacts',[]) if a.get('name')==os.environ['EXPECTED_NAME']])==1,
+                  artifact.get('expired') is False,
+                  str(wr.get('id'))==os.environ['GITHUB_RUN_ID'],
+                  wr.get('head_sha')==os.environ['GITHUB_SHA'],
+                  int(artifact.get('id') or 0)>0,
+                  int(artifact.get('size_in_bytes') or 0)>0,
+                  bool(artifact.get('digest')),
+                  str(artifact.get('id'))==os.environ['UPLOAD_ARTIFACT_ID'],
+                  artifact.get('digest')==os.environ['UPLOAD_ARTIFACT_DIGEST']]
+              if not all(checks): raise RuntimeError(f'Artifact API/output contradiction: {checks}')
+              aid=int(artifact['id']); outer=pathlib.Path('outer-artifact.zip')
+              req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{aid}/zip",headers=headers)
+              with urllib.request.urlopen(req) as r:
+                  data=r.read(); status=r.status
+              if status!=200 or not data: raise RuntimeError(f'Artifact download failed: status={status}, bytes={len(data)}')
+              outer.write_bytes(data); outer_hash=hashlib.sha256(data).hexdigest(); write('outer-zip-sha256.txt',outer_hash)
+              outer_dir=pathlib.Path('outer'); outer_dir.mkdir();
+              with zipfile.ZipFile(outer) as z:
+                  outer_names=[i.filename for i in z.infolist() if not i.is_dir()]; print('OUTER_ENTRIES',outer_names)
+                  if outer_names!=[os.environ['LOCAL_ZIP_NAME']]: raise RuntimeError(f'Outer ZIP entries mismatch: {outer_names}')
+                  z.extractall(outer_dir)
+              local=outer_dir/os.environ['LOCAL_ZIP_NAME']; local_data=local.read_bytes(); local_hash=hashlib.sha256(local_data).hexdigest(); write('local-evidence-zip-sha256.txt',local_hash)
+              if local_hash!=os.environ['LOCAL_ZIP_SHA256'] or len(local_data)!=int(os.environ['LOCAL_ZIP_SIZE']): raise RuntimeError('Local evidence ZIP hash/size mismatch.')
+              evidence=pathlib.Path('evidence'); evidence.mkdir()
+              with zipfile.ZipFile(local) as z:
+                  names=[i.filename for i in z.infolist() if not i.is_dir()]; write('artifact-file-list.txt','\n'.join(names)+'\n'); print('EVIDENCE_ENTRIES'); [print(n) for n in names]; z.extractall(evidence)
+              manifest=json.loads((evidence/'evidence-file-manifest.json').read_text(encoding='utf-8-sig'))
+              manifest_lines=[]
+              for e in manifest['files']:
+                  p=evidence/e['relative_path']; ok=p.is_file() and p.stat().st_size==int(e['size']) and hashlib.sha256(p.read_bytes()).hexdigest()==e['sha256']
+                  manifest_lines.append(f"{'PASS' if ok else 'FAIL'} {e['relative_path']} {e['size']} {e['sha256']}")
+                  if not ok: raise RuntimeError(f"Manifest verification failed: {e['relative_path']}")
+              write('manifest-verification.txt','\n'.join(manifest_lines)+'\n')
+              def text(n): return (evidence/n).read_text(encoding='utf-8-sig').strip()
+              cm=json.loads((evidence/'cmake-discovery.json').read_text(encoding='utf-8-sig')); ms=json.loads((evidence/'msvc-discovery.json').read_text(encoding='utf-8-sig'))
+              if text('candidate-checkout.txt')!='CANDIDATE NOT CHECKED OUT': raise RuntimeError('Candidate checkout marker mismatch.')
+              if text('run-id.txt')!=os.environ['GITHUB_RUN_ID'] or text('run-attempt.txt')!=os.environ['GITHUB_RUN_ATTEMPT']: raise RuntimeError('Run identity mismatch.')
+              if text('runner-os.txt')!='Windows' or text('runner-arch.txt')!='X64': raise RuntimeError('Runner platform mismatch.')
+              cls=text('classification.txt')
+              if cls!=os.environ['DISCOVERY_CLASSIFICATION']: raise RuntimeError('Classification output/file mismatch.')
+              if cls=='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS':
+                  sel=cm.get('selected') or {}; sdk=ms.get('windows_sdk_evidence') or {}
+                  pass_checks=[cm.get('status')=='PASS',ms.get('status')=='PASS',bool(sel),sel.get('same_bin_directory') is True,sel.get('cmake_invocation_exit_code')==0,sel.get('ctest_invocation_exit_code')==0,bool(sel.get('cmake_version')),bool(sel.get('ctest_version')),bool(sel.get('cmake_sha256')),bool(sel.get('ctest_sha256')),int(sel.get('cmake_size') or 0)>0,int(sel.get('ctest_size') or 0)>0,bool(ms.get('vswhere_path')),bool(ms.get('selected_installation_path')),ms.get('vc_tools_component') is True,ms.get('vc_cmake_component') is True,ms.get('vsdevcmd_exit_code')==0,bool(ms.get('cl_path')),bool(ms.get('msvc_toolset_directory')),bool(ms.get('VCToolsVersion')),bool(ms.get('WindowsSdkDir')),bool(ms.get('WindowsSDKVersion')),sdk.get('include_exists') is True,sdk.get('lib_exists') is True,sdk.get('bin_exists') is True]
+                  if not all(pass_checks): terminal='STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED'; raise RuntimeError(f'Toolchain PASS evidence incomplete: {pass_checks}')
+                  terminal='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'
+              elif cls in ('STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT','STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE','STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE','STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE'):
+                  terminal=cls
+              else:
+                  terminal='STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED'; raise RuntimeError(f'Unknown classification: {cls}')
+              verification={'result':'PASS','terminal_classification':terminal,'artifact':artifact,'outer_zip_sha256':outer_hash,'outer_zip_size':len(data),'local_zip_sha256':local_hash,'local_zip_size':len(local_data),'manifest_file_count':len(manifest['files']),'runner_name':text('runner-name.txt'),'cmake':cm,'msvc':ms}
+              write('artifact-verification.json',verification)
+              emit('api_artifact_id',artifact['id']);emit('api_artifact_name',artifact['name']);emit('api_artifact_size',artifact['size_in_bytes']);emit('api_artifact_digest',artifact['digest']);emit('outer_zip_sha256',outer_hash);emit('local_evidence_zip_sha256',local_hash);emit('manifest_result','PASS');emit('runner_name',text('runner-name.txt'));emit('cmake_path',(cm.get('selected') or {}).get('cmake_path',''));emit('ctest_path',(cm.get('selected') or {}).get('ctest_path',''));emit('msvc_path',ms.get('cl_path',''))
+          except Exception as exc:
+              print(f'VERIFICATION_ERROR: {exc}',file=sys.stderr)
+              if not (out/'artifact-api-response.json').exists(): write('artifact-api-response.json',api_log)
+              if not (out/'artifact-file-list.txt').exists(): write('artifact-file-list.txt','')
+              if not (out/'outer-zip-sha256.txt').exists(): write('outer-zip-sha256.txt','')
+              if not (out/'local-evidence-zip-sha256.txt').exists(): write('local-evidence-zip-sha256.txt','')
+              if not (out/'manifest-verification.txt').exists(): write('manifest-verification.txt',f'FAIL {exc}\n')
+              write('artifact-verification.json',{'result':'FAIL','terminal_classification':terminal,'error':str(exc)})
+          finally:
+              write('terminal-classification.txt',terminal+'\n');emit('terminal_classification',terminal)
+          PY
+
+      - name: Upload independent verification artifact
+        id: verification-upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: NC-003B-toolchain-discovery-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: verification-report
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Publish terminal status
         id: terminal-status
         if: always()
         continue-on-error: true
-        env: { GH_TOKEN: "${{ github.token }}", DISCOVERY_CLASSIFICATION: "${{ steps.discovery.outputs.classification }}", UPLOAD_OUTCOME: "${{ steps.evidence-upload.outcome }}" }
-        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TERMINAL: ${{ steps.verify.outputs.terminal_classification }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          VERIFICATION_UPLOAD_OUTCOME: ${{ steps.verification-upload.outcome }}
+          VERIFICATION_ARTIFACT_ID: ${{ steps.verification-upload.outputs.artifact-id }}
+          VERIFICATION_ARTIFACT_DIGEST: ${{ steps.verification-upload.outputs.artifact-digest }}
+        shell: bash
         run: |
-          $ok=$env:DISCOVERY_CLASSIFICATION-eq'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'-and$env:UPLOAD_OUTCOME-eq'success';$state=$(if($ok){'success'}else{'failure'});$desc=$(if($env:UPLOAD_OUTCOME-ne'success'){'STOP - TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED'}else{$env:DISCOVERY_CLASSIFICATION.Replace('—','-')});if($desc.Length-gt140){$desc=$desc.Substring(0,140)};$b=@{state=$state;context=$env:STATUS_CONTEXT;description=$desc;target_url="https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"}|ConvertTo-Json -Compress;Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} -ContentType application/json -Body $b|Out-Null
+          python3 - <<'PY'
+          import json, os, urllib.request
+          ok=(os.environ['TERMINAL']=='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS' and os.environ['VERIFY_OUTCOME']=='success' and os.environ['VERIFICATION_UPLOAD_OUTCOME']=='success' and bool(os.environ['VERIFICATION_ARTIFACT_ID'].strip()) and bool(os.environ['VERIFICATION_ARTIFACT_DIGEST'].strip()))
+          state='success' if ok else 'failure'
+          desc=os.environ['TERMINAL'] if os.environ['TERMINAL'] else 'STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED'
+          desc=desc.replace('—','-')[:140]
+          body=json.dumps({'state':state,'context':os.environ['STATUS_CONTEXT'],'description':desc,'target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode()
+          req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
+          with urllib.request.urlopen(req) as r: assert r.status==201
+          PY
+
       - name: Final enforcement
         if: always()
-        env: { DISCOVERY_CLASSIFICATION: "${{ steps.discovery.outputs.classification }}", UPLOAD_OUTCOME: "${{ steps.evidence-upload.outcome }}", STATUS_OUTCOME: "${{ steps.terminal-status.outcome }}" }
-        shell: powershell
+        env:
+          TERMINAL: ${{ steps.verify.outputs.terminal_classification }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          VERIFICATION_UPLOAD_OUTCOME: ${{ steps.verification-upload.outcome }}
+          VERIFICATION_ARTIFACT_ID: ${{ steps.verification-upload.outputs.artifact-id }}
+          VERIFICATION_ARTIFACT_URL: ${{ steps.verification-upload.outputs.artifact-url }}
+          VERIFICATION_ARTIFACT_DIGEST: ${{ steps.verification-upload.outputs.artifact-digest }}
+          STATUS_OUTCOME: ${{ steps.terminal-status.outcome }}
+        shell: bash
         run: |
-          if($env:UPLOAD_OUTCOME-ne'success'-or$env:STATUS_OUTCOME-ne'success'){Write-Error 'STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED';exit 1};if($env:DISCOVERY_CLASSIFICATION-ne'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'){Write-Error $env:DISCOVERY_CLASSIFICATION;exit 1};Write-Host 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'
+          set -euo pipefail
+          printf '%s\n' "terminal=$TERMINAL" "verify_outcome=$VERIFY_OUTCOME" "verification_upload_outcome=$VERIFICATION_UPLOAD_OUTCOME" "verification_artifact_id=$VERIFICATION_ARTIFACT_ID" "verification_artifact_url=$VERIFICATION_ARTIFACT_URL" "verification_artifact_digest=$VERIFICATION_ARTIFACT_DIGEST" "status_outcome=$STATUS_OUTCOME"
+          if [[ "$STATUS_OUTCOME" != success ]]; then echo 'STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED' >&2; exit 1; fi
+          if [[ "$VERIFY_OUTCOME" != success || "$VERIFICATION_UPLOAD_OUTCOME" != success || -z "$VERIFICATION_ARTIFACT_ID" || -z "$VERIFICATION_ARTIFACT_URL" || -z "$VERIFICATION_ARTIFACT_DIGEST" ]]; then echo 'STOP — TOOLCHAIN DISCOVERY EVIDENCE VERIFICATION FAILED' >&2; exit 1; fi
+          if [[ "$TERMINAL" != 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS' ]]; then echo "$TERMINAL" >&2; exit 1; fi
+          echo 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'
