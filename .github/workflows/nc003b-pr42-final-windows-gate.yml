@@ -29,9 +29,9 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json, os, urllib.request
-          body=json.dumps({'state':'pending','context':os.environ['STATUS_CONTEXT'],'description':'Self-hosted Windows toolchain discovery running','target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode('utf-8')
+          body=json.dumps({'state':'pending','context':os.environ['STATUS_CONTEXT'],'description':'Self-hosted Windows toolchain discovery running','target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode()
           req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
-          with urllib.request.urlopen(req) as response: assert response.status == 201
+          with urllib.request.urlopen(req) as r: assert r.status == 201
           PY
 
   control-artifact-probe:
@@ -43,12 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s\n' 'repository=Dziuras98/Nextcar' "run_id=${GITHUB_RUN_ID}" "run_attempt=${GITHUB_RUN_ATTEMPT}" 'runner=github-hosted' 'purpose=artifact-control-probe' > control-probe.txt
-          test -s control-probe.txt
-          sha256sum control-probe.txt
-      - name: Upload GitHub-hosted artifact control probe
-        id: control-upload
-        continue-on-error: true
+          printf '%s\n' 'repository=Dziuras98/Nextcar' "run_id=${GITHUB_RUN_ID}" "run_attempt=${GITHUB_RUN_ATTEMPT}" 'runner=github-hosted' > control-probe.txt
+      - name: Upload control artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-artifact-control-probe-${{ github.run_id }}
@@ -56,156 +52,241 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 3
-      - name: Enforce control upload success
-        shell: bash
-        run: test "${{ steps.control-upload.outcome }}" = success
 
-  self-hosted-preflight:
+  self-hosted-toolchain-discovery:
     name: "Self-hosted CMake, CTest and MSVC discovery"
-    needs: announce-run
+    needs: [announce-run, control-artifact-probe]
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 30
     env:
       PSExecutionPolicyPreference: Bypass
       TOOLCHAIN_EVIDENCE_ROOT: ${{ github.workspace }}\_toolchain_discovery_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
-      - name: Verify inherited process execution policy
-        shell: cmd
-        run: |
-          @echo off
-          setlocal
-          where powershell.exe
-          if errorlevel 1 exit /b 1
-          echo PSExecutionPolicyPreference=%PSExecutionPolicyPreference%
-          if /I not "%PSExecutionPolicyPreference%"=="Bypass" exit /b 1
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "if ((Get-ExecutionPolicy) -ne 'Bypass') { exit 21 }; if ((Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { exit 22 }; exit 0"
-          if errorlevel 1 exit /b 1
-
-      - name: Initialize toolchain evidence
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          Write-Host 'POWERSHELL_BODY_EXECUTED=true'
-          Write-Host "PSCOMMAND_PATH=$PSCommandPath"
-          Write-Host "SCRIPT_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))"
-          if ([string]::IsNullOrWhiteSpace($PSCommandPath)) { throw 'PSCommandPath is empty.' }
-          if ([IO.Path]::GetExtension($PSCommandPath) -ine '.ps1') { throw 'Runner did not materialize a .ps1 script.' }
-          if ((Get-ExecutionPolicy) -ne 'Bypass' -or (Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { throw 'Process policy proof failed.' }
-          $root=$env:TOOLCHAIN_EVIDENCE_ROOT
-          if(Test-Path -LiteralPath $root){throw "Unique evidence root already exists: $root"}
-          New-Item -ItemType Directory -Path $root|Out-Null
-          Set-Content -LiteralPath (Join-Path $root 'run-id.txt') -Value $env:GITHUB_RUN_ID -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'run-attempt.txt') -Value $env:GITHUB_RUN_ATTEMPT -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'runner-name.txt') -Value $env:RUNNER_NAME -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'runner-os.txt') -Value $env:RUNNER_OS -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'runner-arch.txt') -Value $env:RUNNER_ARCH -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'powershell-version.txt') -Value ($PSVersionTable|Out-String) -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'process-policy.txt') -Value @("env=$env:PSExecutionPolicyPreference","effective=$(Get-ExecutionPolicy)","process=$(Get-ExecutionPolicy -Scope Process)",(Get-ExecutionPolicy -List|Out-String)) -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'probe.txt') -Value @('repository=Dziuras98/Nextcar',"run_id=$env:GITHUB_RUN_ID","run_attempt=$env:GITHUB_RUN_ATTEMPT","runner=$env:RUNNER_NAME",'shell=built-in-powershell','process_policy=Bypass','purpose=toolchain-discovery') -Encoding utf8
-
-      - name: Verify built-in PowerShell effects from cmd
-        shell: cmd
-        run: |
-          @echo off
-          setlocal
-          set "PROBE=%TOOLCHAIN_EVIDENCE_ROOT%\probe.txt"
-          if not exist "%PROBE%" exit /b 1
-          for %%I in ("%PROBE%") do (echo CMD_PROBE_FULL_NAME=%%~fI& echo CMD_PROBE_LENGTH=%%~zI)
-          certutil -hashfile "%PROBE%" SHA256
-          if errorlevel 1 exit /b 1
-
-      - name: Discover CMake and CTest
-        id: cmake-discovery
+      - name: Initialize sentinels and perform discovery
+        id: discovery
         continue-on-error: true
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          $root=$env:TOOLCHAIN_EVIDENCE_ROOT
-          $log=New-Object System.Collections.Generic.List[string]
-          $checked=New-Object System.Collections.Generic.List[object]
-          $candidates=New-Object System.Collections.Generic.List[object]
-          $classification='CMAKE_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$null;$selected=$null
-          function Record-Location([string]$source,[string]$cmake,[string]$ctest){$checked.Add([ordered]@{source=$source;cmake_path=$cmake;ctest_path=$ctest})}
-          function Probe-Pair([string]$source,[string]$cmake,[string]$ctest){
-            $row=[ordered]@{source=$source;cmake_path=$cmake;ctest_path=$ctest;cmake_exists=$false;ctest_exists=$false;same_bin_directory=$false;cmake_invocation_exit_code=$null;ctest_invocation_exit_code=$null;cmake_version_output=$null;ctest_version_output=$null;cmake_version=$null;ctest_version=$null;cmake_sha256=$null;ctest_sha256=$null;cmake_size=$null;ctest_size=$null;rejection_reason=$null}
-            try{$row.cmake_exists=Test-Path -LiteralPath $cmake -PathType Leaf;$row.ctest_exists=Test-Path -LiteralPath $ctest -PathType Leaf;if(-not$row.cmake_exists){$row.rejection_reason='cmake missing';$candidates.Add([pscustomobject]$row);return};if(-not$row.ctest_exists){$row.rejection_reason='ctest missing';$candidates.Add([pscustomobject]$row);return};$row.same_bin_directory=(Split-Path $cmake -Parent)-ieq(Split-Path $ctest -Parent);if(-not$row.same_bin_directory){$row.rejection_reason='different bin directories';$candidates.Add([pscustomobject]$row);return};$cmOut=(& $cmake --version 2>&1)-join"`n";$cmExit=$LASTEXITCODE;$ctOut=(& $ctest --version 2>&1)-join"`n";$ctExit=$LASTEXITCODE;$row.cmake_invocation_exit_code=$cmExit;$row.ctest_invocation_exit_code=$ctExit;$row.cmake_version_output=$cmOut;$row.ctest_version_output=$ctOut;if($cmExit-ne0){$row.rejection_reason='cmake invocation failed';$candidates.Add([pscustomobject]$row);return};if($ctExit-ne0){$row.rejection_reason='ctest invocation failed';$candidates.Add([pscustomobject]$row);return};$cmMatch=[regex]::Match($cmOut,'cmake version\s+([0-9]+(?:\.[0-9]+)+)');$ctMatch=[regex]::Match($ctOut,'ctest version\s+([0-9]+(?:\.[0-9]+)+)');if(-not$cmMatch.Success-or-not$ctMatch.Success){$row.rejection_reason='version parse failed';$candidates.Add([pscustomobject]$row);return};$row.cmake_version=$cmMatch.Groups[1].Value;$row.ctest_version=$ctMatch.Groups[1].Value;$row.cmake_sha256=(Get-FileHash -LiteralPath $cmake -Algorithm SHA256).Hash.ToLowerInvariant();$row.ctest_sha256=(Get-FileHash -LiteralPath $ctest -Algorithm SHA256).Hash.ToLowerInvariant();$row.cmake_size=(Get-Item -LiteralPath $cmake).Length;$row.ctest_size=(Get-Item -LiteralPath $ctest).Length;$candidates.Add([pscustomobject]$row)}catch{$row.rejection_reason="probe exception: $($_.Exception.Message)";$candidates.Add([pscustomobject]$row)}
+          $ErrorActionPreference = 'Stop'
+          $root = $env:TOOLCHAIN_EVIDENCE_ROOT
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          function Write-Utf8([string]$Path, [string]$Text) {
+            [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding($false)))
           }
-          try{
-            $pairs=New-Object System.Collections.Generic.List[object]
-            $pathCmake=@(Get-Command cmake.exe -All -ErrorAction SilentlyContinue|ForEach-Object Source)
-            foreach($cm in $pathCmake){$pairs.Add([pscustomobject]@{source='PATH';cmake=$cm;ctest=(Join-Path (Split-Path $cm -Parent) 'ctest.exe')})}
-            foreach($rootPath in @($env:ProgramFiles,${env:ProgramFiles(x86)})){if($rootPath){$pairs.Add([pscustomobject]@{source="ProgramFiles:$rootPath";cmake=(Join-Path $rootPath 'CMake\bin\cmake.exe');ctest=(Join-Path $rootPath 'CMake\bin\ctest.exe')})}}
-            $vsRoot=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio'
-            foreach($edition in @('Enterprise','Professional','Community','BuildTools')){foreach($year in @('2022','2019')){$bin=Join-Path $vsRoot "$year\$edition\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin";$pairs.Add([pscustomobject]@{source="VisualStudioCommonExtensions:$year/$edition";cmake=(Join-Path $bin 'cmake.exe');ctest=(Join-Path $bin 'ctest.exe')})}}
-            foreach($name in @('CMAKE_ROOT','CMAKE_HOME','ChocolateyInstall')){$value=[Environment]::GetEnvironmentVariable($name);if($value){$pairs.Add([pscustomobject]@{source="Environment:$name/bin";cmake=(Join-Path $value 'bin\cmake.exe');ctest=(Join-Path $value 'bin\ctest.exe')});$pairs.Add([pscustomobject]@{source="Environment:$name/cmake/bin";cmake=(Join-Path $value 'cmake\bin\cmake.exe');ctest=(Join-Path $value 'cmake\bin\ctest.exe')})}else{Record-Location "Environment:$name" $null $null}}
-            foreach($pair in @($pairs|Sort-Object cmake,ctest -Unique)){Record-Location $pair.source $pair.cmake $pair.ctest;Probe-Pair $pair.source $pair.cmake $pair.ctest}
-            $valid=@($candidates|Where-Object {-not$_.rejection_reason})
-            if($valid.Count-eq1){$classification='CMAKE_PAIR_PASS';$status='PASS';$selected=$valid[0]}elseif($valid.Count-gt1){$classification='CMAKE_PAIR_AMBIGUOUS';$firstError='Multiple complete CMake/CTest pairs found.'}else{$cmakeExists=@($candidates|Where-Object {$_.cmake_exists});$ctestMissing=@($candidates|Where-Object {$_.cmake_exists-and-not$_.ctest_exists});$cmakeInvoke=@($candidates|Where-Object {$_.rejection_reason-eq'cmake invocation failed'});$ctestInvoke=@($candidates|Where-Object {$_.rejection_reason-eq'ctest invocation failed'});$parse=@($candidates|Where-Object {$_.rejection_reason-eq'version parse failed'});if(-not$cmakeExists){$classification='CMAKE_NOT_FOUND';$firstError='No cmake.exe found in deterministic locations.'}elseif($ctestMissing){$classification='CTEST_NOT_FOUND';$firstError='CMake exists but matching ctest.exe is missing.'}elseif($cmakeInvoke){$classification='CMAKE_INVOCATION_FAILED';$firstError='CMake invocation failed.'}elseif($ctestInvoke){$classification='CTEST_INVOCATION_FAILED';$firstError='CTest invocation failed.'}elseif($parse){$classification='VERSION_PARSE_FAILED';$firstError='CMake or CTest version output could not be parsed.'}else{$classification='CMAKE_NOT_FOUND';$firstError='No complete CMake/CTest pair found.'}}
-          }catch{$classification='CMAKE_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$_.Exception.ToString()}finally{foreach($row in $candidates){$log.Add(($row|ConvertTo-Json -Compress -Depth 8))};[ordered]@{status=$status;classification=$classification;first_error=$firstError;checked_locations=@($checked);candidates=@($candidates);selected=$selected}|ConvertTo-Json -Depth 12|Set-Content -LiteralPath (Join-Path $root 'cmake-discovery.json') -Encoding utf8;$log|Set-Content -LiteralPath (Join-Path $root 'cmake-discovery.log') -Encoding utf8;Set-Content -LiteralPath (Join-Path $root 'cmake-first-error.txt') -Value $(if($firstError){$firstError}else{''}) -Encoding utf8;Write-Host "CMAKE_CLASSIFICATION=$classification"}
-          if($classification-ne'CMAKE_PAIR_PASS'){exit 1}
+          function Persist-Json([string]$Name, [object]$Value, [string[]]$Required) {
+            $dst = Join-Path $root $Name
+            $tmp = Join-Path $root ('.' + $Name + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+            $json = $Value | ConvertTo-Json -Depth 20
+            Write-Utf8 $tmp $json
+            $raw = Get-Content -LiteralPath $tmp -Raw
+            $obj = $raw | ConvertFrom-Json
+            foreach ($field in $Required) { if (-not ($obj.PSObject.Properties.Name -contains $field)) { throw "Missing field $field in temporary $Name" } }
+            Move-Item -LiteralPath $tmp -Destination $dst -Force
+            if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { throw "Persistence failed for $Name" }
+            $item = Get-Item -LiteralPath $dst
+            if ($item.Length -le 0) { throw "Empty persisted file $Name" }
+            $raw2 = Get-Content -LiteralPath $dst -Raw
+            $obj2 = $raw2 | ConvertFrom-Json
+            foreach ($field in $Required) { if (-not ($obj2.PSObject.Properties.Name -contains $field)) { throw "Missing field $field after persistence in $Name" } }
+            return $obj2
+          }
+          function Persist-Text([string]$Name, [string]$Text) {
+            $dst = Join-Path $root $Name
+            $tmp = Join-Path $root ('.' + $Name + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+            Write-Utf8 $tmp $Text
+            $null = Get-Content -LiteralPath $tmp -Raw
+            Move-Item -LiteralPath $tmp -Destination $dst -Force
+            if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { throw "Persistence failed for $Name" }
+            $null = Get-Item -LiteralPath $dst
+            $null = Get-Content -LiteralPath $dst -Raw
+          }
+          function Invoke-Captured([string]$File, [string[]]$Args, [hashtable]$Environment) {
+            $psi = New-Object Diagnostics.ProcessStartInfo
+            $psi.FileName = $File
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+            foreach ($a in $Args) { $null = $psi.ArgumentList.Add($a) }
+            if ($Environment) { foreach ($k in $Environment.Keys) { $psi.Environment[$k] = [string]$Environment[$k] } }
+            $p = New-Object Diagnostics.Process
+            $p.StartInfo = $psi
+            $null = $p.Start()
+            $stdout = $p.StandardOutput.ReadToEnd()
+            $stderr = $p.StandardError.ReadToEnd()
+            $p.WaitForExit()
+            [pscustomobject]@{ exit_code=$p.ExitCode; stdout=$stdout; stderr=$stderr }
+          }
+          function Get-VsEnvironment([string]$VsDevCmd) {
+            $cmd = '"' + $VsDevCmd + '" -no_logo && set'
+            $r = Invoke-Captured 'cmd.exe' @('/d','/s','/c',$cmd) $null
+            $envMap = @{}
+            if ($r.exit_code -eq 0) {
+              foreach ($line in ($r.stdout -split "`r?`n")) {
+                $i=$line.IndexOf('='); if($i -gt 0){$envMap[$line.Substring(0,$i)]=$line.Substring($i+1)}
+              }
+            }
+            [pscustomobject]@{ exit_code=$r.exit_code; stdout=$r.stdout; stderr=$r.stderr; environment=$envMap }
+          }
 
-      - name: Discover Visual Studio and MSVC
-        id: msvc-discovery
-        continue-on-error: true
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $root=$env:TOOLCHAIN_EVIDENCE_ROOT;$log=New-Object System.Collections.Generic.List[string];$instances=New-Object System.Collections.Generic.List[object]
-          $classification='MSVC_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$null;$selected=$null;$tempCmd=$null;$vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          try{
-            if(-not(Test-Path -LiteralPath $vswhere -PathType Leaf)){$classification='VSWHERE_MISSING';$firstError="vswhere.exe missing: $vswhere"}else{$allJson=(& $vswhere -products * -all -format json -utf8 2>&1)-join"`n";$allExit=$LASTEXITCODE;$log.Add("VSWHERE_PATH=$vswhere");$log.Add("VSWHERE_EXIT=$allExit");$log.Add($allJson);if($allExit-ne0){throw "vswhere failed with exit $allExit"};$all=@($allJson|ConvertFrom-Json);foreach($i in $all){$vcJson=(& $vswhere -products * -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json -utf8 2>&1)-join"`n";$hasVC=($vcJson|ConvertFrom-Json).Count-gt0;$cmJson=(& $vswhere -products * -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.CMake.Project -format json -utf8 2>&1)-join"`n";$hasCMake=($cmJson|ConvertFrom-Json).Count-gt0;$vsdev=Join-Path $i.installationPath 'Common7\Tools\VsDevCmd.bat';$instances.Add([pscustomobject]@{installation_path=$i.installationPath;installation_version=$i.installationVersion;product_id=$i.productId;display_name=$i.displayName;vc_tools_x86_x64=$hasVC;vc_cmake_project=$hasCMake;vsdevcmd_path=$vsdev;vsdevcmd_exists=(Test-Path -LiteralPath $vsdev -PathType Leaf);selection_reason=$null})};$eligible=@($instances|Where-Object {$_.vc_tools_x86_x64-and$_.vc_cmake_project-and$_.vsdevcmd_exists});if(-not$instances){$classification='VC_COMPONENT_MISSING';$firstError='No Visual Studio instances returned by vswhere.'}elseif(-not@($instances|Where-Object vc_tools_x86_x64)){$classification='VC_COMPONENT_MISSING';$firstError='VC.Tools.x86.x64 component missing.'}elseif(-not@($instances|Where-Object vc_cmake_project)){$classification='VSCMAKE_COMPONENT_MISSING';$firstError='VC.CMake.Project component missing.'}elseif(-not@($instances|Where-Object vsdevcmd_exists)){$classification='VSDEVCMD_MISSING';$firstError='VsDevCmd.bat missing.'}elseif($eligible.Count-gt1){$classification='MSVC_INSTANCE_AMBIGUOUS';$firstError='Multiple equally eligible Visual Studio instances found.'}elseif($eligible.Count-eq1){$selected=$eligible[0];$selected.selection_reason='Only instance with VC.Tools.x86.x64, VC.CMake.Project and VsDevCmd.bat.';$tempCmd=Join-Path $env:RUNNER_TEMP "nc003b-vsdevcmd-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.cmd";if(Test-Path -LiteralPath $tempCmd){throw "Temporary cmd already exists: $tempCmd"};@('@echo off',"call `"$($selected.vsdevcmd_path)`" -no_logo -arch=x64 -host_arch=x64",'if errorlevel 1 exit /b %errorlevel%','set')|Set-Content -LiteralPath $tempCmd -Encoding ascii;$stdout=Join-Path $root 'vsdevcmd-stdout.txt';$stderr=Join-Path $root 'vsdevcmd-stderr.txt';& cmd.exe /d /c $tempCmd 1>$stdout 2>$stderr;$exit=$LASTEXITCODE;$log.Add("TEMPORARY_CMD=$tempCmd");$log.Add("VSDEVCMD_EXIT=$exit");if($exit-ne0){$classification='VSDEVCMD_FAILED';$firstError="VsDevCmd failed with exit $exit"}else{$lines=Get-Content -LiteralPath $stdout;$envMap=@{};foreach($line in $lines){if($line-match'^([^=]+)=(.*)$'){$envMap[$matches[1]]=$matches[2]}};if(-not$envMap.ContainsKey('PATH')-or[string]::IsNullOrWhiteSpace($envMap['PATH'])){$classification='VSDEVCMD_PATH_MISSING';$firstError='VsDevCmd output did not contain PATH.'}else{$clPaths=@();foreach($dir in ($envMap['PATH']-split';')){if($dir){$candidate=Join-Path $dir 'cl.exe';if(Test-Path -LiteralPath $candidate -PathType Leaf){$clPaths+=[IO.Path]::GetFullPath($candidate)}}};$clPaths=@($clPaths|Sort-Object -Unique);if(-not$clPaths){$classification='CL_NOT_FOUND';$firstError='cl.exe not found in VsDevCmd PATH.'}elseif($clPaths.Count-gt1){$classification='MSVC_INSTANCE_AMBIGUOUS';$firstError='Multiple cl.exe paths found in VsDevCmd PATH.'}else{$cl=$clPaths[0];$clOut=(& $cl 2>&1)-join"`n";$clExit=$LASTEXITCODE;$log.Add("CL_PATH=$cl");$log.Add("CL_EXIT=$clExit");$log.Add($clOut);if($clExit-ne0-and$clExit-ne2){$classification='CL_INVOCATION_FAILED';$firstError="cl.exe invocation failed with exit $clExit"}else{$toolsetDir=Split-Path (Split-Path (Split-Path $cl -Parent) -Parent) -Parent;$selected|Add-Member -NotePropertyName vsdevcmd_exit_code -NotePropertyValue $exit -Force;$selected|Add-Member -NotePropertyName vsdevcmd_path_value -NotePropertyValue $envMap['PATH'] -Force;$selected|Add-Member -NotePropertyName cl_path -NotePropertyValue $cl -Force;$selected|Add-Member -NotePropertyName cl_exit_code -NotePropertyValue $clExit -Force;$selected|Add-Member -NotePropertyName cl_version_output -NotePropertyValue $clOut -Force;$selected|Add-Member -NotePropertyName msvc_toolset_directory -NotePropertyValue $toolsetDir -Force;$classification='MSVC_PASS';$status='PASS'}}}}}}
-          }catch{$classification='MSVC_DISCOVERY_SCRIPT_ERROR';$status='FAIL';$firstError=$_.Exception.ToString()}finally{if($tempCmd-and(Test-Path -LiteralPath $tempCmd)){Remove-Item -LiteralPath $tempCmd -Force -ErrorAction SilentlyContinue};[ordered]@{status=$status;classification=$classification;first_error=$firstError;vswhere_path=$vswhere;instances=@($instances);selected=$selected}|ConvertTo-Json -Depth 12|Set-Content -LiteralPath (Join-Path $root 'msvc-discovery.json') -Encoding utf8;$log|Set-Content -LiteralPath (Join-Path $root 'msvc-discovery.log') -Encoding utf8;Set-Content -LiteralPath (Join-Path $root 'msvc-first-error.txt') -Value $(if($firstError){$firstError}else{''}) -Encoding utf8;Write-Host "MSVC_CLASSIFICATION=$classification"}
-          if($classification-ne'MSVC_PASS'){exit 1}
+          $sentinel = [ordered]@{status='FAIL';classification='DISCOVERY_NOT_COMPLETED';first_error='Discovery did not reach final persistence.'}
+          Persist-Json 'cmake-discovery.json' $sentinel @('status','classification','first_error') | Out-Null
+          Persist-Text 'cmake-discovery.log' 'Discovery did not reach final persistence.'
+          Persist-Text 'cmake-first-error.txt' 'Discovery did not reach final persistence.'
+          Persist-Json 'msvc-discovery.json' $sentinel @('status','classification','first_error') | Out-Null
+          Persist-Text 'msvc-discovery.log' 'Discovery did not reach final persistence.'
+          Persist-Text 'msvc-first-error.txt' 'Discovery did not reach final persistence.'
+          Persist-Text 'run-id.txt' $env:GITHUB_RUN_ID
+          Persist-Text 'run-attempt.txt' $env:GITHUB_RUN_ATTEMPT
+          Persist-Text 'runner-name.txt' $env:RUNNER_NAME
+          Persist-Text 'runner-os.txt' $env:RUNNER_OS
+          Persist-Text 'runner-arch.txt' $env:RUNNER_ARCH
+          Persist-Text 'candidate-checkout.txt' 'CANDIDATE NOT CHECKED OUT'
 
-      - name: Classify toolchain discovery
-        id: classification
-        if: always()
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop';$root=$env:TOOLCHAIN_EVIDENCE_ROOT;$result='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT';$status='FAIL';$code='DISCOVERY_SCRIPT_DEFECT';$firstError=$null
-          try{$cmPath=Join-Path $root 'cmake-discovery.json';$msPath=Join-Path $root 'msvc-discovery.json';if(-not(Test-Path $cmPath -PathType Leaf)-or-not(Test-Path $msPath -PathType Leaf)){throw 'Required discovery JSON missing.'};$cm=Get-Content $cmPath -Raw|ConvertFrom-Json;$ms=Get-Content $msPath -Raw|ConvertFrom-Json;$cc=[string]$cm.classification;$mc=[string]$ms.classification;if($cc-eq'CMAKE_PAIR_PASS'-and$cm.status-ne'PASS'){throw 'Contradictory CMake status.'};if($mc-eq'MSVC_PASS'-and$ms.status-ne'PASS'){throw 'Contradictory MSVC status.'};if($cc-eq'CMAKE_DISCOVERY_SCRIPT_ERROR'-or$mc-eq'MSVC_DISCOVERY_SCRIPT_ERROR'){$result='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT';$code='DISCOVERY_SCRIPT_DEFECT'}elseif($cc-eq'CMAKE_NOT_FOUND'){$result='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE';$code=$cc}elseif($cc-in @('CTEST_NOT_FOUND','CMAKE_INVOCATION_FAILED','CTEST_INVOCATION_FAILED','VERSION_PARSE_FAILED','CMAKE_PAIR_AMBIGUOUS')){$result='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE';$code=$cc}elseif($cc-ne'CMAKE_PAIR_PASS'){throw "Unknown CMake classification: $cc"}elseif($mc-eq'MSVC_PASS'){$result='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS';$status='PASS';$code='TOOLCHAIN_PASS'}elseif($mc-in @('VSWHERE_MISSING','VC_COMPONENT_MISSING','VSCMAKE_COMPONENT_MISSING','VSDEVCMD_MISSING','VSDEVCMD_FAILED','VSDEVCMD_PATH_MISSING','CL_NOT_FOUND','CL_INVOCATION_FAILED','MSVC_INSTANCE_AMBIGUOUS')){$result='STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE';$code=$mc}else{throw "Unknown MSVC classification: $mc"};$firstError=if($status-eq'PASS'){$null}elseif($cc-ne'CMAKE_PAIR_PASS'){$cm.first_error}else{$ms.first_error}}catch{$result='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT';$status='FAIL';$code='DISCOVERY_SCRIPT_DEFECT';$firstError=$_.Exception.ToString()}
-          [ordered]@{status=$status;classification=$result;code=$code;first_error=$firstError}|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $root 'toolchain-classification.json') -Encoding utf8
-          Set-Content -LiteralPath (Join-Path $root 'toolchain-classification.txt') -Value $result -Encoding utf8
-          "classification=$result"|Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "classification_status=$status"|Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host $result
-          if($status-eq'PASS'){Write-Host 'FINAL WINDOWS GATE MAY BE RESTORED'}
+          $cmakeResult=$null; $msvcResult=$null
+          try {
+            $vswhereCandidates=@(
+              (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'),
+              (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe')
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Sort-Object -Unique
+            if(-not $vswhereCandidates){ throw 'vswhere.exe not found in deterministic installer locations.' }
+            $vswhere=$vswhereCandidates[0]
+            $allJson=& $vswhere -all -products * -format json -utf8
+            if($LASTEXITCODE -ne 0){ throw "vswhere failed with exit code $LASTEXITCODE" }
+            $instances=@($allJson | ConvertFrom-Json)
+            $rows=@()
+            foreach($i in $instances){
+              $path=[string]$i.installationPath
+              $vcCheck=& $vswhere -products * -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+              $hasVc=($LASTEXITCODE -eq 0 -and @($vcCheck|Where-Object{$_ -eq $path}).Count -gt 0)
+              $cmCheck=& $vswhere -products * -version "[$($i.installationVersion),$($i.installationVersion)]" -requires Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
+              $hasCmake=($LASTEXITCODE -eq 0 -and @($cmCheck|Where-Object{$_ -eq $path}).Count -gt 0)
+              $vsdev=Join-Path $path 'Common7\Tools\VsDevCmd.bat'
+              $bin=Join-Path $path 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+              $rows += [pscustomobject]@{installationPath=$path;installationVersion=[string]$i.installationVersion;productId=[string]$i.productId;displayName=[string]$i.displayName;has_vc_tools_component=$hasVc;has_cmake_component=$hasCmake;vsdevcmd_path=$vsdev;vsdevcmd_exists=(Test-Path -LiteralPath $vsdev -PathType Leaf);bundled_cmake_path=(Join-Path $bin 'cmake.exe');bundled_ctest_path=(Join-Path $bin 'ctest.exe')}
+            }
+            $qualified=@($rows|Where-Object{$_.has_vc_tools_component -and $_.has_cmake_component -and $_.vsdevcmd_exists}|Sort-Object @{Expression={[version]$_.installationVersion};Descending=$true}, @{Expression={$_.installationPath.ToLowerInvariant()};Descending=$false})
+            if(-not $qualified){ throw 'No Visual Studio instance satisfies both required components and VsDevCmd.' }
+            $selectedVs=$qualified[0]
+            $vsEnv=Get-VsEnvironment $selectedVs.vsdevcmd_path
 
-      - name: Upload toolchain discovery evidence
-        id: discovery-upload
-        if: always()
+            $msvcStatus='FAIL';$msvcClass='MSVC_INCOMPLETE';$msvcError=$null
+            $clPath=$null;$clRun=$null;$toolsetDir=$null;$sdkEvidence=[ordered]@{}
+            if($vsEnv.exit_code -ne 0){$msvcError="VsDevCmd failed with exit code $($vsEnv.exit_code)"}
+            else {
+              $pathParts=@(([string]$vsEnv.environment['PATH']) -split ';'|Where-Object{$_})
+              foreach($d in $pathParts){$p=Join-Path $d 'cl.exe';if(Test-Path -LiteralPath $p -PathType Leaf){$clPath=$p;break}}
+              if(-not $clPath){$msvcError='cl.exe not found in VsDevCmd PATH.'}
+              else {
+                $clRun=Invoke-Captured $clPath @('/?') $vsEnv.environment
+                $vcTools=[string]$vsEnv.environment['VCToolsInstallDir']; if($vcTools){$toolsetDir=$vcTools.TrimEnd('\')}
+                $sdkDir=[string]$vsEnv.environment['WindowsSdkDir'];$sdkVer=[string]$vsEnv.environment['WindowsSDKVersion']
+                $sdkEvidence=[ordered]@{WindowsSdkDir=$sdkDir;WindowsSDKVersion=$sdkVer;include_exists=(Test-Path -LiteralPath (Join-Path $sdkDir "Include\$sdkVer"));lib_exists=(Test-Path -LiteralPath (Join-Path $sdkDir "Lib\$sdkVer"));bin_exists=(Test-Path -LiteralPath (Join-Path $sdkDir "bin\$sdkVer"))}
+                if($clRun.exit_code -notin @(0,2)){$msvcError="cl.exe invocation failed with exit code $($clRun.exit_code)"}
+                elseif(-not $toolsetDir -or -not(Test-Path -LiteralPath $toolsetDir)){$msvcError='MSVC toolset directory missing.'}
+                elseif(-not($sdkEvidence.include_exists -and $sdkEvidence.lib_exists -and $sdkEvidence.bin_exists)){$msvcError='Windows SDK include/lib/bin evidence incomplete.'}
+                else{$msvcStatus='PASS';$msvcClass='MSVC_PASS'}
+              }
+            }
+            $msvcResult=[ordered]@{status=$msvcStatus;classification=$msvcClass;first_error=$msvcError;vswhere_path=$vswhere;all_instances=$rows;selected_installation_path=$selectedVs.installationPath;installation_version=$selectedVs.installationVersion;product_id=$selectedVs.productId;display_name=$selectedVs.displayName;vc_tools_component=$selectedVs.has_vc_tools_component;vc_cmake_component=$selectedVs.has_cmake_component;vsdevcmd_path=$selectedVs.vsdevcmd_path;vsdevcmd_exit_code=$vsEnv.exit_code;vsdevcmd_stdout=$vsEnv.stdout;vsdevcmd_stderr=$vsEnv.stderr;cl_path=$clPath;cl_invocation_command=$(if($clPath){"$clPath /?"}else{$null});cl_invocation_output=$(if($clRun){$clRun.stdout+$clRun.stderr}else{$null});cl_invocation_exit_code=$(if($clRun){$clRun.exit_code}else{$null});msvc_toolset_directory=$toolsetDir;VCToolsVersion=[string]$vsEnv.environment['VCToolsVersion'];WindowsSdkDir=[string]$vsEnv.environment['WindowsSdkDir'];WindowsSDKVersion=[string]$vsEnv.environment['WindowsSDKVersion'];windows_sdk_evidence=$sdkEvidence;selection_reason='Required VC and CMake components plus VsDevCmd; highest installationVersion; ordinal-ignore-case installationPath tie-break.'}
+            Persist-Json 'msvc-discovery.json' $msvcResult @('status','classification','first_error','vswhere_path','all_instances','selected_installation_path','installation_version','product_id','vc_tools_component','vc_cmake_component','vsdevcmd_path','vsdevcmd_exit_code','vsdevcmd_stdout','vsdevcmd_stderr','cl_path','cl_invocation_command','cl_invocation_output','cl_invocation_exit_code','msvc_toolset_directory','VCToolsVersion','WindowsSdkDir','WindowsSDKVersion','windows_sdk_evidence','selection_reason')|Out-Null
+            Persist-Text 'msvc-discovery.log' (($msvcResult|ConvertTo-Json -Depth 20))
+            Persist-Text 'msvc-first-error.txt' ([string]$msvcError)
+
+            $pairs=New-Object Collections.Generic.List[object]
+            $priority=0
+            function Add-Pair([string]$Source,[string]$Cmake,[string]$Ctest,[string]$Reason){$script:priority++;$pairs.Add([pscustomobject]@{selection_priority=$script:priority;discovery_source=$Source;cmake_path=$Cmake;ctest_path=$Ctest;selection_reason=$Reason})}
+            Add-Pair 'selected-visual-studio' $selectedVs.bundled_cmake_path $selectedVs.bundled_ctest_path 'Bundled pair from selected Visual Studio instance.'
+            if($vsEnv.exit_code -eq 0){foreach($d in @(([string]$vsEnv.environment['PATH']) -split ';'|Where-Object{$_})){Add-Pair 'vsdevcmd-path' (Join-Path $d 'cmake.exe') (Join-Path $d 'ctest.exe') 'Pair from selected VsDevCmd process PATH.'}}
+            foreach($cmd in @(Get-Command cmake.exe -All -ErrorAction SilentlyContinue)){Add-Pair 'process-path' $cmd.Source (Join-Path (Split-Path $cmd.Source -Parent) 'ctest.exe') 'Pair from process PATH.'}
+            foreach($v in @($rows|Where-Object{$_.installationPath -ne $selectedVs.installationPath}|Sort-Object @{Expression={[version]$_.installationVersion};Descending=$true}, @{Expression={$_.installationPath.ToLowerInvariant()}})){Add-Pair 'other-visual-studio' $v.bundled_cmake_path $v.bundled_ctest_path 'Bundled pair from non-selected Visual Studio instance.'}
+            foreach($pf in @($env:ProgramFiles,${env:ProgramFiles(x86)})|Where-Object{$_}){Add-Pair 'program-files-cmake' (Join-Path $pf 'CMake\bin\cmake.exe') (Join-Path $pf 'CMake\bin\ctest.exe') 'Standard Program Files CMake location.'}
+            if($env:ChocolateyInstall){Add-Pair 'chocolatey' (Join-Path $env:ChocolateyInstall 'bin\cmake.exe') (Join-Path $env:ChocolateyInstall 'bin\ctest.exe') 'Explicit Chocolatey bin location.'}
+
+            $attempts=@();$selectedPair=$null
+            foreach($pair in $pairs){
+              $a=[ordered]@{selection_priority=$pair.selection_priority;discovery_source=$pair.discovery_source;cmake_path=$pair.cmake_path;ctest_path=$pair.ctest_path;selection_reason=$pair.selection_reason;cmake_exists=$false;ctest_exists=$false;same_bin_directory=$false;cmake_version_output=$null;ctest_version_output=$null;cmake_version=$null;ctest_version=$null;cmake_invocation_exit_code=$null;ctest_invocation_exit_code=$null;cmake_sha256=$null;ctest_sha256=$null;cmake_size=$null;ctest_size=$null;rejection_reason=$null}
+              try{
+                $a.cmake_exists=Test-Path -LiteralPath $pair.cmake_path -PathType Leaf;$a.ctest_exists=Test-Path -LiteralPath $pair.ctest_path -PathType Leaf
+                if(-not$a.cmake_exists){$a.rejection_reason='cmake.exe missing'}elseif(-not$a.ctest_exists){$a.rejection_reason='ctest.exe missing'}else{
+                  $a.same_bin_directory=((Split-Path $pair.cmake_path -Parent)-ieq(Split-Path $pair.ctest_path -Parent));if(-not$a.same_bin_directory){$a.rejection_reason='different bin directories'}else{
+                    $cr=Invoke-Captured $pair.cmake_path @('--version') $null;$tr=Invoke-Captured $pair.ctest_path @('--version') $null
+                    $a.cmake_invocation_exit_code=$cr.exit_code;$a.ctest_invocation_exit_code=$tr.exit_code;$a.cmake_version_output=$cr.stdout+$cr.stderr;$a.ctest_version_output=$tr.stdout+$tr.stderr
+                    $cm=[regex]::Match($a.cmake_version_output,'cmake version\s+([0-9]+(?:\.[0-9]+)+)');$ct=[regex]::Match($a.ctest_version_output,'ctest version\s+([0-9]+(?:\.[0-9]+)+)')
+                    if($cr.exit_code-ne0){$a.rejection_reason='cmake invocation failed'}elseif($tr.exit_code-ne0){$a.rejection_reason='ctest invocation failed'}elseif(-not$cm.Success-or-not$ct.Success){$a.rejection_reason='version parse failed'}else{$a.cmake_version=$cm.Groups[1].Value;$a.ctest_version=$ct.Groups[1].Value;$a.cmake_sha256=(Get-FileHash $pair.cmake_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.ctest_sha256=(Get-FileHash $pair.ctest_path -Algorithm SHA256).Hash.ToLowerInvariant();$a.cmake_size=(Get-Item $pair.cmake_path).Length;$a.ctest_size=(Get-Item $pair.ctest_path).Length}
+                  }
+                }
+              }catch{$a.rejection_reason=$_.Exception.Message}
+              $attempts += [pscustomobject]$a
+              if(-not$a.rejection_reason -and -not$selectedPair){$selectedPair=[pscustomobject]$a}
+            }
+            $cmStatus='FAIL';$cmClass='CMAKE_NOT_FOUND';$cmError='No complete CMake/CTest pair found.'
+            if($selectedPair){$cmStatus='PASS';$cmClass='CMAKE_CTEST_PASS';$cmError=$null}
+            elseif(@($attempts|Where-Object{$_.cmake_exists -and -not$_.ctest_exists}).Count){$cmClass='CMAKE_TOOLCHAIN_INCOMPLETE';$cmError='CMake exists but matching CTest is missing.'}
+            elseif(@($attempts|Where-Object{$_.cmake_exists}).Count){$cmClass='CMAKE_TOOLCHAIN_INCOMPLETE';$cmError='CMake/CTest candidates exist but no valid pair passed invocation and parsing.'}
+            $cmakeResult=[ordered]@{status=$cmStatus;classification=$cmClass;first_error=$cmError;selected=$selectedPair;attempts=$attempts;selected_visual_studio_installation_path=$selectedVs.installationPath}
+            Persist-Json 'cmake-discovery.json' $cmakeResult @('status','classification','first_error','selected','attempts','selected_visual_studio_installation_path')|Out-Null
+            Persist-Text 'cmake-discovery.log' (($attempts|ConvertTo-Json -Depth 20))
+            Persist-Text 'cmake-first-error.txt' ([string]$cmError)
+          } catch {
+            $err=$_.Exception.ToString()
+            $cmakeResult=[ordered]@{status='FAIL';classification='DISCOVERY_SCRIPT_DEFECT';first_error=$err;selected=$null;attempts=@()}
+            $msvcResult=[ordered]@{status='FAIL';classification='DISCOVERY_SCRIPT_DEFECT';first_error=$err}
+            Persist-Json 'cmake-discovery.json' $cmakeResult @('status','classification','first_error','selected','attempts')|Out-Null
+            Persist-Text 'cmake-discovery.log' $err; Persist-Text 'cmake-first-error.txt' $err
+            Persist-Json 'msvc-discovery.json' $msvcResult @('status','classification','first_error')|Out-Null
+            Persist-Text 'msvc-discovery.log' $err; Persist-Text 'msvc-first-error.txt' $err
+          }
+
+          $cmRead=(Get-Content (Join-Path $root 'cmake-discovery.json') -Raw|ConvertFrom-Json)
+          $msRead=(Get-Content (Join-Path $root 'msvc-discovery.json') -Raw|ConvertFrom-Json)
+          if($cmRead.status -eq 'PASS' -and $msRead.status -eq 'PASS'){$classification='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'}
+          elseif($cmRead.classification -eq 'CMAKE_NOT_FOUND'){$classification='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN UNAVAILABLE'}
+          elseif($cmRead.status -ne 'PASS'){$classification='STOP — SELF-HOSTED WINDOWS CMAKE TOOLCHAIN INCOMPLETE'}
+          elseif($msRead.status -ne 'PASS'){$classification='STOP — SELF-HOSTED WINDOWS MSVC TOOLCHAIN INCOMPLETE'}
+          else{$classification='STOP — TOOLCHAIN DISCOVERY SCRIPT DEFECT'}
+          Persist-Text 'classification.txt' $classification
+          "classification=$classification" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host $classification
+
+      - name: Upload discovery artifact
+        id: evidence-upload
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-toolchain-discovery-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}\_toolchain_discovery_${{ github.run_id }}_${{ github.run_attempt }}
-          if-no-files-found: error
+          path: ${{ env.TOOLCHAIN_EVIDENCE_ROOT }}
           compression-level: 0
+          if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce toolchain diagnostic result
+      - name: Publish terminal status
+        id: terminal-status
         if: always()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          UPLOAD_OUTCOME: ${{ steps.discovery-upload.outcome }}
-          CLASSIFICATION: ${{ steps.classification.outputs.classification }}
-          CLASSIFICATION_STATUS: ${{ steps.classification.outputs.classification_status }}
+          DISCOVERY_CLASSIFICATION: ${{ steps.discovery.outputs.classification }}
+          UPLOAD_OUTCOME: ${{ steps.evidence-upload.outcome }}
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop';$classification=$env:CLASSIFICATION;$state='failure';$description=$null
-          if($env:UPLOAD_OUTCOME-ne'success'){$classification='STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED';$description='TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED'}elseif($env:CLASSIFICATION_STATUS-eq'PASS'){$state='success';$description='CMake, CTest and MSVC discovery passed'}else{$description=($classification -replace '^STOP — ','')}
+          $pass = ($env:DISCOVERY_CLASSIFICATION -eq 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS' -and $env:UPLOAD_OUTCOME -eq 'success')
+          $state = if($pass){'success'}else{'failure'}
+          $description = if($env:UPLOAD_OUTCOME -ne 'success'){'STOP - discovery evidence publication failed'}else{$env:DISCOVERY_CLASSIFICATION.Replace('—','-')}
+          if($description.Length -gt 140){$description=$description.Substring(0,140)}
           $body=@{state=$state;context=$env:STATUS_CONTEXT;description=$description;target_url="https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"}|ConvertTo-Json -Compress
-          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
-          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" -Headers $headers -ContentType 'application/json' -Body $body|Out-Null
-          if($env:UPLOAD_OUTCOME-ne'success'){throw $classification}
-          if($env:CLASSIFICATION_STATUS-ne'PASS'){throw $classification}
-          Write-Host 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'
-          Write-Host 'FINAL WINDOWS GATE MAY BE RESTORED'
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} -ContentType 'application/json' -Body $body | Out-Null
 
-  final-windows-gate:
-    name: "PR #42 final self-hosted Windows exact-head gate (disabled)"
-    if: ${{ false }}
-    runs-on: [self-hosted, Windows, X64, unreal-5.8]
-    steps:
-      - shell: cmd
-        run: exit /b 1
+      - name: Final enforcement
+        if: always()
+        shell: powershell
+        env:
+          DISCOVERY_CLASSIFICATION: ${{ steps.discovery.outputs.classification }}
+          UPLOAD_OUTCOME: ${{ steps.evidence-upload.outcome }}
+          STATUS_OUTCOME: ${{ steps.terminal-status.outcome }}
+        run: |
+          if($env:UPLOAD_OUTCOME -ne 'success'){Write-Error 'STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED';exit 1}
+          if($env:STATUS_OUTCOME -ne 'success'){Write-Error 'STOP — TOOLCHAIN DISCOVERY EVIDENCE PUBLICATION FAILED';exit 1}
+          if($env:DISCOVERY_CLASSIFICATION -ne 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'){Write-Error $env:DISCOVERY_CLASSIFICATION;exit 1}
+          Write-Host 'SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS'
