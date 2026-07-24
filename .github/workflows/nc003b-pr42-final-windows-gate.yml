@@ -1,4 +1,4 @@
-name: NC-003B immutable workflow source export
+name: NC-003B canonical target workflow AST preflight
 on:
   push:
     branches:
@@ -14,341 +14,117 @@ env:
   SOURCE_COMMIT: 3fb790c4da74906007724e84ca6506a51af3e332
   SOURCE_BLOB: d5d5b1f5641d151d0e5d4b75499326d6c1fa5cae
   SOURCE_PATH: .github/workflows/nc003b-pr42-final-windows-gate.yml
-  STATUS_CONTEXT: NC-003B Bootstrap / Immutable source export
+  STATUS_CONTEXT: NC-003B Bootstrap / Canonical target AST preflight
+  TARGET_SEAL_B64: JEVycm9yQWN0aW9uUHJlZmVyZW5jZT0nU3RvcCc7JHJvb3Q9JGVudjpFVklERU5DRV9ST09UOyR1cGxvYWQ9JGVudjpVUExPQURfUk9PVDskc2VhbD0nRkFJTCc7JG1vZGU9J2ZhbGxiYWNrJzskemlwTmFtZT0nJzskemlwSGFzaD0nJzskemlwU2l6ZT0nJzskY2xhc3M9J1NUT1Ag4oCUIFRPT0xDSEFJTiBESVNDT1ZFUlkgRVZJREVOQ0UgUFVCTElDQVRJT04gRkFJTEVEJzskdXRmOD1OZXctT2JqZWN0IFRleHQuVVRGOEVuY29kaW5nKCRmYWxzZSkKZnVuY3Rpb24gVygkcCwkdil7W0lPLkZpbGVdOjpXcml0ZUFsbFRleHQoJHAsW3N0cmluZ10kdiwkdXRmOCl9CmZ1bmN0aW9uIEVycm9yUmVjb3JkKCRlcil7W29yZGVyZWRdQHt0aW1lc3RhbXBfdXRjPVtEYXRlVGltZV06OlV0Y05vdy5Ub1N0cmluZygnbycpO2V4Y2VwdGlvbl90eXBlPSRlci5FeGNlcHRpb24uR2V0VHlwZSgpLkZ1bGxOYW1lO2V4Y2VwdGlvbl9tZXNzYWdlPSRlci5FeGNlcHRpb24uTWVzc2FnZTtleGNlcHRpb25fdG9fc3RyaW5nPSRlci5FeGNlcHRpb24uVG9TdHJpbmcoKTtzY3JpcHRfc3RhY2tfdHJhY2U9JGVyLlNjcmlwdFN0YWNrVHJhY2U7cG9zaXRpb25fbWVzc2FnZT0kZXIuSW52b2NhdGlvbkluZm8uUG9zaXRpb25NZXNzYWdlO2Z1bGx5X3F1YWxpZmllZF9lcnJvcl9pZD0kZXIuRnVsbHlRdWFsaWZpZWRFcnJvcklkO2NhdGVnb3J5X2luZm89W3N0cmluZ10kZXIuQ2F0ZWdvcnlJbmZvfX0KdHJ5IHsKICBOZXctSXRlbSAtSXRlbVR5cGUgRGlyZWN0b3J5IC1Gb3JjZSAtUGF0aCAkcm9vdCwkdXBsb2FkfE91dC1OdWxsCiAgJGNsYXNzPShHZXQtQ29udGVudCAoSm9pbi1QYXRoICRyb290ICdjbGFzc2lmaWNhdGlvbi50eHQnKSAtUmF3KS5UcmltKCkKICAkcmVxdWlyZWQ9QCgnY21ha2UtZGlzY292ZXJ5Lmpzb24nLCdjbWFrZS1kaXNjb3ZlcnkubG9nJywnY21ha2UtZmlyc3QtZXJyb3IudHh0JywnbXN2Yy1kaXNjb3ZlcnkuanNvbicsJ21zdmMtZGlzY292ZXJ5LmxvZycsJ21zdmMtZmlyc3QtZXJyb3IudHh0JywnY2xhc3NpZmljYXRpb24udHh0JywnY2FuZGlkYXRlLWNoZWNrb3V0LnR4dCcsJ3J1bi1pZC50eHQnLCdydW4tYXR0ZW1wdC50eHQnLCdydW5uZXItbmFtZS50eHQnLCdydW5uZXItb3MudHh0JywncnVubmVyLWFyY2gudHh0JywndnN3aGVyZS1zdGRvdXQudHh0JywndnN3aGVyZS1zdGRlcnIudHh0JywndnN3aGVyZS1leGl0LWNvZGUudHh0JywndnNkZXZjbWQtc3Rkb3V0LnR4dCcsJ3ZzZGV2Y21kLXN0ZGVyci50eHQnLCd2c2RldmNtZC1leGl0LWNvZGUudHh0JywnZGlzY292ZXJ5LXNjcmlwdC1lcnJvci50eHQnLCdzZWFsLWZpcnN0LWVycm9yLnR4dCcsJ3NlYWwtc3RhdHVzLmpzb24nLCdzZWFsLXN0YXR1cy50eHQnLCdwdWJsaWNhdGlvbi1mYWxsYmFjay5qc29uJywncHVibGljYXRpb24tZmFsbGJhY2sudHh0JykKICBmb3JlYWNoKCRuIGluICRyZXF1aXJlZCl7CiAgICAkcD1Kb2luLVBhdGggJHJvb3QgJG4KICAgIGlmKC1ub3QoVGVzdC1QYXRoICRwIC1QYXRoVHlwZSBMZWFmKSl7dGhyb3cgIk1pc3NpbmcgcmVxdWlyZWQgZXZpZGVuY2U6ICRuIn0KICAgIGlmKCRuLkVuZHNXaXRoKCcuanNvbicpKXskbnVsbD1HZXQtQ29udGVudCAkcCAtUmF3fENvbnZlcnRGcm9tLUpzb259CiAgfQoKICAkc2VhbFN0YXR1c09iamVjdD1bb3JkZXJlZF1AewogICAgc3RhdHVzPSdQQVNTJwogICAgY2xhc3NpZmljYXRpb249JGNsYXNzCiAgICBwYWNrYWdlX21vZGU9J3NlYWxlZCcKICAgIHRpbWVzdGFtcF91dGM9W0RhdGVUaW1lXTo6VXRjTm93LlRvU3RyaW5nKCdvJykKICB9CiAgJHNlYWxTdGF0dXNKc29uPSRzZWFsU3RhdHVzT2JqZWN0fENvbnZlcnRUby1Kc29uIC1EZXB0aCAxMAogIFcgKEpvaW4tUGF0aCAkcm9vdCAnc2VhbC1zdGF0dXMuanNvbicpICRzZWFsU3RhdHVzSnNvbgogIFcgKEpvaW4tUGF0aCAkcm9vdCAnc2VhbC1zdGF0dXMudHh0JykgJ1BBU1MnCgogICRlbnRyaWVzPUAoKQogIGZvcmVhY2goJGYgaW4gQChHZXQtQ2hpbGRJdGVtICRyb290IC1GaWxlIC1SZWN1cnNlfFNvcnQtT2JqZWN0IEZ1bGxOYW1lKSl7CiAgICAkcmVsPSRmLkZ1bGxOYW1lLlN1YnN0cmluZygkcm9vdC5MZW5ndGgpLlRyaW1TdGFydCgnXCcpLlJlcGxhY2UoJ1wnLCcvJykKICAgICRlbnRyaWVzKz1bb3JkZXJlZF1AewogICAgICByZWxhdGl2ZV9wYXRoPSRyZWwKICAgICAgc2l6ZT1baW50NjRdJGYuTGVuZ3RoCiAgICAgIHNoYTI1Nj0oR2V0LUZpbGVIYXNoICRmLkZ1bGxOYW1lIC1BbGdvcml0aG0gU0hBMjU2KS5IYXNoLlRvTG93ZXJJbnZhcmlhbnQoKQogICAgfQogIH0KCiAgJG1hbmlmZXN0PVtvcmRlcmVkXUB7CiAgICBzY2hlbWE9J25jMDAzYi10b29sY2hhaW4tZGlzY292ZXJ5LWV2aWRlbmNlLWZpbGUtbWFuaWZlc3QtdjEnCiAgICBydW5faWQ9JGVudjpHSVRIVUJfUlVOX0lECiAgICBydW5fYXR0ZW1wdD0kZW52OkdJVEhVQl9SVU5fQVRURU1QVAogICAgZmlsZV9jb3VudD0kZW50cmllcy5Db3VudAogICAgZmlsZXM9JGVudHJpZXMKICB9CiAgJG1hbmlmZXN0UGF0aD1Kb2luLVBhdGggJHJvb3QgJ2V2aWRlbmNlLWZpbGUtbWFuaWZlc3QuanNvbicKICBXICRtYW5pZmVzdFBhdGggKCRtYW5pZmVzdHxDb252ZXJ0VG8tSnNvbiAtRGVwdGggOCkKICAkbWFuaWZlc3RSZWFkPUdldC1Db250ZW50ICRtYW5pZmVzdFBhdGggLVJhd3xDb252ZXJ0RnJvbS1Kc29uCiAgaWYoW2ludF0kbWFuaWZlc3RSZWFkLmZpbGVfY291bnQgLW5lICRlbnRyaWVzLkNvdW50KXt0aHJvdyAnTWFuaWZlc3QgZmlsZSBjb3VudCBtaXNtYXRjaCd9CiAgZm9yZWFjaCgkZW50cnkgaW4gQCgkbWFuaWZlc3RSZWFkLmZpbGVzKSl7CiAgICAkZW50cnlQYXRoPUpvaW4tUGF0aCAkcm9vdCAoW3N0cmluZ10kZW50cnkucmVsYXRpdmVfcGF0aCkuUmVwbGFjZSgnLycsJ1wnKQogICAgaWYoLW5vdChUZXN0LVBhdGggJGVudHJ5UGF0aCAtUGF0aFR5cGUgTGVhZikpe3Rocm93ICJNYW5pZmVzdCBwYXRoIG1pc3NpbmcgYWZ0ZXIgcmVhZC1iYWNrOiAkKCRlbnRyeS5yZWxhdGl2ZV9wYXRoKSJ9CiAgICAkZW50cnlJdGVtPUdldC1JdGVtICRlbnRyeVBhdGgKICAgIGlmKFtpbnQ2NF0kZW50cnlJdGVtLkxlbmd0aCAtbmUgW2ludDY0XSRlbnRyeS5zaXplKXt0aHJvdyAiTWFuaWZlc3Qgc2l6ZSBtaXNtYXRjaCBhZnRlciByZWFkLWJhY2s6ICQoJGVudHJ5LnJlbGF0aXZlX3BhdGgpIn0KICAgICRlbnRyeUhhc2g9KEdldC1GaWxlSGFzaCAkZW50cnlQYXRoIC1BbGdvcml0aG0gU0hBMjU2KS5IYXNoLlRvTG93ZXJJbnZhcmlhbnQoKQogICAgaWYoJGVudHJ5SGFzaCAtbmUgW3N0cmluZ10kZW50cnkuc2hhMjU2KXt0aHJvdyAiTWFuaWZlc3QgaGFzaCBtaXNtYXRjaCBhZnRlciByZWFkLWJhY2s6ICQoJGVudHJ5LnJlbGF0aXZlX3BhdGgpIn0KICB9CiAgVyAoSm9pbi1QYXRoICRyb290ICdldmlkZW5jZS1maWxlLW1hbmlmZXN0LnR4dCcpICgoJGVudHJpZXN8Rm9yRWFjaC1PYmplY3R7IiQoJF8uc2hhMjU2KSAgJCgkXy5zaXplKSAgJCgkXy5yZWxhdGl2ZV9wYXRoKSJ9KS1qb2luImBuIikKCiAgQWRkLVR5cGUgLUFzc2VtYmx5TmFtZSBTeXN0ZW0uSU8uQ29tcHJlc3Npb24KICBBZGQtVHlwZSAtQXNzZW1ibHlOYW1lIFN5c3RlbS5JTy5Db21wcmVzc2lvbi5GaWxlU3lzdGVtCiAgJHppcE5hbWU9Ik5DLTAwM0ItdG9vbGNoYWluLWRpc2NvdmVyeS1ldmlkZW5jZS0kZW52OkdJVEhVQl9SVU5fSUQtJGVudjpHSVRIVUJfUlVOX0FUVEVNUFQuemlwIgogICR6aXA9Sm9pbi1QYXRoICR1cGxvYWQgJHppcE5hbWUKICBSZW1vdmUtSXRlbSAkemlwIC1Gb3JjZSAtRXJyb3JBY3Rpb24gU2lsZW50bHlDb250aW51ZQogICRmcz1bSU8uRmlsZV06Ok9wZW4oJHppcCxbSU8uRmlsZU1vZGVdOjpDcmVhdGVOZXcpCiAgdHJ5ewogICAgJHphPU5ldy1PYmplY3QgSU8uQ29tcHJlc3Npb24uWmlwQXJjaGl2ZSgkZnMsW0lPLkNvbXByZXNzaW9uLlppcEFyY2hpdmVNb2RlXTo6Q3JlYXRlLCRmYWxzZSkKICAgIHRyeXsKICAgICAgZm9yZWFjaCgkZiBpbiBAKEdldC1DaGlsZEl0ZW0gJHJvb3QgLUZpbGUgLVJlY3Vyc2V8U29ydC1PYmplY3QgRnVsbE5hbWUpKXsKICAgICAgICAkcmVsPSRmLkZ1bGxOYW1lLlN1YnN0cmluZygkcm9vdC5MZW5ndGgpLlRyaW1TdGFydCgnXCcpLlJlcGxhY2UoJ1wnLCcvJykKICAgICAgICAkemU9JHphLkNyZWF0ZUVudHJ5KCRyZWwsW0lPLkNvbXByZXNzaW9uLkNvbXByZXNzaW9uTGV2ZWxdOjpOb0NvbXByZXNzaW9uKQogICAgICAgICR6ZS5MYXN0V3JpdGVUaW1lPVtEYXRlVGltZU9mZnNldF06Om5ldygxOTgwLDEsMSwwLDAsMCxbVGltZVNwYW5dOjpaZXJvKQogICAgICAgICRzcmM9W0lPLkZpbGVdOjpPcGVuUmVhZCgkZi5GdWxsTmFtZSkKICAgICAgICAkZHN0PSR6ZS5PcGVuKCkKICAgICAgICB0cnl7JHNyYy5Db3B5VG8oJGRzdCl9ZmluYWxseXskZHN0LkRpc3Bvc2UoKTskc3JjLkRpc3Bvc2UoKX0KICAgICAgfQogICAgfWZpbmFsbHl7JHphLkRpc3Bvc2UoKX0KICB9ZmluYWxseXskZnMuRGlzcG9zZSgpfQoKICAkemk9R2V0LUl0ZW0gJHppcAogIGlmKCR6aS5MZW5ndGggLWxlIDApe3Rocm93ICdMb2NhbCBaSVAgZW1wdHknfQoKICAkcmVhZEZzPVtJTy5GaWxlXTo6T3BlblJlYWQoJHppcCkKICB0cnl7CiAgICAkcmVhZFphPU5ldy1PYmplY3QgSU8uQ29tcHJlc3Npb24uWmlwQXJjaGl2ZSgkcmVhZEZzLFtJTy5Db21wcmVzc2lvbi5aaXBBcmNoaXZlTW9kZV06OlJlYWQsJGZhbHNlKQogICAgdHJ5ewogICAgICAkemlwRW50cmllcz1Ae30KICAgICAgZm9yZWFjaCgkemUgaW4gJHJlYWRaYS5FbnRyaWVzKXsKICAgICAgICBpZigtbm90W3N0cmluZ106OklzTnVsbE9yRW1wdHkoJHplLk5hbWUpKXskemlwRW50cmllc1skemUuRnVsbE5hbWVdPSR6ZX0KICAgICAgfQogICAgICBmb3JlYWNoKCRlbnRyeSBpbiBAKCRtYW5pZmVzdFJlYWQuZmlsZXMpKXsKICAgICAgICAkcmVsPVtzdHJpbmddJGVudHJ5LnJlbGF0aXZlX3BhdGgKICAgICAgICBpZigtbm90JHppcEVudHJpZXMuQ29udGFpbnNLZXkoJHJlbCkpe3Rocm93ICJaSVAgZW50cnkgbWlzc2luZzogJHJlbCJ9CiAgICAgICAgJHplPSR6aXBFbnRyaWVzWyRyZWxdCiAgICAgICAgaWYoW2ludDY0XSR6ZS5MZW5ndGggLW5lIFtpbnQ2NF0kZW50cnkuc2l6ZSl7dGhyb3cgIlpJUCBlbnRyeSBzaXplIG1pc21hdGNoOiAkcmVsIn0KICAgICAgICAkc3RyZWFtPSR6ZS5PcGVuKCkKICAgICAgICB0cnl7CiAgICAgICAgICAkc2hhPVtTZWN1cml0eS5DcnlwdG9ncmFwaHkuU0hBMjU2XTo6Q3JlYXRlKCkKICAgICAgICAgIHRyeXskYWN0dWFsSGFzaD0oW0JpdENvbnZlcnRlcl06OlRvU3RyaW5nKCRzaGEuQ29tcHV0ZUhhc2goJHN0cmVhbSkpKS5SZXBsYWNlKCctJywnJykuVG9Mb3dlckludmFyaWFudCgpfWZpbmFsbHl7JHNoYS5EaXNwb3NlKCl9CiAgICAgICAgfWZpbmFsbHl7JHN0cmVhbS5EaXNwb3NlKCl9CiAgICAgICAgaWYoJGFjdHVhbEhhc2ggLW5lIFtzdHJpbmddJGVudHJ5LnNoYTI1Nil7dGhyb3cgIlpJUCBlbnRyeSBoYXNoIG1pc21hdGNoOiAkcmVsIn0KICAgICAgfQogICAgfWZpbmFsbHl7JHJlYWRaYS5EaXNwb3NlKCl9CiAgfWZpbmFsbHl7JHJlYWRGcy5EaXNwb3NlKCl9CgogICRzZWFsPSdQQVNTJwogICRtb2RlPSdzZWFsZWQnCiAgJHppcEhhc2g9KEdldC1GaWxlSGFzaCAkemlwIC1BbGdvcml0aG0gU0hBMjU2KS5IYXNoLlRvTG93ZXJJbnZhcmlhbnQoKQogICR6aXBTaXplPSR6aS5MZW5ndGgKfSBjYXRjaCB7CiAgJHNlYWw9J0ZBSUwnCiAgJG1vZGU9J2ZhbGxiYWNrJwogICRjbGFzcz0nU1RPUCDigJQgRVZJREVOQ0UgU0VBTCBGQUlMRUQnCiAgJGRpYWc9RXJyb3JSZWNvcmQgJF8KICB0cnl7VyAoSm9pbi1QYXRoICRyb290ICdzZWFsLWZpcnN0LWVycm9yLnR4dCcpICgkZGlhZ3xDb252ZXJ0VG8tSnNvbiAtRGVwdGggOCl9Y2F0Y2h7V3JpdGUtV2FybmluZyAkX30KICB0cnl7CiAgICAkc2VhbFN0YXR1c09iamVjdD1bb3JkZXJlZF1AewogICAgICBzdGF0dXM9J0ZBSUwnCiAgICAgIGNsYXNzaWZpY2F0aW9uPSdFVklERU5DRV9TRUFMX0ZBSUxFRCcKICAgICAgZmlyc3RfZXJyb3I9JGRpYWcKICAgICAgcGFja2FnZV9tb2RlPSdmYWxsYmFjaycKICAgICAgdGltZXN0YW1wX3V0Yz1bRGF0ZVRpbWVdOjpVdGNOb3cuVG9TdHJpbmcoJ28nKQogICAgfQogICAgJHNlYWxTdGF0dXNKc29uPSRzZWFsU3RhdHVzT2JqZWN0fENvbnZlcnRUby1Kc29uIC1EZXB0aCAxMAogICAgVyAoSm9pbi1QYXRoICRyb290ICdzZWFsLXN0YXR1cy5qc29uJykgJHNlYWxTdGF0dXNKc29uCiAgICBXIChKb2luLVBhdGggJHJvb3QgJ3NlYWwtc3RhdHVzLnR4dCcpICdGQUlMJwogIH1jYXRjaHtXcml0ZS1XYXJuaW5nICRffQogIHRyeXsKICAgIEdldC1DaGlsZEl0ZW0gLUxpdGVyYWxQYXRoICRyb290IC1Gb3JjZXxGb3JFYWNoLU9iamVjdHsKICAgICAgQ29weS1JdGVtIC1MaXRlcmFsUGF0aCAkXy5GdWxsTmFtZSAtRGVzdGluYXRpb24gJHVwbG9hZCAtUmVjdXJzZSAtRm9yY2UgLUVycm9yQWN0aW9uIENvbnRpbnVlCiAgICB9CiAgfWNhdGNoe1dyaXRlLVdhcm5pbmcgJF99CiAgdHJ5ewogICAgQWRkLVR5cGUgLUFzc2VtYmx5TmFtZSBTeXN0ZW0uSU8uQ29tcHJlc3Npb24KICAgIEFkZC1UeXBlIC1Bc3NlbWJseU5hbWUgU3lzdGVtLklPLkNvbXByZXNzaW9uLkZpbGVTeXN0ZW0KICAgICR6aXBOYW1lPSJOQy0wMDNCLXRvb2xjaGFpbi1kaXNjb3ZlcnktZmFsbGJhY2stJGVudjpHSVRIVUJfUlVOX0lELSRlbnY6R0lUSFVCX1JVTl9BVFRFTVBULnppcCIKICAgICR6aXA9Sm9pbi1QYXRoICR1cGxvYWQgJHppcE5hbWUKICAgIFJlbW92ZS1JdGVtICR6aXAgLUZvcmNlIC1FcnJvckFjdGlvbiBTaWxlbnRseUNvbnRpbnVlCiAgICBbSU8uQ29tcHJlc3Npb24uWmlwRmlsZV06OkNyZWF0ZUZyb21EaXJlY3RvcnkoJHJvb3QsJHppcCxbSU8uQ29tcHJlc3Npb24uQ29tcHJlc3Npb25MZXZlbF06Ok5vQ29tcHJlc3Npb24sJGZhbHNlKQogICAgJHppPUdldC1JdGVtICR6aXAKICAgICR6aXBIYXNoPShHZXQtRmlsZUhhc2ggJHppcCAtQWxnb3JpdGhtIFNIQTI1NikuSGFzaC5Ub0xvd2VySW52YXJpYW50KCkKICAgICR6aXBTaXplPSR6aS5MZW5ndGgKICB9Y2F0Y2h7V3JpdGUtV2FybmluZyAkX30KfSBmaW5hbGx5IHsKICB0cnl7CiAgICAkZmI9W29yZGVyZWRdQHsKICAgICAgc3RhdHVzPSRzZWFsCiAgICAgIGNsYXNzaWZpY2F0aW9uPSRjbGFzcwogICAgICBwYWNrYWdlX21vZGU9JG1vZGUKICAgICAgcnVuX2lkPSRlbnY6R0lUSVCBSVU5fSUQKICAgICAgcnVuX2F0dGVtcHQ9JGVudjpHSVRIVUJfUlVOX0FUVEVNUFQKICAgICAgdGltZXN0YW1wX3V0Yz1bRGF0ZVRpbWVdOjpVdGNOb3cuVG9TdHJpbmcoJ28nKQogICAgfQogICAgVyAoSm9pbi1QYXRoICR1cGxvYWQgJ3B1YmxpY2F0aW9uLWZhbGxiYWNrLmpzb24nKSAoJGZifENvbnZlcnRUby1Kc29uIC1EZXB0aCA4KQogICAgVyAoSm9pbi1QYXRoICR1cGxvYWQgJ3B1YmxpY2F0aW9uLWZhbGxiYWNrLnR4dCcpICRjbGFzcwogICAgQ29weS1JdGVtIChKb2luLVBhdGggJHJvb3QgJ3NlYWwtZmlyc3QtZXJyb3IudHh0JykgJHVwbG9hZCAtRm9yY2UgLUVycm9yQWN0aW9uIFNpbGVudGx5Q29udGludWUKICB9Y2F0Y2h7V3JpdGUtV2FybmluZyAkX30KICAic2VhbF9zdGF0dXM9JHNlYWwifE91dC1GaWxlICRlbnY6R0lUSFVCSV9PVVRQVVQgLUVuY29kaW5nIHV0ZjggLUFwcGVuZAogICJwYWNrYWdlX21vZGU9JG1vZGUifE91dC1GaWxlICRlbnY6R0lUSFVCSV9PVVRQVVQgLUVuY29kaW5nIHV0ZjggLUFwcGVuZAogICJsb2NhbF96aXBfbmFtZT0kemlwTmFtZSJ8T3V0LUZpbGUgJGVudjpHSVRIVUJfT1VUUFVUIC1FbmNvZGluZyB1dGY4IC1BcHBlbmQKICAibG9jYWxfemlwX3NoYTI1Nj0kemlwSGFzaCJ8T3V0LUZpbGUgJGVudjpHSVRIVUJfT1VUUFVUIC1FbmNvZGluZyB1dGY4IC1BcHBlbmQKICAibG9jYWxfemlwX3NpemU9JHppcFNpemUifE91dC1GaWxlICRlbnY6R0lUSFVCSV9PVVRQVVQgLUVuY29kaW5nIHV0ZjggLUFwcGVuZAogICJkaXNjb3ZlcnlfY2xhc3NpZmljYXRpb249JGNsYXNzInxPdXQtRmlsZSAkZW52OkdJVEhVQl9PVVRQVVQgLUVuY29kaW5nIHV0ZjggLUFwcGVuZAp9Cg==
 
 jobs:
   announce-run:
     runs-on: ubuntu-latest
     steps:
-      - name: Publish pending bootstrap status with run ID
+      - name: Publish pending status
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMIT_SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
           python3 - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          payload = json.dumps({
-              "state": "pending",
-              "context": os.environ["STATUS_CONTEXT"],
-              "description": "Immutable source workflow export running",
-              "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-          }).encode("utf-8")
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['COMMIT_SHA']}",
-              data=payload,
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                  "Content-Type": "application/json",
-              },
-          )
-          with urllib.request.urlopen(request) as response:
-              if response.status != 201:
-                  raise RuntimeError(f"Unexpected status publication response: {response.status}")
+          import json,os,urllib.request
+          p=json.dumps({"state":"pending","context":os.environ["STATUS_CONTEXT"],"description":"Canonical target AST preflight running","target_url":f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode()
+          r=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['GITHUB_SHA']}",data=p,method="POST",headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"})
+          assert urllib.request.urlopen(r).status==201
           PY
 
-  self-hosted-source-export:
+  self-hosted-canonical-target-ast:
     needs: announce-run
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       PSExecutionPolicyPreference: Bypass
-      EVIDENCE_ROOT: ${{ github.workspace }}\_immutable_source_export_${{ github.run_id }}_${{ github.run_attempt }}
+      EVIDENCE_ROOT: ${{ github.workspace }}\_canonical_target_ast_${{ github.run_id }}_${{ github.run_attempt }}
     outputs:
-      classification: ${{ steps.inspect.outputs.classification }}
-      reconstructed-blob: ${{ steps.inspect.outputs.reconstructed_blob }}
-      upload-outcome: ${{ steps.upload.outcome }}
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
-      artifact-url: ${{ steps.upload.outputs.artifact-url }}
-      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      classification: ${{ steps.preflight.outputs.classification }}
+      upload_outcome: ${{ steps.upload.outcome }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
-      - name: Initialize immutable source evidence
-        id: initialize
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = $env:EVIDENCE_ROOT
-          Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          function Write-Utf8([string]$Name, [string]$Value) {
-            [IO.File]::WriteAllText((Join-Path $root $Name), $Value, $utf8)
-          }
-          Write-Utf8 'classification.txt' 'STOP — IMMUTABLE SOURCE WORKFLOW EXPORT FAILED'
-          Write-Utf8 'source-export-first-error.txt' 'NOT_COMPLETED'
-          Write-Utf8 'candidate-checkout.txt' 'CANDIDATE NOT CHECKED OUT'
-          Write-Utf8 'run-id.txt' $env:GITHUB_RUN_ID
-          Write-Utf8 'run-attempt.txt' $env:GITHUB_RUN_ATTEMPT
-          Write-Utf8 'runner-name.txt' $env:RUNNER_NAME
-          Write-Utf8 'runner-os.txt' $env:RUNNER_OS
-          Write-Utf8 'runner-arch.txt' $env:RUNNER_ARCH
-          Write-Utf8 'source-api-response.json' '{"status":"NOT_COMPLETED"}'
-          Write-Utf8 'source-identity.json' '{"status":"NOT_COMPLETED"}'
-          Write-Utf8 'source-identity.txt' 'NOT_COMPLETED'
-
-      - name: Fetch and verify immutable source workflow
-        id: fetch
+      - name: Materialize and parse canonical target
+        id: preflight
         continue-on-error: true
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $root = $env:EVIDENCE_ROOT
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          function Write-Utf8([string]$Name, [string]$Value) {
-            [IO.File]::WriteAllText((Join-Path $root $Name), $Value, $utf8)
-          }
-          try {
-            $escapedPath = (($env:SOURCE_PATH -split '/') | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
-            $uri = "https://api.github.com/repos/Dziuras98/Nextcar/contents/$escapedPath`?ref=$($env:SOURCE_COMMIT)"
-            $headers = @{
-              Authorization = "Bearer $env:GH_TOKEN"
-              Accept = 'application/vnd.github+json'
-              'X-GitHub-Api-Version' = '2022-11-28'
-            }
-            $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
-            if ([string]$response.type -ne 'file') {
-              throw "API response type mismatch: $($response.type)"
-            }
-            if ([string]$response.encoding -ne 'base64') {
-              throw "API response encoding mismatch: $($response.encoding)"
-            }
-            if ([string]$response.sha -ne $env:SOURCE_BLOB) {
-              throw "API blob SHA mismatch: $($response.sha)"
-            }
-            if ([string]::IsNullOrWhiteSpace([string]$response.content)) {
-              throw 'API response content is empty'
-            }
-
-            $metadata = [ordered]@{
-              repository = 'Dziuras98/Nextcar'
-              source_commit = $env:SOURCE_COMMIT
-              source_path = $env:SOURCE_PATH
-              type = [string]$response.type
-              encoding = [string]$response.encoding
-              sha = [string]$response.sha
-              size = [int64]$response.size
-              content = [string]$response.content
-            }
-            Write-Utf8 'source-api-response.json' ($metadata | ConvertTo-Json -Depth 8)
-
-            $base64Text = ([string]$response.content) -replace '\s', ''
-            $sourceBytes = [Convert]::FromBase64String($base64Text)
-            $sourcePath = Join-Path $root 'source-workflow.yml'
-            [IO.File]::WriteAllBytes($sourcePath, $sourceBytes)
-
-            $prefix = [Text.Encoding]::ASCII.GetBytes("blob $($sourceBytes.Length)`0")
-            $objectBytes = New-Object byte[] ($prefix.Length + $sourceBytes.Length)
-            [Array]::Copy($prefix, 0, $objectBytes, 0, $prefix.Length)
-            [Array]::Copy($sourceBytes, 0, $objectBytes, $prefix.Length, $sourceBytes.Length)
-            $sha1 = [Security.Cryptography.SHA1]::Create()
-            try {
-              $gitBlob = ([BitConverter]::ToString($sha1.ComputeHash($objectBytes))).Replace('-', '').ToLowerInvariant()
-            } finally {
-              $sha1.Dispose()
-            }
-            $sha256 = [Security.Cryptography.SHA256]::Create()
-            try {
-              $sourceSha256 = ([BitConverter]::ToString($sha256.ComputeHash($sourceBytes))).Replace('-', '').ToLowerInvariant()
-            } finally {
-              $sha256.Dispose()
-            }
-            $canonicalBase64 = [Convert]::ToBase64String($sourceBytes)
-            $roundTripBytes = [Convert]::FromBase64String($canonicalBase64)
-            $roundTrip = ($roundTripBytes.Length -eq $sourceBytes.Length)
-            if ($roundTrip) {
-              for ($i = 0; $i -lt $sourceBytes.Length; $i++) {
-                if ($roundTripBytes[$i] -ne $sourceBytes[$i]) {
-                  $roundTrip = $false
-                  break
-                }
-              }
-            }
-            $bom = $sourceBytes.Length -ge 3 -and $sourceBytes[0] -eq 0xEF -and $sourceBytes[1] -eq 0xBB -and $sourceBytes[2] -eq 0xBF
-            $lfCount = 0
-            $crlfCount = 0
-            for ($i = 0; $i -lt $sourceBytes.Length; $i++) {
-              if ($sourceBytes[$i] -eq 0x0A) {
-                $lfCount++
-                if ($i -gt 0 -and $sourceBytes[$i - 1] -eq 0x0D) {
-                  $crlfCount++
-                }
-              }
-            }
-
-            $apiPass = ([string]$response.sha -eq $env:SOURCE_BLOB)
-            $blobPass = ($gitBlob -eq $env:SOURCE_BLOB)
-            if (-not $apiPass) { throw 'API_BLOB_SHA: FAIL' }
-            if (-not $blobPass) { throw "RECONSTRUCTED_GIT_BLOB_SHA: FAIL ($gitBlob)" }
-            if (-not $roundTrip) { throw 'BASE64_ROUNDTRIP: FAIL' }
-
-            $identity = [ordered]@{
-              repository = 'Dziuras98/Nextcar'
-              source_commit = $env:SOURCE_COMMIT
-              source_path = $env:SOURCE_PATH
-              api_encoding = [string]$response.encoding
-              api_reported_blob_sha = [string]$response.sha
-              reconstructed_git_blob_sha = $gitBlob
-              source_sha256 = $sourceSha256
-              source_byte_size = [int64]$sourceBytes.Length
-              canonical_base64_length = [int64]$canonicalBase64.Length
-              base64_round_trip = 'PASS'
-              utf8_bom_present = [bool]$bom
-              lf_count = [int64]$lfCount
-              crlf_count = [int64]$crlfCount
-              api_blob_sha_result = 'PASS'
-              reconstructed_git_blob_sha_result = 'PASS'
-              timestamp_utc = [DateTime]::UtcNow.ToString('o')
-              powershell = $PSVersionTable.PSVersion.ToString()
-              powershell_edition = [string]$PSVersionTable.PSEdition
-            }
-            Write-Utf8 'source-identity.json' ($identity | ConvertTo-Json -Depth 8)
-            $identityText = @(
-              "repository=$($identity.repository)"
-              "source_commit=$($identity.source_commit)"
-              "source_path=$($identity.source_path)"
-              "api_encoding=$($identity.api_encoding)"
-              "api_reported_blob_sha=$($identity.api_reported_blob_sha)"
-              "reconstructed_git_blob_sha=$($identity.reconstructed_git_blob_sha)"
-              "source_sha256=$($identity.source_sha256)"
-              "source_byte_size=$($identity.source_byte_size)"
-              "canonical_base64_length=$($identity.canonical_base64_length)"
-              "base64_round_trip=$($identity.base64_round_trip)"
-              "utf8_bom_present=$($identity.utf8_bom_present)"
-              "lf_count=$($identity.lf_count)"
-              "crlf_count=$($identity.crlf_count)"
-              "api_blob_sha_result=$($identity.api_blob_sha_result)"
-              "reconstructed_git_blob_sha_result=$($identity.reconstructed_git_blob_sha_result)"
-              "timestamp_utc=$($identity.timestamp_utc)"
-              "powershell=$($identity.powershell)"
-              "powershell_edition=$($identity.powershell_edition)"
-            ) -join "`n"
-            Write-Utf8 'source-identity.txt' $identityText
-            Write-Utf8 'source-export-first-error.txt' 'NONE'
-            Write-Utf8 'classification.txt' 'IMMUTABLE SOURCE WORKFLOW EXPORT PASS'
-          } catch {
-            $message = "$($_.Exception.GetType().FullName): $($_.Exception.Message)"
-            Write-Utf8 'source-export-first-error.txt' $message
-            Write-Error $message
-          }
-
-      - name: Ensure terminal fallback evidence
-        id: fallback
-        if: ${{ always() }}
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = $env:EVIDENCE_ROOT
-          $errorPath = Join-Path $root 'source-export-first-error.txt'
-          if (-not (Test-Path -LiteralPath $errorPath -PathType Leaf)) {
-            [IO.File]::WriteAllText($errorPath, 'FETCH STEP DID NOT PRODUCE TERMINAL EVIDENCE', (New-Object System.Text.UTF8Encoding($false)))
-          } else {
-            $current = [IO.File]::ReadAllText($errorPath)
-            if ([string]::IsNullOrWhiteSpace($current) -or $current -eq 'NOT_COMPLETED') {
-              [IO.File]::WriteAllText($errorPath, 'FETCH STEP DID NOT PRODUCE TERMINAL EVIDENCE', (New-Object System.Text.UTF8Encoding($false)))
-            }
-          }
-
-      - name: Inspect source export evidence
-        id: inspect
-        if: ${{ always() }}
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = $env:EVIDENCE_ROOT
-          $classification = [IO.File]::ReadAllText((Join-Path $root 'classification.txt')).Trim()
-          $reconstructed = ''
-          $identityPath = Join-Path $root 'source-identity.json'
-          if (Test-Path -LiteralPath $identityPath -PathType Leaf) {
-            try {
-              $identity = [IO.File]::ReadAllText($identityPath) | ConvertFrom-Json
-              $reconstructed = [string]$identity.reconstructed_git_blob_sha
-            } catch {
-              $reconstructed = ''
-            }
-          }
-          "classification=$classification" >> $env:GITHUB_OUTPUT
-          "reconstructed_blob=$reconstructed" >> $env:GITHUB_OUTPUT
-
-      - name: Upload immutable source workflow evidence
+          $ErrorActionPreference='Stop'
+          $root=$env:EVIDENCE_ROOT
+          Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $root|Out-Null
+          $u=New-Object Text.UTF8Encoding($false)
+          function W($n,$v){[IO.File]::WriteAllText((Join-Path $root $n),[string]$v,$u)}
+          function H256([byte[]]$b){$h=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($h.ComputeHash($b))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}
+          function Blob([byte[]]$b){$p=[Text.Encoding]::ASCII.GetBytes("blob $($b.Length)`0");$o=New-Object byte[] ($p.Length+$b.Length);[Array]::Copy($p,0,$o,0,$p.Length);[Array]::Copy($b,0,$o,$p.Length,$b.Length);$h=[Security.Cryptography.SHA1]::Create();try{([BitConverter]::ToString($h.ComputeHash($o))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}
+          function Stats([byte[]]$b){$lf=0;$crlf=0;for($i=0;$i-lt$b.Length;$i++){if($b[$i]-eq 10){$lf++;if($i-gt 0-and$b[$i-1]-eq 13){$crlf++}}};[ordered]@{size=$b.Length;sha256=H256 $b;git_blob=Blob $b;lf=$lf;crlf=$crlf;bom=($b.Length-ge 3-and$b[0]-eq239-and$b[1]-eq187-and$b[2]-eq191)}}
+          function Extract([string]$text,[string]$name){$needle="      - name: $name`n";$s=$text.IndexOf($needle,[StringComparison]::Ordinal);if($s-lt 0){throw "step missing: $name"};$r=$text.IndexOf("        run: |`n",$s,[StringComparison]::Ordinal);if($r-lt 0){throw "run missing: $name"};$bs=$r+15;$e=$text.IndexOf("      - name: ",$bs,[StringComparison]::Ordinal);if($e-lt 0){throw "next step missing: $name"};$raw=$text.Substring($bs,$e-$bs);$lines=$raw-split"`n",-1;$out=New-Object Collections.Generic.List[string];foreach($line in $lines){if($line.StartsWith('          ')){$out.Add($line.Substring(10))}elseif($line-eq''){$out.Add('')}else{throw "indent mismatch: $name"}};$body=($out-join"`n");if($body.EndsWith("`n`n")){$body=$body.Substring(0,$body.Length-1)};return [Text.Encoding]::UTF8.GetBytes($body)}
+          function ReplaceSeal([string]$text,[byte[]]$new){$needle="      - name: Seal and package discovery evidence`n";$s=$text.IndexOf($needle,[StringComparison]::Ordinal);$r=$text.IndexOf("        run: |`n",$s,[StringComparison]::Ordinal);$bs=$r+15;$e=$text.IndexOf("      - name: ",$bs,[StringComparison]::Ordinal);$body=[Text.Encoding]::UTF8.GetString($new);$parts=$body-split"`n",-1;$ind=(($parts|ForEach-Object{if($_.Length-gt 0){"          $_"}else{''}})-join"`n");return $text.Substring(0,$bs)+$ind+$text.Substring($e)}
+          W 'classification.txt' 'STOP — CANONICAL TARGET WORKFLOW AST PREFLIGHT FAILED';W 'preflight-first-error.txt' 'NOT_COMPLETED';W 'candidate-checkout.txt' 'CANDIDATE NOT CHECKED OUT';W 'run-id.txt' $env:GITHUB_RUN_ID;W 'run-attempt.txt' $env:GITHUB_RUN_ATTEMPT;W 'runner-name.txt' $env:RUNNER_NAME;W 'runner-os.txt' $env:RUNNER_OS;W 'runner-arch.txt' $env:RUNNER_ARCH
+          try{
+           $ep=(($env:SOURCE_PATH-split'/')|%{[Uri]::EscapeDataString($_)})-join'/';$uri="https://api.github.com/repos/Dziuras98/Nextcar/contents/$ep`?ref=$env:SOURCE_COMMIT";$hdr=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'};$a=Invoke-RestMethod -Uri $uri -Headers $hdr
+           if([string]$a.type-ne'file'-or[string]$a.encoding-ne'base64'-or[string]$a.sha-ne$env:SOURCE_BLOB-or[string]::IsNullOrWhiteSpace([string]$a.content)){throw'API source contract failed'}
+           [byte[]]$sb=[Convert]::FromBase64String(([string]$a.content-replace'\s',''));[IO.File]::WriteAllBytes((Join-Path $root 'source-workflow.yml'),$sb);$si=Stats $sb
+           if($si.size-ne40399-or$si.sha256-ne'9ecbd9a4f5ef4e879e14939884f33ea90c98abd43ed73f2a1a824f6355a27502'-or$si.git_blob-ne$env:SOURCE_BLOB-or$si.lf-ne317-or$si.crlf-ne0-or$si.bom){throw'source workflow identity failed'}
+           $st=[Text.Encoding]::UTF8.GetString($sb);$init=Extract $st 'Initialize evidence plane';$disc=Extract $st 'Discover and persist evidence';$sseal=Extract $st 'Seal and package discovery evidence'
+           [IO.File]::WriteAllBytes((Join-Path $root 'source-initialize.ps1'),$init);[IO.File]::WriteAllBytes((Join-Path $root 'source-discovery.ps1'),$disc);[IO.File]::WriteAllBytes((Join-Path $root 'source-seal.ps1'),$sseal)
+           if((H256 $init)-ne'b4196df2fba76e35addc63fd48c2a767780841a50e10e4dcc0d4f177b3873ef4'-or$init.Length-ne1862){throw'source initialize identity failed'}
+           if((H256 $disc)-ne'59c9181831328691cb9243b2945baf1a071e46284a9fac82052e9e1deb61f383'-or$disc.Length-ne15059){throw'source discovery identity failed'}
+           if((H256 $sseal)-ne'94cb35385fdaaae33058457d57e591d248eed7c939bdfadf1ef73fec72bc1f11'-or$sseal.Length-ne5721){throw'source seal identity failed'}
+           [byte[]]$tseal=[Convert]::FromBase64String($env:TARGET_SEAL_B64);$tsi=Stats $tseal
+           if($tsi.size-ne8145-or$tsi.sha256-ne'b6fde3fe21fb0960e262c01b288b0accb35c8e569d0ab96f5957f85ce74713b0'-or$tsi.git_blob-ne'edef58554833af35e5be499e6746033699b899b7'-or$tsi.lf-ne159-or$tsi.crlf-ne0-or$tsi.bom){throw'target seal identity failed'}
+           for($i=0;$i-lt720;$i++){if($tseal[$i]-ne$sseal[$i]){throw'preserved prefix failed'}}
+           $tt=ReplaceSeal $st $tseal;[byte[]]$tb=[Text.Encoding]::UTF8.GetBytes($tt);[IO.File]::WriteAllBytes((Join-Path $root 'target-workflow.yml'),$tb);$ti=Stats $tb
+           if($ti.size-ne44153-or$ti.sha256-ne'b837b38b742a4dbb409e63f7020c2ae515ff3e130ca778d6e2496a311f543bb2'-or$ti.git_blob-ne'a14059e98d7942ce5dd35ca89154158102aa6db7'-or$ti.lf-ne457-or$ti.crlf-ne0-or$ti.bom){throw'target workflow identity failed'}
+           $tinit=Extract $tt 'Initialize evidence plane';$tdisc=Extract $tt 'Discover and persist evidence';$tre=Extract $tt 'Seal and package discovery evidence';[IO.File]::WriteAllBytes((Join-Path $root 'target-initialize.ps1'),$tinit);[IO.File]::WriteAllBytes((Join-Path $root 'target-discovery.ps1'),$tdisc);[IO.File]::WriteAllBytes((Join-Path $root 'target-seal.ps1'),$tre)
+           if((H256 $tinit)-ne(H256 $init)-or(H256 $tdisc)-ne(H256 $disc)-or(H256 $tre)-ne(H256 $tseal)){throw'target extraction identity failed'}
+           $prefix=$st.Substring(0,$st.IndexOf("        run: |`n",$st.IndexOf("      - name: Seal and package discovery evidence`n"))+15);$suffixStart=$st.IndexOf("      - name: ",$prefix.Length);$suffix=$st.Substring($suffixStart);$ledger=[ordered]@{changed_block_count=1;source_prefix_sha256=H256([Text.Encoding]::UTF8.GetBytes($prefix));source_suffix_sha256=H256([Text.Encoding]::UTF8.GetBytes($suffix));preserved_prefix_length=720;preserved_prefix_sha256=H256($sseal[0..719]);target_seal_sha256=$tsi.sha256;target_workflow_sha256=$ti.sha256}
+           $runtime=[ordered]@{runner_name=$env:RUNNER_NAME;runner_os=$env:RUNNER_OS;runner_arch=$env:RUNNER_ARCH;runner_version=$env:RUNNER_VERSION;powershell_path=(Get-Command powershell.exe).Source;ps_version_table=$PSVersionTable;ps_edition=$PSVersionTable.PSEdition;automation_assembly=[ordered]@{identity=[Management.Automation.PSObject].Assembly.FullName;location=[Management.Automation.PSObject].Assembly.Location};execution_policy=(Get-ExecutionPolicy -List|%{[ordered]@{scope=$_.Scope.ToString();policy=$_.ExecutionPolicy.ToString()}});preference=$env:PSExecutionPolicyPreference}
+           $errs=@();foreach($x in @(@('initialize','target-initialize.ps1'),@('discovery','target-discovery.ps1'),@('seal','target-seal.ps1'))){$tok=$null;$er=$null;$p=Join-Path $root $x[1];[Management.Automation.Language.Parser]::ParseFile($p,[ref]$tok,[ref]$er)|Out-Null;foreach($q in @($er)){$errs+=[ordered]@{file=$x[1];message=$q.Message;error_id=$q.ErrorId;start_line=$q.Extent.StartLineNumber;start_column=$q.Extent.StartColumnNumber;end_line=$q.Extent.EndLineNumber;end_column=$q.Extent.EndColumnNumber;extent_text=$q.Extent.Text}}}
+           $counts=[ordered]@{initialize=(@($errs|?{$_.file-eq'target-initialize.ps1'})).Count;discovery=(@($errs|?{$_.file-eq'target-discovery.ps1'})).Count;seal=(@($errs|?{$_.file-eq'target-seal.ps1'})).Count;total=$errs.Count};$report=[ordered]@{counts=$counts;errors=$errs}
+           W 'source-identity.json' ($si|ConvertTo-Json -Depth 8);W 'source-identity.txt' (($si.GetEnumerator()|%{"$($_.Key)=$($_.Value)"})-join"`n");W 'target-identity.json' ($ti|ConvertTo-Json -Depth 8);W 'target-identity.txt' (($ti.GetEnumerator()|%{"$($_.Key)=$($_.Value)"})-join"`n");W 'replacement-ledger.json' ($ledger|ConvertTo-Json -Depth 8);W 'replacement-ledger.txt' (($ledger.GetEnumerator()|%{"$($_.Key)=$($_.Value)"})-join"`n");W 'powershell-runtime.json' ($runtime|ConvertTo-Json -Depth 12);W 'powershell-runtime.txt' ($runtime|Out-String);W 'ast-report.json' ($report|ConvertTo-Json -Depth 12);W 'ast-report.txt' (("INITIALIZE_AST_ERROR_COUNT=$($counts.initialize)`nDISCOVERY_AST_ERROR_COUNT=$($counts.discovery)`nSEAL_AST_ERROR_COUNT=$($counts.seal)`nTOTAL_AST_ERROR_COUNT=$($counts.total)`n")+($errs|ConvertTo-Json -Depth 8))
+           if($counts.total-ne0){throw"AST errors: $($counts.total)"};W 'classification.txt' 'CANONICAL TARGET WORKFLOW AST PREFLIGHT PASS';W 'preflight-first-error.txt' 'NONE';"classification=CANONICAL TARGET WORKFLOW AST PREFLIGHT PASS"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }catch{$m="$($_.Exception.GetType().FullName): $($_.Exception.Message)";W 'preflight-first-error.txt' $m;Write-Error $m}
+      - name: Upload canonical target AST evidence
         id: upload
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: NC-003B-immutable-source-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+          name: NC-003B-canonical-target-workflow-ast-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.EVIDENCE_ROOT }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
-
-      - name: Enforce immutable source export result
+      - name: Enforce preflight and upload
         if: ${{ always() }}
         shell: powershell
-        env:
-          CLASSIFICATION: ${{ steps.inspect.outputs.classification }}
-          RECONSTRUCTED_BLOB: ${{ steps.inspect.outputs.reconstructed_blob }}
-          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:CLASSIFICATION -ne 'IMMUTABLE SOURCE WORKFLOW EXPORT PASS') {
-            throw "Classification enforcement failed: $env:CLASSIFICATION"
-          }
-          if ($env:RECONSTRUCTED_BLOB -ne $env:SOURCE_BLOB) {
-            throw "Reconstructed blob enforcement failed: $env:RECONSTRUCTED_BLOB"
-          }
-          if ($env:UPLOAD_OUTCOME -ne 'success') {
-            throw "Artifact upload enforcement failed: $env:UPLOAD_OUTCOME"
-          }
+          $c=[IO.File]::ReadAllText((Join-Path $env:EVIDENCE_ROOT 'classification.txt')).Trim()
+          if($c -ne 'CANONICAL TARGET WORKFLOW AST PREFLIGHT PASS'){throw $c}
+          if('${{ steps.upload.outcome }}' -ne 'success'){throw 'artifact upload failed'}
 
-  terminalize-source-export:
+  terminalize-canonical-target-ast:
+    needs: [announce-run, self-hosted-canonical-target-ast]
     if: ${{ always() }}
-    needs: [announce-run, self-hosted-source-export]
     runs-on: ubuntu-latest
     steps:
-      - name: Publish terminal bootstrap status
+      - name: Publish terminal status
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMIT_SHA: ${{ github.sha }}
-          EXPORT_RESULT: ${{ needs.self-hosted-source-export.result }}
+          JOB_RESULT: ${{ needs.self-hosted-canonical-target-ast.result }}
+          CLASSIFICATION: ${{ needs.self-hosted-canonical-target-ast.outputs.classification }}
+          UPLOAD_OUTCOME: ${{ needs.self-hosted-canonical-target-ast.outputs.upload_outcome }}
         run: |
-          set -euo pipefail
           python3 - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          success = os.environ["EXPORT_RESULT"] == "success"
-          payload = json.dumps({
-              "state": "success" if success else "failure",
-              "context": os.environ["STATUS_CONTEXT"],
-              "description": (
-                  "IMMUTABLE SOURCE WORKFLOW EXPORT PASS"
-                  if success
-                  else "STOP — IMMUTABLE SOURCE WORKFLOW EXPORT FAILED"
-              ),
-              "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-          }).encode("utf-8")
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['COMMIT_SHA']}",
-              data=payload,
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                  "Content-Type": "application/json",
-              },
-          )
-          with urllib.request.urlopen(request) as response:
-              if response.status != 201:
-                  raise RuntimeError(f"Unexpected terminal status response: {response.status}")
+          import json,os,urllib.request
+          ok=os.environ['JOB_RESULT']=='success' and os.environ['CLASSIFICATION']=='CANONICAL TARGET WORKFLOW AST PREFLIGHT PASS' and os.environ['UPLOAD_OUTCOME']=='success'
+          p=json.dumps({"state":"success" if ok else "failure","context":os.environ["STATUS_CONTEXT"],"description":"CANONICAL TARGET WORKFLOW AST PREFLIGHT PASS" if ok else "Canonical target AST preflight failed","target_url":f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode()
+          r=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['GITHUB_SHA']}",data=p,method="POST",headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"})
+          assert urllib.request.urlopen(r).status==201
+          if not ok: raise SystemExit(1)
           PY
