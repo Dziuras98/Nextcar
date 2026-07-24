@@ -26,27 +26,46 @@ env:
   STATUS_CONTEXT: NC-003B Phase 0 / Final self-hosted Windows exact-head gate
 
 jobs:
+  announce-run:
+    name: Announce PR #42 final Windows run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish pending candidate status with run ID
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          body = json.dumps({
+              "state": "pending",
+              "context": os.environ["STATUS_CONTEXT"],
+              "description": "Self-hosted Windows exact-head validation queued",
+              "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+          }).encode("utf-8")
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",
+              data=body,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(req) as response:
+              if response.status != 201:
+                  raise SystemExit(f"status creation failed: HTTP {response.status}")
+          PY
+
   final-windows-gate:
+    needs: announce-run
     name: PR #42 final self-hosted Windows exact-head gate
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 180
     steps:
-      - name: Set candidate status pending
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $body = @{
-            state = 'pending'
-            context = $env:STATUS_CONTEXT
-            description = 'Final self-hosted Windows exact-head validation running'
-            target_url = "https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"
-          } | ConvertTo-Json
-          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" `
-            -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' } `
-            -ContentType 'application/json' -Body $body | Out-Null
-
       - name: Runner proof toolchain and immutable Git config before
         id: preflight
         shell: pwsh
@@ -75,13 +94,17 @@ jobs:
           $versions = [ordered]@{}
           $versions.powershell = $PSVersionTable.PSVersion.ToString()
           $versions.git = (& git --version) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: git missing' }
           $versions.python = (& python --version 2>&1) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: python missing' }
           $versions.cmake = (& cmake --version 2>&1) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: cmake missing' }
           $versions.ctest = (& ctest --version 2>&1) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: ctest missing' }
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (-not (Test-Path -LiteralPath $vswhere)) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: vswhere missing' }
           $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json
-          if (-not $vs) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: MSVC environment missing' }
+          if ($LASTEXITCODE -ne 0 -or -not $vs) { throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: MSVC environment missing' }
           $versions.msvc_discovery = $vs | ConvertFrom-Json
           $versions | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $Evidence 'toolchain-versions.json')
 
@@ -96,11 +119,17 @@ jobs:
           if (Test-Path -LiteralPath $CheckoutRoot) { throw "Unique checkout path already exists: $CheckoutRoot" }
           New-Item -ItemType Directory -Path $CheckoutRoot | Out-Null
           git init $CheckoutRoot
+          if ($LASTEXITCODE -ne 0) { throw 'git init failed' }
           git -C $CheckoutRoot config --local core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'repo-local core.autocrlf configuration failed' }
           git -C $CheckoutRoot config --local core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'repo-local core.eol configuration failed' }
           git -C $CheckoutRoot remote add origin https://github.com/Dziuras98/Nextcar.git
+          if ($LASTEXITCODE -ne 0) { throw 'git remote add failed' }
           git -C $CheckoutRoot fetch --no-tags --prune origin +refs/heads/agent/nc-003b-phase0-source-normalization-integration:refs/remotes/origin/candidate
+          if ($LASTEXITCODE -ne 0) { throw 'candidate fetch failed' }
           git -C $CheckoutRoot checkout --detach $env:CANDIDATE_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'exact candidate checkout failed' }
           "CHECKOUT_ROOT=$CheckoutRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Fail-closed topology scope and clean checkout
@@ -109,7 +138,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Set-Location -LiteralPath $env:CHECKOUT_ROOT
           function Assert-Eq([string]$Actual,[string]$Expected,[string]$Name) {
-            if ($Actual.Trim() -ne $Expected) { throw "$Name mismatch: actual=$Actual expected=$Expected" }
+            if ($Actual.Trim() -ne $Expected) { throw "$Name mismatch: actual=$Actual expected=$Expected`nFINAL SELF-HOSTED WINDOWS EXACT-HEAD VALIDATION FAILED`nNO FURTHER TESTS" }
           }
           Assert-Eq (git rev-parse HEAD) $env:CANDIDATE_SHA 'HEAD'
           Assert-Eq (git rev-parse 'HEAD^{tree}') $env:CANDIDATE_TREE 'HEAD tree'
@@ -123,7 +152,7 @@ jobs:
           Assert-Eq (git log -1 --format=%s $env:SOURCE_SHA) 'Integrate NC-003B Phase 0 source normalizations' 'source message'
           Assert-Eq (git log -1 --format=%s $env:CANDIDATE_SHA) 'Reconcile NC-003B Phase 0 normalization metadata' 'metadata message'
 
-          $topology = @(
+          @(
             "HEAD=$(git rev-parse HEAD)"
             "HEAD_TREE=$(git rev-parse 'HEAD^{tree}')"
             "HEAD_PARENTS=$(git rev-list --parents -n 1 HEAD)"
@@ -133,8 +162,7 @@ jobs:
             "B_PARENTS=$(git rev-list --parents -n 1 $env:B_SHA)"
             "G_TREE=$(git rev-parse "$env:G_SHA^{tree}")"
             "G_PARENTS=$(git rev-list --parents -n 1 $env:G_SHA)"
-          )
-          $topology | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
+          ) | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
 
           $expected = @(
             'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp',
@@ -197,38 +225,83 @@ jobs:
           $Extracted = Join-Path $ArtifactRoot 'extracted'
           $env:P1_ZIP = $Zip
           $env:P1_EXTRACTED = $Extracted
+          $env:PROFILE_PATH = Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
           @'
-          import hashlib, json, os, urllib.request, zipfile
-          from pathlib import Path
+          import hashlib, json, os, re, urllib.request, zipfile
+          from pathlib import Path, PurePosixPath, PureWindowsPath
+
           url='https://api.github.com/repos/Dziuras98/Nextcar/actions/artifacts/8488882253/zip'
           req=urllib.request.Request(url, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
           with urllib.request.urlopen(req) as r, open(os.environ['P1_ZIP'],'wb') as f:
               while True:
-                  b=r.read(1024*1024)
-                  if not b: break
-                  f.write(b)
-          p=Path(os.environ['P1_ZIP']); data=p.read_bytes()
+                  chunk=r.read(1024*1024)
+                  if not chunk: break
+                  f.write(chunk)
+          archive=Path(os.environ['P1_ZIP']); data=archive.read_bytes()
           assert len(data)==211595, len(data)
           assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b'
-          with zipfile.ZipFile(p) as z:
-              assert len(z.namelist())==41
-              z.extractall(os.environ['P1_EXTRACTED'])
-          root=Path(os.environ['P1_EXTRACTED'])
+
+          destination=Path(os.environ['P1_EXTRACTED'])
+          destination.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile(archive) as z:
+              infos=z.infolist()
+              assert len(infos)==41, len(infos)
+              seen=set()
+              for info in infos:
+                  raw=info.filename
+                  posix=PurePosixPath(raw.replace('\\','/'))
+                  win=PureWindowsPath(raw)
+                  if not raw or raw.startswith(('/', '\\')) or win.is_absolute() or win.drive or raw.startswith('\\\\'):
+                      raise AssertionError(f'unsafe absolute/drive/UNC ZIP member: {raw!r}')
+                  if any(part in ('', '.', '..') for part in posix.parts):
+                      raise AssertionError(f'unsafe ZIP traversal/member: {raw!r}')
+                  normalized='/'.join(posix.parts).casefold()
+                  if normalized in seen:
+                      raise AssertionError(f'duplicate normalized ZIP member: {raw!r}')
+                  seen.add(normalized)
+                  target=(destination/Path(*posix.parts)).resolve()
+                  if destination.resolve() not in target.parents and target != destination.resolve():
+                      raise AssertionError(f'ZIP member escapes destination: {raw!r}')
+              for info in infos:
+                  z.extract(info, destination)
+
+          root=destination
           manifest=json.loads((root/'hash-manifest.json').read_text(encoding='utf-8'))
           assert len(manifest)==40
-          for x in manifest:
-              b=(root/x['path']).read_bytes()
-              assert len(b)==x['size']
-              assert hashlib.sha256(b).hexdigest()==x['sha256']
-          traces=sorted((root/'selected-calibration').glob('*.json'))
-          trace_files=[p for p in traces if p.name!='selected-summary.json']
-          assert len(trace_files)==12, [p.name for p in trace_files]
-          for p in trace_files: json.loads(p.read_text(encoding='utf-8'))
-          out={'source_run':29814599329,'artifact_id':8488882253,'name':'NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99','zip_size':len(data),'zip_sha256':hashlib.sha256(data).hexdigest(),'members':41,'manifest_entries':40,'manifest_pass':'40/40','trace_hashes':'12/12','trace_json':'12/12'}
+          for record in manifest:
+              payload=(root/record['path']).read_bytes()
+              assert len(payload)==record['size']
+              assert hashlib.sha256(payload).hexdigest()==record['sha256']
+
+          profile=json.loads(Path(os.environ['PROFILE_PATH']).read_text(encoding='utf-8'))
+          positive=list(profile['positive_traces'])
+          timeout=profile['timeout_trace']
+          stall=profile['stall_trace']
+          assert len(positive)==10
+          records=[('positive', r) for r in positive]+[('timeout', timeout),('stall', stall)]
+          prefix='Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/'
+          verified=[]
+          for kind, record in records:
+              canonical=record['path'].replace('\\','/')
+              assert canonical.startswith(prefix), canonical
+              relative=canonical[len(prefix):]
+              path=root/'selected-calibration'/Path(*PurePosixPath(relative).parts)
+              assert path.is_file(), str(path)
+              json.loads(path.read_text(encoding='utf-8'))
+              expected=record.get('sha256') or record.get('sha256_hex') or record.get('hash')
+              assert isinstance(expected, str) and re.fullmatch(r'[0-9a-fA-F]{64}', expected), record
+              actual=hashlib.sha256(path.read_bytes()).hexdigest()
+              assert actual.lower()==expected.lower(), (canonical, actual, expected)
+              verified.append({'kind':kind,'canonical_path':canonical,'artifact_path':path.relative_to(root).as_posix(),'sha256':actual})
+          assert sum(x['kind']=='positive' for x in verified)==10
+          assert sum(x['kind']=='timeout' for x in verified)==1
+          assert sum(x['kind']=='stall' for x in verified)==1
+          assert len(verified)==12
+          out={'source_run':29814599329,'artifact_id':8488882253,'name':'NC-003B-cold-start-selected-profile-ddfe39c5179663c1636520a1fa7a92d8c4852f99','zip_size':len(data),'zip_sha256':hashlib.sha256(data).hexdigest(),'members':41,'manifest_entries':40,'manifest_pass':'40/40','positive':'10/10','timeout':'1/1','stall':'1/1','total':'12/12'}
           Path(os.environ['EVIDENCE_ROOT'],'artifact-source-metadata.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          Path(os.environ['EVIDENCE_ROOT'],'trace-verification.json').write_text(json.dumps({'trace_count':12,'hashes':'12/12 PASS','json':'12/12 PASS'},indent=2)+'\n',encoding='utf-8')
+          Path(os.environ['EVIDENCE_ROOT'],'trace-verification.json').write_text(json.dumps({'result':'PASS','records':verified},indent=2,sort_keys=True)+'\n',encoding='utf-8')
           '@ | python -
-          if ($LASTEXITCODE -ne 0) { throw 'P1 verification failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'P1 safe extraction or profile-driven trace verification failed' }
           "P1_ROOT=$ArtifactRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "P1_EXTRACTED=$Extracted" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -237,14 +310,20 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location -LiteralPath $env:CHECKOUT_ROOT
+          function Assert-Clean([string]$Stage) {
+            if (@(git ls-files --deleted).Count -ne 0) { throw "$Stage tracked deletions detected" }
+            if (git diff --cached --name-only) { throw "$Stage staged changes detected" }
+            $tracked=@(git status --porcelain --untracked-files=no)
+            if ($tracked.Count -ne 0) { throw "$Stage unexpected tracked paths detected: $($tracked -join ', ')" }
+          }
+          Assert-Clean 'pre-mount'
           $Junction = Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration'
           if (Test-Path -LiteralPath $Junction) { throw 'canonical junction already exists' }
           $Target = Join-Path $env:P1_EXTRACTED 'selected-calibration'
           New-Item -ItemType Junction -Path $Junction -Target $Target | Out-Null
           $item=Get-Item -LiteralPath $Junction
           if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'junction proof failed' }
-          $mounted=@(Get-ChildItem -LiteralPath $Junction -File -Filter '*.json' | Where-Object {$_.Name -ne 'selected-summary.json'})
-          if ($mounted.Count -ne 12) { throw 'mounted trace count mismatch' }
+          Assert-Clean 'post-mount'
 
           python -B scripts/validate_repository.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'repository-validator.log')
           if ($LASTEXITCODE -ne 0) { throw 'repository validator failed' }
@@ -256,25 +335,32 @@ jobs:
             'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py',
             'Tools/EngineSimVendor/verify_cold_start_profile.py'
           )
-          python -B -m py_compile @py
+          python -B -m py_compile @py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'py-compile.log')
           if ($LASTEXITCODE -ne 0) { throw 'py_compile failed' }
 
           python -B -m unittest discover -s Tools/EngineSimVendor/tests -p test_*.py -v 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'python-tests.log')
           if ($LASTEXITCODE -ne 0) { throw '57 Python tests failed' }
           python -B Tools/EngineSimVendor/run_cold_start_calibration.py self-test 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'cold-start-orchestrator.log')
           if ($LASTEXITCODE -ne 0) { throw 'orchestrator self-test failed' }
-          python -B Tools/EngineSimVendor/verify_cold_start_profile.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'profile-verifier.log')
+          python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root . 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'profile-verifier.log')
           if ($LASTEXITCODE -ne 0) { throw 'profile verifier failed' }
           python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-verifier.log')
+          if ($LASTEXITCODE -ne 0) { throw 'snapshot verifier failed' }
           python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'snapshot tests failed' }
           python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'fixture mutation tests failed' }
           python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-parity.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Subaru 118/118 verifier failed' }
           python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'IR mutation tests failed' }
           $wav='Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav'
           $hdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h'
           python -B Tools/EngineSimVendor/verify_impulse_response.py --wav $wav --header $hdr --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-verifier.log')
+          if ($LASTEXITCODE -ne 0) { throw 'IR verifier failed' }
           $gen=Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'
           python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $gen 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-generator.log')
+          if ($LASTEXITCODE -ne 0) { throw 'IR generator failed' }
           if ((Get-FileHash $gen -Algorithm SHA256).Hash -ne (Get-FileHash $hdr -Algorithm SHA256).Hash) { throw 'IR generator determinism failed' }
 
           $tokens=$null; $errors=$null
@@ -282,15 +368,19 @@ jobs:
           $errors | Format-List | Out-String | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'powershell-ast.log')
           if ($errors.Count -ne 0) { throw 'PowerShell AST errors' }
 
-          $summary=json.loads((Get-Content -Raw (Join-Path $env:P1_EXTRACTED 'selected-calibration/selected-summary.json')))
-          $selected=$summary.selected_candidate
-          $wrapper=[ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$selected}
+          $summaryPath = Join-Path $env:P1_EXTRACTED 'selected-calibration\selected-summary.json'
+          if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) { throw 'selected-summary.json missing' }
+          $summary = Get-Content -LiteralPath $summaryPath -Raw -Encoding utf8 | ConvertFrom-Json
+          foreach ($field in @('selected_candidate','schema_version','candidate_source_sha')) {
+            if ($null -eq $summary.$field -or [string]::IsNullOrWhiteSpace([string]$summary.$field)) { throw "selected-summary missing $field" }
+          }
+          $wrapper=[ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$summary.selected_candidate}
           $selectedPath=Join-Path $env:RUNNER_TEMP 'selected-candidate-input.json'
-          $wrapper | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 $selectedPath
+          $wrapper | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $selectedPath
 
           $MatrixRoot=Join-Path $env:RUNNER_TEMP "nc003b-pr42-matrix-$env:GITHUB_RUN_ID"
           & .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $env:CANDIDATE_SHA -Phase Selected -SelectedCandidatePath $selectedPath -ArtifactRoot $MatrixRoot
-          if ($LASTEXITCODE -ne 0) { throw 'candidate matrix failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell matrix wrapper failed' }
           "MATRIX_ROOT=$MatrixRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           @'
           import json, os
@@ -318,6 +408,7 @@ jobs:
             } else { $cleanup += 'junction absent: PASS' }
             $cleanup += "junction exists after cleanup: $(Test-Path -LiteralPath $Junction)"
             $cleanup += "tracked deletions: $(@(git ls-files --deleted).Count)"
+            $cleanup += "staged changes: $(@(git diff --cached --name-only).Count)"
             git status --porcelain | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'final-git-status.txt')
             if (git status --porcelain) { $cleanup += 'working tree clean: FAIL' } else { $cleanup += 'working tree clean: PASS' }
             if ((git rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) { $cleanup += 'HEAD unchanged: FAIL' } else { $cleanup += 'HEAD unchanged: PASS' }
@@ -334,21 +425,17 @@ jobs:
           $cleanup | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'cleanup.log')
 
           if ($env:MATRIX_ROOT -and (Test-Path -LiteralPath $env:MATRIX_ROOT)) {
-            $map=@{
-              'cmake-configure.log'='cmake-configure.log'; 'msvc-release.log'='msvc-release.log'; 'msvc-debug-rtc1.log'='msvc-debug-rtc1.log';
-              'msvc-asan.log'='msvc-asan.log'; 'ctest.log'='ctest.log'; 'direct-runtime.log'='direct-runtime.log';
-              'cold-start-runtime.log'='cold-start-runtime.log'; 'boundary-scan.log'='boundary-scan.log'; 'clean-reproducibility.log'='clean-reproducibility.log'
-            }
-            foreach($name in $map.Keys) {
+            $names=@('cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log')
+            foreach($name in $names) {
               $f=Get-ChildItem -LiteralPath $env:MATRIX_ROOT -Recurse -File -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
-              if($f){ Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $env:EVIDENCE_ROOT $map[$name]) -Force }
+              if($f){ Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $env:EVIDENCE_ROOT $name) -Force }
             }
           }
           @'
           import hashlib,json,os
           from pathlib import Path
           root=Path(os.environ['EVIDENCE_ROOT'])
-          required=['runner-proof.json','toolchain-versions.json','global-git-config-before.txt','global-git-config-after.txt','system-git-config-before.txt','system-git-config-after.txt','git-topology.txt','scope-name-status.txt','scope-stat.txt','git-diff-check.txt','artifact-source-metadata.json','trace-verification.json','repository-validator.log','python-tests.log','profile-verifier.log','fixture-tests.log','ir-tests.log','powershell-ast.log','cleanup.log','final-git-status.txt','validation-status.json']
+          required=['runner-proof.json','toolchain-versions.json','global-git-config-before.txt','global-git-config-after.txt','system-git-config-before.txt','system-git-config-after.txt','git-topology.txt','scope-name-status.txt','scope-stat.txt','git-diff-check.txt','artifact-source-metadata.json','trace-verification.json','repository-validator.log','py-compile.log','python-tests.log','profile-verifier.log','snapshot-verifier.log','snapshot-tests.log','fixture-tests.log','fixture-parity.log','ir-tests.log','ir-verifier.log','ir-generator.log','powershell-ast.log','cleanup.log','final-git-status.txt','validation-status.json']
           missing=[x for x in required if not (root/x).is_file()]
           if missing: (root/'evidence-missing.txt').write_text('\n'.join(missing)+'\n',encoding='utf-8')
           manifest=[]
