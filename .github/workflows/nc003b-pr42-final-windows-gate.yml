@@ -221,10 +221,16 @@ jobs:
               if len(matches)==1:artifact=matches[0];break
               if i<5:time.sleep(5)
             w('artifact-api-response.json',poll)
-            if artifact is None:raise RuntimeError('artifact not uniquely visible');api_visible='PASS'
+            if artifact is None:
+              raise RuntimeError('artifact not uniquely visible')
+            api_visible='PASS'
             with urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{artifact['id']}/zip",headers=h)) as r:data=r.read()
-            if not data:raise RuntimeError('artifact download empty');download='PASS';outer=hashlib.sha256(data).hexdigest()
-            if norm(artifact.get('digest'))!=norm(vals['UPLOAD_DIGEST']) or outer!=norm(vals['UPLOAD_DIGEST']):raise RuntimeError('outer artifact digest mismatch');digest='PASS'
+            if not data:
+              raise RuntimeError('artifact download empty')
+            download='PASS';outer=hashlib.sha256(data).hexdigest()
+            if norm(artifact.get('digest'))!=norm(vals['UPLOAD_DIGEST']) or outer!=norm(vals['UPLOAD_DIGEST']):
+              raise RuntimeError('outer artifact digest mismatch')
+            digest='PASS'
             pathlib.Path('outer.zip').write_bytes(data);pathlib.Path('outer').mkdir(exist_ok=True)
             with zipfile.ZipFile('outer.zip') as z:names=[x.filename for x in z.infolist() if not x.is_dir()];z.extractall('outer')
             w('artifact-file-list.txt','\n'.join(names)+'\n')
@@ -241,8 +247,7 @@ jobs:
               w('manifest-verification.txt','\n'.join(lines)+'\n');manifest='PASS'
               text=lambda n:(root/n).read_text(encoding='utf-8-sig').strip()
               if text('candidate-checkout.txt')!='CANDIDATE NOT CHECKED OUT':raise RuntimeError('candidate checkout marker mismatch')
-              if vals['DISCOVERY_CLASS']=='SELF-HOSTED WINDOWS TOOLCHAIN DISCOVERY PASS':terminal=vals['DISCOVERY_CLASS']
-              else:terminal=vals['DISCOVERY_CLASS']
+              terminal=vals['DISCOVERY_CLASS']
             else:
               if not any(n.endswith('publication-fallback.json') for n in names):raise RuntimeError('fallback publication sentinel absent')
               raise RuntimeError('fallback evidence published; sealed evidence unavailable')
