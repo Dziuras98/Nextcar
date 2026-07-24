@@ -17,8 +17,46 @@ env:
   DIAGNOSTIC_CONTEXT: NC-003B Phase 0 / Artifact transport diagnostics
 
 jobs:
+  announce-diagnostic-run:
+    name: "Announce artifact diagnostic run"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish pending diagnostic status with run ID
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          body = json.dumps({
+              "state": "pending",
+              "context": os.environ["DIAGNOSTIC_CONTEXT"],
+              "description": "Artifact transport diagnostics running",
+              "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+          }).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",
+              data=body,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              if response.status != 201:
+                  raise RuntimeError(f"Unexpected status publication response: {response.status}")
+          PY
+
   control-artifact-probe:
     name: "GitHub-hosted artifact control probe"
+    needs: announce-diagnostic-run
     runs-on: ubuntu-latest
     outputs:
       upload_outcome: ${{ steps.control-upload.outcome }}
@@ -35,8 +73,10 @@ jobs:
           EOF
           test -f control-probe.txt
           wc -c control-probe.txt
+
       - name: Upload GitHub-hosted artifact control probe
         id: control-upload
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-artifact-control-probe-${{ github.run_id }}
@@ -45,15 +85,21 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: Record control probe outcome
+        if: always()
+        shell: bash
+        run: |
+          echo "control_upload_outcome=${{ steps.control-upload.outcome }}"
+          echo "control_job_status=${{ job.status }}"
+
   self-hosted-network-diagnostics:
     name: "Self-hosted artifact network diagnostics"
+    needs: announce-diagnostic-run
+    if: always()
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 30
-    outputs:
-      runner_version: ${{ steps.runner-info.outputs.runner_version }}
     steps:
       - name: Runner and PowerShell information
-        id: runner-info
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Continue'
@@ -67,10 +113,10 @@ jobs:
           Write-Host "time_zone=$([TimeZoneInfo]::Local.Id)"
           $runnerVersion = 'unknown'
           $diag = Join-Path $env:RUNNER_TEMP '_diag'
-          if (Test-Path $diag) {
-            $runnerVersion = (Get-Content $diag -Raw -ErrorAction SilentlyContinue)
+          if (Test-Path -LiteralPath $diag) {
+            $runnerVersion = Get-Content -LiteralPath $diag -Raw -ErrorAction SilentlyContinue
           }
-          "runner_version=$runnerVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "runner_version=$runnerVersion"
 
       - name: Safe Actions environment and proxy diagnostics
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -110,7 +156,6 @@ jobs:
           Write-Host 'WINHTTP_PROXY_BEGIN'
           netsh winhttp show proxy
           Write-Host 'WINHTTP_PROXY_END'
-          Write-Host "windows_account=$(whoami)"
 
       - name: DNS TCP TLS and HTTP diagnostics
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -123,25 +168,29 @@ jobs:
             try {
               $u = [Uri]$Value
               if ($u.Scheme -ne 'https') { return }
-              $targets.Add([pscustomobject]@{Source=$Source;Host=$u.Host;Uri=("{0}://{1}:{2}{3}" -f $u.Scheme,$u.Host,$u.Port,$u.AbsolutePath)})
+              $targets.Add([pscustomobject]@{
+                Source = $Source
+                Host = $u.Host
+                Uri = ("{0}://{1}:{2}{3}" -f $u.Scheme,$u.Host,$u.Port,$u.AbsolutePath)
+              })
             } catch {
               Write-Host "TARGET_PARSE_FAILED source=$Source"
             }
           }
-          foreach ($h in @('github.com','api.github.com','codeload.github.com','results-receiver.actions.githubusercontent.com')) {
-            $targets.Add([pscustomobject]@{Source='required';Host=$h;Uri="https://$h/"})
+          foreach ($hostName in @('github.com','api.github.com','codeload.github.com','results-receiver.actions.githubusercontent.com')) {
+            $targets.Add([pscustomobject]@{Source='required';Host=$hostName;Uri="https://$hostName/"})
           }
           Add-Target 'ACTIONS_RESULTS_URL' $env:ACTIONS_RESULTS_URL
           Add-Target 'ACTIONS_RUNTIME_URL' $env:ACTIONS_RUNTIME_URL
           Add-Target 'ACTIONS_CACHE_URL' $env:ACTIONS_CACHE_URL
           $targets = @($targets | Sort-Object Host,Uri -Unique)
-          foreach ($t in $targets) {
-            Write-Host "=== TARGET source=$($t.Source) host=$($t.Host) uri=$($t.Uri) ==="
+          foreach ($target in $targets) {
+            Write-Host "=== TARGET source=$($target.Source) host=$($target.Host) uri=$($target.Uri) ==="
             try {
-              $dns = Resolve-DnsName -Name $t.Host -ErrorAction Stop
-              foreach ($r in $dns) {
-                if ($r.Type -in @('A','AAAA','CNAME')) {
-                  Write-Host ("DNS type={0} name={1} address={2} target={3}" -f $r.Type,$r.Name,$r.IPAddress,$r.NameHost)
+              $dns = Resolve-DnsName -Name $target.Host -ErrorAction Stop
+              foreach ($record in $dns) {
+                if ($record.Type -in @('A','AAAA','CNAME')) {
+                  Write-Host ("DNS type={0} name={1} address={2} target={3}" -f $record.Type,$record.Name,$record.IPAddress,$record.NameHost)
                 }
               }
             } catch {
@@ -149,7 +198,7 @@ jobs:
               Write-Host "DNS_ERROR message=$($_.Exception.Message)"
             }
             try {
-              $tcp = Test-NetConnection -ComputerName $t.Host -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
+              $tcp = Test-NetConnection -ComputerName $target.Host -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
               Write-Host "TCP RemoteAddress=$($tcp.RemoteAddress)"
               Write-Host "TCP NameResolutionResults=$(@($tcp.NameResolutionResults) -join ',')"
               Write-Host "TCP TcpTestSucceeded=$($tcp.TcpTestSucceeded)"
@@ -160,7 +209,7 @@ jobs:
               Write-Host "TCP_ERROR message=$($_.Exception.Message)"
             }
             try {
-              $response = Invoke-WebRequest -Uri $t.Uri -Method Head -UseBasicParsing -TimeoutSec 30
+              $response = Invoke-WebRequest -Uri $target.Uri -Method Head -UseBasicParsing -TimeoutSec 30
               Write-Host "HTTP_SUCCESS status=$($response.StatusCode)"
             } catch {
               $response = $_.Exception.Response
@@ -180,32 +229,66 @@ jobs:
           Get-ChildItem Cert:\LocalMachine\Root |
             Select-Object Subject, Thumbprint, NotBefore, NotAfter |
             Format-Table -AutoSize
+          Write-Host 'network_diagnostics_completed=true'
 
   self-hosted-artifact-probe:
     name: "Self-hosted artifact upload probe"
     needs:
-      - control-artifact-probe
+      - announce-diagnostic-run
       - self-hosted-network-diagnostics
+    if: always()
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 20
+    outputs:
+      upload_outcome: ${{ steps.self-upload.outcome }}
     steps:
-      - name: Create literal self-hosted probe
+      - name: Create self-hosted probe and relative upload copy
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = "${{ github.workspace }}\_nc003b_selfhosted_probe_${{ github.run_id }}"
-          $file = Join-Path $root 'probe.txt'
-          if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-          New-Item -ItemType Directory -Path $root | Out-Null
+          $ProbeRoot = Join-Path `
+              $env:RUNNER_TEMP `
+              "nc003b-selfhosted-artifact-probe-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $ProbeFile = Join-Path $ProbeRoot 'probe.txt'
+          if (Test-Path -LiteralPath $ProbeRoot) {
+              throw "Unique probe path already exists: $ProbeRoot"
+          }
+          New-Item `
+              -ItemType Directory `
+              -Path $ProbeRoot |
+              Out-Null
           @(
-            'repository=Dziuras98/Nextcar'
-            "run_id=$env:GITHUB_RUN_ID"
-            'runner=self-hosted'
-            'purpose=artifact-self-hosted-probe'
-          ) | Set-Content -LiteralPath $file -Encoding utf8
-          Write-Host "probe_path=$file"
-          Write-Host "probe_exists=$(Test-Path -LiteralPath $file)"
-          Get-Item -LiteralPath $file | Format-List FullName,Length,CreationTimeUtc,LastWriteTimeUtc
+              'repository=Dziuras98/Nextcar'
+              "run_id=$env:GITHUB_RUN_ID"
+              "run_attempt=$env:GITHUB_RUN_ATTEMPT"
+              'runner=DESKTOP-P4CTGHS'
+              'purpose=artifact-self-hosted-probe'
+          ) |
+              Set-Content `
+                  -LiteralPath $ProbeFile `
+                  -Encoding utf8
+          if (-not (Test-Path -LiteralPath $ProbeFile -PathType Leaf)) {
+              throw "Probe file not created."
+          }
+          $item = Get-Item -LiteralPath $ProbeFile
+          Write-Host "PROBE_FULL_NAME=$($item.FullName)"
+          Write-Host "PROBE_LENGTH=$($item.Length)"
+
+          $UploadRoot = Join-Path $env:GITHUB_WORKSPACE '_artifact_probe_upload'
+          $UploadFile = Join-Path $UploadRoot 'probe.txt'
+          if (Test-Path -LiteralPath $UploadRoot) {
+              throw "Unique upload directory already exists: $UploadRoot"
+          }
+          New-Item -ItemType Directory -Path $UploadRoot | Out-Null
+          Copy-Item -LiteralPath $ProbeFile -Destination $UploadFile
+          if (-not (Test-Path -LiteralPath $UploadFile -PathType Leaf)) {
+              throw "Upload probe file not materialized."
+          }
+          $uploadItem = Get-Item -LiteralPath $UploadFile
+          Write-Host "UPLOAD_FULL_NAME=$($uploadItem.FullName)"
+          Write-Host "UPLOAD_LENGTH=$($uploadItem.Length)"
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force
+          Get-ChildItem -LiteralPath $UploadRoot -Force
 
       - name: Upload self-hosted artifact probe
         id: self-upload
@@ -213,34 +296,79 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-self-hosted-artifact-probe-${{ github.run_id }}
-          path: ${{ github.workspace }}\_nc003b_selfhosted_probe_${{ github.run_id }}\probe.txt
+          path: _artifact_probe_upload/probe.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
 
-      - name: Record probe and publish diagnostic status
+      - name: Record self-hosted probe outcome
         if: always()
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          Write-Host "self_upload_outcome=${{ steps.self-upload.outcome }}"
+          Write-Host "self_job_status=${{ job.status }}"
+
+  publish-diagnostic-result:
+    name: "Publish artifact diagnostic result"
+    needs:
+      - announce-diagnostic-run
+      - control-artifact-probe
+      - self-hosted-network-diagnostics
+      - self-hosted-artifact-probe
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish terminal diagnostic status
         env:
           GH_TOKEN: ${{ github.token }}
           CONTROL_OUTCOME: ${{ needs.control-artifact-probe.outputs.upload_outcome }}
-          SELF_OUTCOME: ${{ steps.self-upload.outcome }}
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+          SELF_OUTCOME: ${{ needs.self-hosted-artifact-probe.outputs.upload_outcome }}
+          ANNOUNCE_RESULT: ${{ needs.announce-diagnostic-run.result }}
+          CONTROL_RESULT: ${{ needs.control-artifact-probe.result }}
+          NETWORK_RESULT: ${{ needs.self-hosted-network-diagnostics.result }}
+          SELF_RESULT: ${{ needs.self-hosted-artifact-probe.result }}
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "control-upload outcome=$env:CONTROL_OUTCOME"
-          Write-Host "self-upload outcome=$env:SELF_OUTCOME"
-          Write-Host "job status=${{ job.status }}"
-          $state = if ($env:CONTROL_OUTCOME -eq 'success' -and $env:SELF_OUTCOME -eq 'success') { 'success' } else { 'failure' }
-          $description = if ($state -eq 'success') { 'Artifact transport diagnostic completed' } else { 'Artifact transport diagnostic failed' }
-          $body = @{
-            state = $state
-            context = $env:DIAGNOSTIC_CONTEXT
-            description = $description
-            target_url = "https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"
-          } | ConvertTo-Json
-          Invoke-RestMethod -Method Post `
-            -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" `
-            -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} `
-            -ContentType application/json `
-            -Body $body | Out-Null
-          if ($state -ne 'success') { throw 'Artifact transport diagnostic failed.' }
+          set -euo pipefail
+          echo "announce_job_result=${ANNOUNCE_RESULT}"
+          echo "control_job_result=${CONTROL_RESULT}"
+          echo "network_job_result=${NETWORK_RESULT}"
+          echo "self_job_result=${SELF_RESULT}"
+          echo "control_upload_outcome=${CONTROL_OUTCOME}"
+          echo "self_upload_outcome=${SELF_OUTCOME}"
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          passed = (
+              os.environ.get("CONTROL_OUTCOME") == "success"
+              and os.environ.get("SELF_OUTCOME") == "success"
+          )
+          state = "success" if passed else "failure"
+          description = (
+              "GitHub-hosted and self-hosted artifact probes passed"
+              if passed
+              else "Artifact transport diagnostic completed with failures"
+          )
+          body = json.dumps({
+              "state": state,
+              "context": os.environ["DIAGNOSTIC_CONTEXT"],
+              "description": description,
+              "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+          }).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",
+              data=body,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              if response.status != 201:
+                  raise RuntimeError(f"Unexpected status publication response: {response.status}")
+          PY
