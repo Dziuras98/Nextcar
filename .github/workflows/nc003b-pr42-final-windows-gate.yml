@@ -59,6 +59,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 20
     env:
+      PSExecutionPolicyPreference: Bypass
       EVIDENCE_ROOT: ${{ github.workspace }}\_immutable_source_export_${{ github.run_id }}_${{ github.run_attempt }}
     outputs:
       classification: ${{ steps.inspect.outputs.classification }}
