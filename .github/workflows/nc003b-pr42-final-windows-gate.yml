@@ -24,7 +24,6 @@ env:
   G_SHA: ab70fb2b0227e4274387357145e734d7d2fde29a
   G_TREE: 6b4a9479ba764754ea4f59cc11fb3fe6cae981c9
   STATUS_CONTEXT: NC-003B Phase 0 / Final self-hosted Windows exact-head gate
-  POWERSHELL_SHELL: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
 
 jobs:
   announce-run:
@@ -39,24 +38,9 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json, os, urllib.request
-          body = json.dumps({
-              "state": "pending",
-              "context": os.environ["STATUS_CONTEXT"],
-              "description": "Final self-hosted Windows exact-head validation running",
-              "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-          }).encode("utf-8")
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",
-              data=body, method="POST",
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                  "Content-Type": "application/json",
-              },
-          )
-          with urllib.request.urlopen(request) as response:
-              assert response.status == 201
+          body=json.dumps({'state':'pending','context':os.environ['STATUS_CONTEXT'],'description':'Final self-hosted Windows exact-head validation running','target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode('utf-8')
+          req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
+          with urllib.request.urlopen(req) as response: assert response.status==201
           PY
 
   control-artifact-probe:
@@ -70,12 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s\n' \
-            'repository=Dziuras98/Nextcar' \
-            "run_id=${GITHUB_RUN_ID}" \
-            "run_attempt=${GITHUB_RUN_ATTEMPT}" \
-            'runner=github-hosted' \
-            'purpose=artifact-control-probe' > control-probe.txt
+          printf '%s\n' 'repository=Dziuras98/Nextcar' "run_id=${GITHUB_RUN_ID}" "run_attempt=${GITHUB_RUN_ATTEMPT}" 'runner=github-hosted' 'purpose=artifact-control-probe' > control-probe.txt
           test -s control-probe.txt
           sha256sum control-probe.txt
       - name: Upload GitHub-hosted artifact control probe
@@ -90,111 +69,120 @@ jobs:
           retention-days: 3
       - name: Enforce control upload success
         shell: bash
-        run: |
-          test "${{ steps.control-upload.outcome }}" = success
+        run: test "${{ steps.control-upload.outcome }}" = success
 
   self-hosted-preflight:
     name: "Self-hosted process-bypass and artifact preflight"
     needs: announce-run
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 20
+    env:
+      PSExecutionPolicyPreference: Bypass
     outputs:
       upload_outcome: ${{ steps.self-upload.outcome }}
     steps:
-      - name: Inventory execution policy from cmd
-        shell: cmd
-        run: |
-          @echo off
-          where powershell.exe
-          if errorlevel 1 exit /b 1
-          powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ExecutionPolicy -List | Format-Table -AutoSize; Write-Host PROCESS_EFFECTIVE_POLICY=$(Get-ExecutionPolicy); exit 0"
-          if errorlevel 1 exit /b 1
-      - name: Prove process-scoped bypass and create probe
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host 'POWERSHELL_BODY_EXECUTED=true'
-          Write-Host "POWERSHELL_VERSION=$($PSVersionTable.PSVersion)"
-          Write-Host "PSCOMMAND_PATH=$PSCommandPath"
-          Write-Host "EFFECTIVE_POLICY=$(Get-ExecutionPolicy)"
-          if ([string]::IsNullOrWhiteSpace($PSCommandPath) -or -not $PSCommandPath.EndsWith('.ps1')) { throw 'Generated .ps1 path not proven.' }
-          if ((Get-ExecutionPolicy) -ne 'Bypass') { throw 'Process-scoped bypass not effective.' }
-          $root = Join-Path $env:GITHUB_WORKSPACE '_artifact_probe_upload'
-          $file = Join-Path $root 'probe.txt'
-          if (Test-Path -LiteralPath $root) { throw "Unique probe root already exists: $root" }
-          New-Item -ItemType Directory -Path $root | Out-Null
-          @(
-            'repository=Dziuras98/Nextcar'
-            "run_id=$env:GITHUB_RUN_ID"
-            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
-            "runner=$env:RUNNER_NAME"
-            'purpose=self-hosted-process-bypass-artifact-preflight'
-          ) | Set-Content -LiteralPath $file -Encoding utf8
-          $item = Get-Item -LiteralPath $file
-          if ($item.Length -le 0) { throw 'Probe is empty.' }
-          Write-Host "UPLOAD_FULL_NAME=$($item.FullName)"
-          Write-Host "UPLOAD_LENGTH=$($item.Length)"
-          Write-Host "UPLOAD_SHA256=$((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash)"
-      - name: Verify PowerShell side effects from cmd
+      - name: Verify inherited process execution policy
         shell: cmd
         run: |
           @echo off
           setlocal
-          set "UPLOAD_FILE=%GITHUB_WORKSPACE%\_artifact_probe_upload\probe.txt"
+          where powershell.exe
+          if errorlevel 1 exit /b 1
+          echo PSExecutionPolicyPreference=%PSExecutionPolicyPreference%
+          if /I not "%PSExecutionPolicyPreference%"=="Bypass" exit /b 1
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List | Format-Table -AutoSize; Write-Host EFFECTIVE_POLICY=$(Get-ExecutionPolicy); Write-Host PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if errorlevel 1 exit /b 1
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "if ((Get-ExecutionPolicy) -ne 'Bypass') { exit 21 }; if ((Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { exit 22 }; exit 0"
+          if errorlevel 1 exit /b 1
+          exit /b 0
+      - name: Execute built-in PowerShell process-policy probe
+        id: powershell-proof
+        shell: powershell
+        run: |
+          Write-Host 'POWERSHELL_BODY_EXECUTED=true'
+          Write-Host "POWERSHELL_VERSION=$($PSVersionTable.PSVersion)"
+          Write-Host "POWERSHELL_EDITION=$($PSVersionTable.PSEdition)"
+          Write-Host "PSCOMMAND_PATH=$PSCommandPath"
+          Write-Host "SCRIPT_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))"
+          Write-Host "EFFECTIVE_POLICY=$(Get-ExecutionPolicy)"
+          Write-Host "PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          Write-Host "POLICY_ENV=$env:PSExecutionPolicyPreference"
+          if ([string]::IsNullOrWhiteSpace($PSCommandPath)) { throw 'PSCommandPath is empty.' }
+          if ([IO.Path]::GetExtension($PSCommandPath) -ine '.ps1') { throw "Runner did not materialize a .ps1 script: $PSCommandPath" }
+          if ((Get-ExecutionPolicy) -ne 'Bypass') { throw 'Effective execution policy is not Bypass.' }
+          if ((Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { throw 'Process execution policy is not Bypass.' }
+          if ($env:PSExecutionPolicyPreference -ne 'Bypass') { throw 'PSExecutionPolicyPreference is not Bypass.' }
+          $UploadRoot=Join-Path $env:GITHUB_WORKSPACE "_artifact_probe_upload_$env:GITHUB_RUN_ID`_$env:GITHUB_RUN_ATTEMPT"
+          $UploadFile=Join-Path $UploadRoot 'probe.txt'
+          if(Test-Path -LiteralPath $UploadRoot){throw "Unique probe root already exists: $UploadRoot"}
+          New-Item -ItemType Directory -Path $UploadRoot|Out-Null
+          @('repository=Dziuras98/Nextcar',"run_id=$env:GITHUB_RUN_ID","run_attempt=$env:GITHUB_RUN_ATTEMPT",'runner=DESKTOP-P4CTGHS','shell=built-in-powershell','process_policy=Bypass','purpose=final-gate-preflight')|Set-Content -LiteralPath $UploadFile -Encoding utf8
+          $item=Get-Item -LiteralPath $UploadFile
+          if($item.Length-le0){throw 'Probe file is empty.'}
+          Write-Host "UPLOAD_FULL_NAME=$($item.FullName)"
+          Write-Host "UPLOAD_LENGTH=$($item.Length)"
+          Write-Host "UPLOAD_SHA256=$((Get-FileHash -LiteralPath $UploadFile -Algorithm SHA256).Hash)"
+      - name: Verify built-in PowerShell effects from cmd
+        shell: cmd
+        run: |
+          @echo off
+          setlocal
+          set "UPLOAD_ROOT=%GITHUB_WORKSPACE%\_artifact_probe_upload_%GITHUB_RUN_ID%_%GITHUB_RUN_ATTEMPT%"
+          set "UPLOAD_FILE=%UPLOAD_ROOT%\probe.txt"
+          echo CMD_UPLOAD_FILE=%UPLOAD_FILE%
           if not exist "%UPLOAD_FILE%" exit /b 1
-          for %%I in ("%UPLOAD_FILE%") do (
-            echo CMD_UPLOAD_FULL_NAME=%%~fI
-            echo CMD_UPLOAD_LENGTH=%%~zI
-            if %%~zI LEQ 0 exit /b 1
-          )
+          for %%I in ("%UPLOAD_FILE%") do (echo CMD_UPLOAD_FULL_NAME=%%~fI& echo CMD_UPLOAD_LENGTH=%%~zI)
           type "%UPLOAD_FILE%"
           if errorlevel 1 exit /b 1
           certutil -hashfile "%UPLOAD_FILE%" SHA256
           if errorlevel 1 exit /b 1
-      - name: Upload self-hosted preflight probe
+          dir /a "%UPLOAD_ROOT%"
+          if errorlevel 1 exit /b 1
+          exit /b 0
+      - name: Upload self-hosted preflight artifact
         id: self-upload
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-self-hosted-preflight-${{ github.run_id }}
-          path: ${{ github.workspace }}\_artifact_probe_upload\probe.txt
-          compression-level: 0
+          path: ${{ github.workspace }}\_artifact_probe_upload_${{ github.run_id }}_${{ github.run_attempt }}\probe.txt
           if-no-files-found: error
+          compression-level: 0
           retention-days: 3
       - name: Enforce self-hosted upload success
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "STEP_BODY_EXECUTED=self-hosted-preflight-upload-enforcement"
+          Write-Host 'STEP_BODY_EXECUTED=self-hosted-preflight-upload-enforcement'
           Write-Host "STEP_SCRIPT=$PSCommandPath"
+          Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))"
           Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
+          Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
           if ('${{ steps.self-upload.outcome }}' -ne 'success') { throw 'Self-hosted artifact upload failed after file proof.' }
 
   final-windows-gate:
     name: "PR #42 final self-hosted Windows exact-head gate"
-    needs:
-      - announce-run
-      - control-artifact-probe
-      - self-hosted-preflight
+    needs: [announce-run, control-artifact-probe, self-hosted-preflight]
     if: needs.control-artifact-probe.outputs.upload_outcome == 'success' && needs.self-hosted-preflight.outputs.upload_outcome == 'success'
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 180
     env:
+      PSExecutionPolicyPreference: Bypass
       EVIDENCE_ROOT: ${{ github.workspace }}\_nc003b_pr42_evidence_${{ github.run_id }}_${{ github.run_attempt }}
       PACKAGE_ROOT: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - name: Runner proof and evidence initialization
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          Write-Host "STEP_BODY_EXECUTED=runner-proof"
+          Write-Host 'STEP_BODY_EXECUTED=runner-proof'
           Write-Host "STEP_SCRIPT=$PSCommandPath"
+          Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))"
           Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          $E=$env:EVIDENCE_ROOT
-          if(Test-Path $E){throw "Unique evidence root exists: $E"}
-          New-Item -ItemType Directory -Path $E|Out-Null
-          $runner=[ordered]@{run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;job_id='final-windows-gate';runner_name='${{ runner.name }}';runner_os='${{ runner.os }}';runner_arch='${{ runner.arch }}';required_labels=@('self-hosted','Windows','X64','unreal-5.8');script_path=$PSCommandPath;effective_policy=(Get-ExecutionPolicy)}
-          if($runner.runner_name-ne'DESKTOP-P4CTGHS'-or$runner.runner_os-ne'Windows'-or$runner.runner_arch-ne'X64'-or$runner.effective_policy-ne'Bypass'){throw 'Runner or PowerShell contract failed'}
+          Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'){throw 'Critical step was not materialized as .ps1.'}
+          if((Get-ExecutionPolicy)-ne'Bypass'-or(Get-ExecutionPolicy -Scope Process)-ne'Bypass'){throw 'Critical step policy is not Bypass.'}
+          $E=$env:EVIDENCE_ROOT;if(Test-Path $E){throw "Unique evidence root exists: $E"};New-Item -ItemType Directory -Path $E|Out-Null
+          $runner=[ordered]@{run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;runner_name='${{ runner.name }}';runner_os='${{ runner.os }}';runner_arch='${{ runner.arch }}';script_path=$PSCommandPath;script_extension=[IO.Path]::GetExtension($PSCommandPath);policy_env=$env:PSExecutionPolicyPreference;effective_policy=(Get-ExecutionPolicy);process_policy=(Get-ExecutionPolicy -Scope Process)}
+          if($runner.runner_name-ne'DESKTOP-P4CTGHS'-or$runner.runner_os-ne'Windows'-or$runner.runner_arch-ne'X64'){throw 'Runner contract failed'}
           $runner|ConvertTo-Json -Depth 8|Set-Content -Encoding utf8 (Join-Path $E 'runner-proof.json')
           $v=[ordered]@{powershell_path=(Get-Command powershell.exe).Source;powershell=$PSVersionTable.PSVersion.ToString();git=((& git --version)-join"`n");python=((& python --version 2>&1)-join"`n");cmake=((& cmake --version 2>&1)-join"`n");ctest=((& ctest --version 2>&1)-join"`n")}
           $vswhere="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe";if(-not(Test-Path $vswhere)){throw 'SELF_HOSTED_TOOLCHAIN_INCOMPLETE: vswhere missing'}
@@ -202,104 +190,41 @@ jobs:
           $v|ConvertTo-Json -Depth 10|Set-Content -Encoding utf8 (Join-Path $E 'toolchain-versions.json')
           git config --global --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'global-git-config-before.txt')
           git config --system --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'system-git-config-before.txt')
-          @("runner proof: PASS","STEP_BODY_EXECUTED=runner-proof","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $E 'runtime-markers-runner-proof.txt')
-
+          @("STEP_BODY_EXECUTED=runner-proof","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)","STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)","POLICY_ENV=$env:PSExecutionPolicyPreference")|Set-Content -Encoding utf8 (Join-Path $E 'runtime-markers-runner-proof.txt')
       - name: Manual exact candidate checkout
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          Write-Host "STEP_BODY_EXECUTED=checkout"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          $root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          if(Test-Path $root){throw 'Unique checkout path exists'}
-          git init $root
-          git -C $root config --local core.autocrlf false
-          git -C $root config --local core.eol lf
-          git -C $root remote add origin https://github.com/Dziuras98/Nextcar.git
+          Write-Host 'STEP_BODY_EXECUTED=checkout';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'-or(Get-ExecutionPolicy)-ne'Bypass'){throw 'Critical step shell contract failed'}
+          $root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";if(Test-Path $root){throw 'Unique checkout path exists'}
+          git init $root;git -C $root config --local core.autocrlf false;git -C $root config --local core.eol lf;git -C $root remote add origin https://github.com/Dziuras98/Nextcar.git
           git -C $root fetch --no-tags --prune origin +refs/heads/agent/nc-003b-phase0-source-normalization-integration:refs/remotes/origin/candidate
-          git -C $root checkout --detach $env:CANDIDATE_SHA
-          if($LASTEXITCODE){throw 'Exact candidate checkout failed'}
+          git -C $root checkout --detach $env:CANDIDATE_SHA;if($LASTEXITCODE){throw 'Exact candidate checkout failed'}
           "CHECKOUT_ROOT=$root"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          @("STEP_BODY_EXECUTED=checkout","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)","CHECKOUT_ROOT=$root")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-checkout.txt')
-
+          @("STEP_BODY_EXECUTED=checkout","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-checkout.txt')
       - name: Fail-closed topology and scope
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop';Set-Location $env:CHECKOUT_ROOT
-          Write-Host "STEP_BODY_EXECUTED=topology"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
+          Write-Host 'STEP_BODY_EXECUTED=topology';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'-or(Get-ExecutionPolicy)-ne'Bypass'){throw 'Critical step shell contract failed'}
+          Set-Location $env:CHECKOUT_ROOT
           function Eq($a,$e,$n){if(([string]$a).Trim()-ne$e){throw "$n mismatch: got '$a', expected '$e'"}}
-          Eq (git rev-parse HEAD) $env:CANDIDATE_SHA 'HEAD'
-          Eq (git rev-parse 'HEAD^{tree}') $env:CANDIDATE_TREE 'HEAD tree'
-          Eq (git rev-list --parents -n 1 HEAD) "$env:CANDIDATE_SHA $env:SOURCE_SHA" 'candidate sole parent'
-          Eq (git rev-parse "$env:SOURCE_SHA^{tree}") $env:SOURCE_TREE 'source tree'
-          Eq (git rev-list --parents -n 1 $env:SOURCE_SHA) "$env:SOURCE_SHA $env:B_SHA $env:G_SHA" 'source ordered parents'
-          Eq (git rev-parse "$env:B_SHA^{tree}") $env:B_TREE 'B tree'
-          Eq (git rev-list --parents -n 1 $env:B_SHA) "$env:B_SHA $env:BASE_SHA" 'B sole parent'
-          Eq (git rev-parse "$env:G_SHA^{tree}") $env:G_TREE 'G tree'
-          Eq (git rev-list --parents -n 1 $env:G_SHA) "$env:G_SHA $env:BASE_SHA" 'G sole parent'
-          $s1=@(git diff --name-status $env:BASE_SHA $env:SOURCE_SHA)
-          $s2=@(git diff --name-status $env:SOURCE_SHA $env:CANDIDATE_SHA)
-          $s3=@(git diff --name-status $env:BASE_SHA $env:CANDIDATE_SHA)
-          function CountScope($x){[ordered]@{m=@($x|Where-Object{$_-match'^M\s'}).Count;d=@($x|Where-Object{$_-match'^D\s'}).Count;p=$x.Count;r=@($x|Where-Object{$_-match'^[RC]'}).Count}}
-          $a=CountScope $s1;$b=CountScope $s2;$c=CountScope $s3
-          if($a.m-ne8-or$a.d-ne13-or$a.p-ne21-or$b.m-ne4-or$b.d-ne0-or$b.p-ne4-or$c.m-ne12-or$c.d-ne13-or$c.p-ne25-or$a.r-or$b.r-or$c.r){throw 'Scope matrix mismatch'}
-          $allow=@(
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part01.inc'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part02.inc'
-            'Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h'
-            'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
-            'Tools/EngineSimVendor/SOURCE_MANIFEST.json'
-            'Tools/EngineSimVendor/_cold_start_sources/generate_cold_start_profile_header.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/record_cold_start_calibration_evidence.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/run_cold_start_calibration.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/test_cold_start_profile_verifier.py.gz'
-            'Tools/EngineSimVendor/_cold_start_sources/verify_cold_start_profile.py.gz'
-            'Tools/EngineSimVendor/generate_cold_start_profile_header.py'
-            'Tools/EngineSimVendor/record_cold_start_calibration_evidence.py'
-            'Tools/EngineSimVendor/run_cold_start_calibration.py'
-            'Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part00.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part01.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part02.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part03.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.parts/part04.ps1frag'
-            'Tools/EngineSimVendor/validate_cold_start_windows.ps1'
-            'Tools/EngineSimVendor/verify_cold_start_profile.py'
-            'docs/manager-history.md'
-            'scripts/validate_repository.py'
-          )
-          $actual=@($s3|ForEach-Object{($_-split"`t")[-1]}|Sort-Object)
-          $expected=@($allow|Sort-Object)
-          if(Compare-Object $actual $expected){throw 'Unexpected path or missing allowlisted path'}
-          $s1|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-base-source.txt')
-          $s2|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-source-final.txt')
-          $s3|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-name-status.txt')
-          git diff --stat $env:BASE_SHA $env:CANDIDATE_SHA|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-stat.txt')
-          git diff --check $env:BASE_SHA $env:CANDIDATE_SHA 2>&1|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-diff-check.txt')
-          if($LASTEXITCODE){throw 'git diff --check failed'}
-          if(git status --porcelain){throw 'Initial worktree not clean'}
-          @("HEAD=$(git rev-parse HEAD)","HEAD_TREE=$(git rev-parse 'HEAD^{tree}')","SOURCE_PARENTS=$(git rev-list --parents -n 1 $env:SOURCE_SHA)","B_PARENTS=$(git rev-list --parents -n 1 $env:B_SHA)","G_PARENTS=$(git rev-list --parents -n 1 $env:G_SHA)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
-          @("STEP_BODY_EXECUTED=topology","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-topology.txt')
-
+          Eq (git rev-parse HEAD) $env:CANDIDATE_SHA 'HEAD';Eq (git rev-parse 'HEAD^{tree}') $env:CANDIDATE_TREE 'HEAD tree';Eq (git rev-list --parents -n 1 HEAD) "$env:CANDIDATE_SHA $env:SOURCE_SHA" 'candidate parent';Eq (git rev-parse "$env:SOURCE_SHA^{tree}") $env:SOURCE_TREE 'source tree';Eq (git rev-list --parents -n 1 $env:SOURCE_SHA) "$env:SOURCE_SHA $env:B_SHA $env:G_SHA" 'source parents';Eq (git rev-parse "$env:B_SHA^{tree}") $env:B_TREE 'B tree';Eq (git rev-list --parents -n 1 $env:B_SHA) "$env:B_SHA $env:BASE_SHA" 'B parent';Eq (git rev-parse "$env:G_SHA^{tree}") $env:G_TREE 'G tree';Eq (git rev-list --parents -n 1 $env:G_SHA) "$env:G_SHA $env:BASE_SHA" 'G parent'
+          $s1=@(git diff --name-status $env:BASE_SHA $env:SOURCE_SHA);$s2=@(git diff --name-status $env:SOURCE_SHA $env:CANDIDATE_SHA);$s3=@(git diff --name-status $env:BASE_SHA $env:CANDIDATE_SHA)
+          function C($x){[ordered]@{m=@($x|?{$_-match'^M\s'}).Count;d=@($x|?{$_-match'^D\s'}).Count;p=$x.Count;r=@($x|?{$_-match'^[RC]'}).Count}}
+          $a=C $s1;$b=C $s2;$c=C $s3;if($a.m-ne8-or$a.d-ne13-or$a.p-ne21-or$b.m-ne4-or$b.d-ne0-or$b.p-ne4-or$c.m-ne12-or$c.d-ne13-or$c.p-ne25-or$a.r-or$b.r-or$c.r){throw 'Scope matrix mismatch'}
+          $allow=@('Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.cpp','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part00.inc','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part01.inc','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Calibration/ColdStartCalibrationHarness.part02.inc','Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h','Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json','Tools/EngineSimVendor/SOURCE_MANIFEST.json','Tools/EngineSimVendor/_cold_start_sources/generate_cold_start_profile_header.py.gz','Tools/EngineSimVendor/_cold_start_sources/record_cold_start_calibration_evidence.py.gz','Tools/EngineSimVendor/_cold_start_sources/run_cold_start_calibration.py.gz','Tools/EngineSimVendor/_cold_start_sources/test_cold_start_profile_verifier.py.gz','Tools/EngineSimVendor/_cold_start_sources/verify_cold_start_profile.py.gz','Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/validate_cold_start_windows.parts/part00.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part01.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part02.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part03.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.parts/part04.ps1frag','Tools/EngineSimVendor/validate_cold_start_windows.ps1','Tools/EngineSimVendor/verify_cold_start_profile.py','docs/manager-history.md','scripts/validate_repository.py')
+          if(Compare-Object @($s3|%{($_-split"`t")[-1]}|sort) @($allow|sort)){throw '25-path allowlist mismatch'}
+          $s1|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-base-source.txt');$s2|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-source-final.txt');$s3|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-name-status.txt');git diff --stat $env:BASE_SHA $env:CANDIDATE_SHA|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'scope-stat.txt');git diff --check $env:BASE_SHA $env:CANDIDATE_SHA 2>&1|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-diff-check.txt');if($LASTEXITCODE){throw 'git diff --check failed'};if(git status --porcelain){throw 'Initial worktree not clean'}
+          @("HEAD=$(git rev-parse HEAD)","HEAD_TREE=$(git rev-parse 'HEAD^{tree}')","SOURCE_PARENTS=$(git rev-list --parents -n 1 $env:SOURCE_SHA)","B_PARENTS=$(git rev-list --parents -n 1 $env:B_SHA)","G_PARENTS=$(git rev-list --parents -n 1 $env:G_SHA)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt');@("STEP_BODY_EXECUTED=topology","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-topology.txt')
       - name: Download and verify P1 artifact
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          Write-Host "STEP_BODY_EXECUTED=P1"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          $root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-p1-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          New-Item -ItemType Directory $root|Out-Null
-          $env:P1_ZIP=Join-Path $root 'artifact.zip'
-          $env:P1_EXTRACTED=Join-Path $root 'extracted'
-          $env:PROFILE_PATH=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
+          Write-Host 'STEP_BODY_EXECUTED=P1';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'-or(Get-ExecutionPolicy)-ne'Bypass'){throw 'Critical step shell contract failed'}
+          $root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-p1-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";New-Item -ItemType Directory $root|Out-Null;$env:P1_ZIP=Join-Path $root 'artifact.zip';$env:P1_EXTRACTED=Join-Path $root 'extracted';$env:PROFILE_PATH=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
           @'
           import hashlib,json,os,urllib.request,zipfile
           from pathlib import Path,PurePosixPath,PureWindowsPath
@@ -309,188 +234,95 @@ jobs:
                   b=r.read(1048576)
                   if not b: break
                   f.write(b)
-          zpath=Path(os.environ['P1_ZIP']);data=zpath.read_bytes()
-          assert len(data)==211595
-          assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b'
+          zpath=Path(os.environ['P1_ZIP']);data=zpath.read_bytes();assert len(data)==211595;assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b'
           out=Path(os.environ['P1_EXTRACTED']);out.mkdir()
           with zipfile.ZipFile(zpath) as z:
               infos=z.infolist();assert len(infos)==41;seen=set()
               for i in infos:
-                  p=PurePosixPath(i.filename.replace('\\','/'));w=PureWindowsPath(i.filename)
-                  assert i.filename and not w.is_absolute() and not w.drive and all(x not in ('','.','..') for x in p.parts)
-                  n='/'.join(p.parts).casefold();assert n not in seen;seen.add(n)
+                  p=PurePosixPath(i.filename.replace('\\','/'));w=PureWindowsPath(i.filename);assert i.filename and not w.is_absolute() and not w.drive and all(x not in ('','.','..') for x in p.parts);n='/'.join(p.parts).casefold();assert n not in seen;seen.add(n)
               z.extractall(out)
           manifest=json.loads((out/'hash-manifest.json').read_text('utf-8'));assert len(manifest)==40
           for row in manifest:
               b=(out/row['path']).read_bytes();assert len(b)==row['size'] and hashlib.sha256(b).hexdigest()==row['sha256']
-          profile=json.loads(Path(os.environ['PROFILE_PATH']).read_text('utf-8'))
-          rows=[('positive',x) for x in profile['positive_traces']]+[('timeout',profile['timeout_trace']),('stall',profile['stall_trace'])]
-          verified=[];prefix='Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/'
+          profile=json.loads(Path(os.environ['PROFILE_PATH']).read_text('utf-8'));rows=[('positive',x) for x in profile['positive_traces']]+[('timeout',profile['timeout_trace']),('stall',profile['stall_trace'])];verified=[];prefix='Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration/'
           for kind,row in rows:
-              rel=row['path'].replace('\\','/')[len(prefix):];p=out/'selected-calibration'/rel
-              json.loads(p.read_text('utf-8'));h=hashlib.sha256(p.read_bytes()).hexdigest()
-              exp=row.get('sha256') or row.get('sha256_hex') or row.get('hash');assert h.lower()==exp.lower()
-              verified.append({'kind':kind,'canonical_path':row['path'],'sha256':h})
+              rel=row['path'].replace('\\','/')[len(prefix):];p=out/'selected-calibration'/rel;json.loads(p.read_text('utf-8'));h=hashlib.sha256(p.read_bytes()).hexdigest();exp=row.get('sha256') or row.get('sha256_hex') or row.get('hash');assert h.lower()==exp.lower();verified.append({'kind':kind,'canonical_path':row['path'],'sha256':h})
           meta={'source_run':29814599329,'artifact_id':8488882253,'zip_size':211595,'zip_sha256':hashlib.sha256(data).hexdigest(),'members':41,'manifest_entries':40,'manifest_pass':'40/40','positive':'10/10','timeout':'1/1','stall':'1/1','total':'12/12'}
-          Path(os.environ['EVIDENCE_ROOT'],'artifact-source-metadata.json').write_text(json.dumps(meta,indent=2)+'\n',encoding='utf-8')
-          Path(os.environ['EVIDENCE_ROOT'],'trace-verification.json').write_text(json.dumps({'result':'PASS','records':verified},indent=2)+'\n',encoding='utf-8')
+          Path(os.environ['EVIDENCE_ROOT'],'artifact-source-metadata.json').write_text(json.dumps(meta,indent=2)+'\n',encoding='utf-8');Path(os.environ['EVIDENCE_ROOT'],'trace-verification.json').write_text(json.dumps({'result':'PASS','records':verified},indent=2)+'\n',encoding='utf-8')
           '@|python -
-          if($LASTEXITCODE){throw 'P1 verification failed'}
-          "P1_EXTRACTED=$env:P1_EXTRACTED"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          @("STEP_BODY_EXECUTED=P1","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-p1.txt')
-
+          if($LASTEXITCODE){throw 'P1 verification failed'};"P1_EXTRACTED=$env:P1_EXTRACTED"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append;@("STEP_BODY_EXECUTED=P1","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-p1.txt')
       - name: Mount traces and run full validation matrix
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop';Set-Location $env:CHECKOUT_ROOT
-          Write-Host "STEP_BODY_EXECUTED=validation-matrix"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          $junction=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration'
-          $target=Join-Path $env:P1_EXTRACTED 'selected-calibration'
-          New-Item -ItemType Junction -Path $junction -Target $target|Out-Null
+          Write-Host 'STEP_BODY_EXECUTED=validation-matrix';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'-or(Get-ExecutionPolicy)-ne'Bypass'){throw 'Critical step shell contract failed'}
+          Set-Location $env:CHECKOUT_ROOT;$junction=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration';$target=Join-Path $env:P1_EXTRACTED 'selected-calibration';New-Item -ItemType Junction -Path $junction -Target $target|Out-Null
           python -B scripts/validate_repository.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'repository-validator.log');if($LASTEXITCODE){throw 'Repository validator failed'}
-          $py=@('Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/verify_cold_start_profile.py')
-          python -B -m py_compile @py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'py-compile.log');if($LASTEXITCODE){throw 'py_compile failed'}
+          $py=@('Tools/EngineSimVendor/generate_cold_start_profile_header.py','Tools/EngineSimVendor/record_cold_start_calibration_evidence.py','Tools/EngineSimVendor/run_cold_start_calibration.py','Tools/EngineSimVendor/tests/test_cold_start_profile_verifier.py','Tools/EngineSimVendor/verify_cold_start_profile.py');python -B -m py_compile @py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'py-compile.log');if($LASTEXITCODE){throw 'py_compile failed'}
           python -B -m unittest discover -s Tools/EngineSimVendor/tests -p test_*.py -v 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'python-tests.log');if($LASTEXITCODE){throw 'Python tests failed'}
           python -B Tools/EngineSimVendor/run_cold_start_calibration.py self-test 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'cold-start-orchestrator.log');if($LASTEXITCODE){throw 'Cold-start self-test failed'}
           python -B Tools/EngineSimVendor/verify_cold_start_profile.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --repo-root . 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'profile-verifier.log');if($LASTEXITCODE){throw 'Profile verifier failed'}
-          $profileGen=Join-Path $env:RUNNER_TEMP 'SubaruEJ25ColdStartProfile.generated.h'
-          python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output $profileGen 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'profile-generator.log');if($LASTEXITCODE){throw 'Profile generator failed'}
-          $profileHdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h'
-          if((Get-FileHash $profileGen).Hash-ne(Get-FileHash $profileHdr).Hash){throw 'Profile generator determinism failed'}
-          python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-verifier.log');if($LASTEXITCODE){throw 'Snapshot verifier failed'}
-          python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-tests.log');if($LASTEXITCODE){throw 'Snapshot tests failed'}
-          python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-tests.log');if($LASTEXITCODE){throw 'Fixture mutation tests failed'}
-          python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-parity.log');if($LASTEXITCODE){throw 'Subaru parity failed'}
-          python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-tests.log');if($LASTEXITCODE){throw 'IR tests failed'}
-          $wav='Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav'
-          $hdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h'
-          python -B Tools/EngineSimVendor/verify_impulse_response.py --wav $wav --header $hdr --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-verifier.log');if($LASTEXITCODE){throw 'IR verifier failed'}
-          $gen=Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h'
-          python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $gen 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-generator.log');if($LASTEXITCODE){throw 'IR generator failed'}
-          if((Get-FileHash $gen).Hash-ne(Get-FileHash $hdr).Hash){throw 'IR determinism failed'}
-          $tokens=$null;$errors=$null;[Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'),[ref]$tokens,[ref]$errors)|Out-Null
-          $errors|Out-String|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'powershell-ast.log');if($errors.Count){throw 'PowerShell AST failed'}
-          $summary=Get-Content (Join-Path $env:P1_EXTRACTED 'selected-calibration\selected-summary.json') -Raw|ConvertFrom-Json
-          $selected=Join-Path $env:RUNNER_TEMP 'selected-candidate-input.json'
-          [ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$summary.selected_candidate}|ConvertTo-Json -Depth 20|Set-Content -Encoding utf8 $selected
-          $matrix=Join-Path $env:RUNNER_TEMP "nc003b-pr42-matrix-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          & .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $env:CANDIDATE_SHA -Phase Selected -SelectedCandidatePath $selected -ArtifactRoot $matrix
-          if($LASTEXITCODE){throw 'Matrix wrapper failed'}
-          "MATRIX_ROOT=$matrix"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          Get-ChildItem -LiteralPath $matrix -Recurse -File|ForEach-Object FullName|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'matrix-file-tree.txt')
-          $names=@('cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log')
-          foreach($name in $names){$matches=@(Get-ChildItem -LiteralPath $matrix -Recurse -File -Filter $name -ErrorAction SilentlyContinue);if($matches.Count-ne1){throw "Expected one '$name'; found $($matches.Count)"};Copy-Item $matches[0].FullName (Join-Path $env:EVIDENCE_ROOT $name)}
-          Copy-Item (Join-Path $matrix 'validation-status.json') (Join-Path $env:EVIDENCE_ROOT 'validation-status.json') -Force
-          @("STEP_BODY_EXECUTED=validation-matrix","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-validation-matrix.txt')
-
+          $profileGen=Join-Path $env:RUNNER_TEMP 'SubaruEJ25ColdStartProfile.generated.h';python -B Tools/EngineSimVendor/generate_cold_start_profile_header.py --profile Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json --output $profileGen 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'profile-generator.log');if($LASTEXITCODE){throw 'Profile generator failed'};$profileHdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/SubaruEJ25ColdStartProfile.generated.h';if((Get-FileHash $profileGen).Hash-ne(Get-FileHash $profileHdr).Hash){throw 'Profile generator determinism failed'}
+          python -B Tools/EngineSimVendor/verify_fixture_source_snapshot.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-verifier.log');if($LASTEXITCODE){throw 'Snapshot verifier failed'};python -B Tools/EngineSimVendor/tests/test_fixture_source_snapshot.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'snapshot-tests.log');if($LASTEXITCODE){throw 'Snapshot tests failed'};python -B Tools/EngineSimVendor/tests/test_subaru_ej25_fixture_verifier.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-tests.log');if($LASTEXITCODE){throw 'Fixture tests failed'};python -B Tools/EngineSimVendor/verify_subaru_ej25_fixture.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'fixture-parity.log');if($LASTEXITCODE){throw 'Subaru parity failed'};python -B Tools/EngineSimVendor/tests/test_impulse_response_tools.py 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-tests.log');if($LASTEXITCODE){throw 'IR tests failed'}
+          $wav='Plugins/NextcarEngineSim/Source/ThirdParty/EngineSim/upstream/engine-sim/es/sound-library/new/minimal_muffling_02.wav';$hdr='Plugins/NextcarEngineSim/Source/NextcarEngineSimCore/Private/Generated/MinimalMuffling02ImpulseResponse.generated.h';python -B Tools/EngineSimVendor/verify_impulse_response.py --wav $wav --header $hdr --manifest Tools/EngineSimVendor/SOURCE_MANIFEST.json --repository-root . 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-verifier.log');if($LASTEXITCODE){throw 'IR verifier failed'};$gen=Join-Path $env:RUNNER_TEMP 'MinimalMuffling02ImpulseResponse.generated.h';python -B Tools/EngineSimVendor/generate_impulse_response_header.py --input $wav --output $gen 2>&1|Tee-Object -FilePath (Join-Path $env:EVIDENCE_ROOT 'ir-generator.log');if($LASTEXITCODE){throw 'IR generator failed'};if((Get-FileHash $gen).Hash-ne(Get-FileHash $hdr).Hash){throw 'IR determinism failed'}
+          $tokens=$null;$errors=$null;[Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'Tools/EngineSimVendor/validate_cold_start_windows.ps1'),[ref]$tokens,[ref]$errors)|Out-Null;$errors|Out-String|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'powershell-ast.log');if($errors.Count){throw 'PowerShell AST failed'}
+          $summary=Get-Content (Join-Path $env:P1_EXTRACTED 'selected-calibration\selected-summary.json') -Raw|ConvertFrom-Json;$selected=Join-Path $env:RUNNER_TEMP 'selected-candidate-input.json';[ordered]@{schema_version=$summary.schema_version;candidate_source_sha=$summary.candidate_source_sha;selected_candidate=$summary.selected_candidate}|ConvertTo-Json -Depth 20|Set-Content -Encoding utf8 $selected
+          $matrix=Join-Path $env:RUNNER_TEMP "nc003b-pr42-matrix-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT";& .\Tools\EngineSimVendor\validate_cold_start_windows.ps1 -CandidateSha $env:CANDIDATE_SHA -Phase Selected -SelectedCandidatePath $selected -ArtifactRoot $matrix;if($LASTEXITCODE){throw 'Matrix wrapper failed'};"MATRIX_ROOT=$matrix"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Get-ChildItem -LiteralPath $matrix -Recurse -File|% FullName|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'matrix-file-tree.txt');$names=@('cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log');foreach($name in $names){$matches=@(Get-ChildItem -LiteralPath $matrix -Recurse -File -Filter $name -ErrorAction SilentlyContinue);if($matches.Count-ne1){throw "Expected one '$name'; found $($matches.Count)"};Copy-Item $matches[0].FullName (Join-Path $env:EVIDENCE_ROOT $name)};Copy-Item (Join-Path $matrix 'validation-status.json') (Join-Path $env:EVIDENCE_ROOT 'validation-status.json') -Force;@("STEP_BODY_EXECUTED=validation-matrix","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-validation-matrix.txt')
       - name: Junction cleanup and immutable-state proof
         if: always()
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Continue'
-          Write-Host "STEP_BODY_EXECUTED=cleanup"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          $E=$env:EVIDENCE_ROOT;$c=@()
-          if($env:CHECKOUT_ROOT-and(Test-Path $env:CHECKOUT_ROOT)){
-            Set-Location $env:CHECKOUT_ROOT
-            $j=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration'
-            if(Test-Path $j){cmd /c "rmdir `"$j`"";$c+='junction cleanup: PASS'}else{$c+='junction cleanup: not required'}
-            $c+="junction exists after cleanup: $(Test-Path $j)"
-            $c+="tracked deletions: $(@(git ls-files --deleted).Count)"
-            $c+="staged changes: $(@(git diff --cached --name-only).Count)"
-            git status --porcelain|Set-Content -Encoding utf8 (Join-Path $E 'final-git-status.txt')
-            $c+=if(git status --porcelain){'working tree clean: FAIL'}else{'working tree clean: PASS'}
-            $c+=if((git rev-parse HEAD).Trim()-eq$env:CANDIDATE_SHA){'HEAD unchanged: PASS'}else{'HEAD unchanged: FAIL'}
-            $c+=if((git rev-parse 'HEAD^{tree}').Trim()-eq$env:CANDIDATE_TREE){'tree unchanged: PASS'}else{'tree unchanged: FAIL'}
-          }
-          git config --global --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'global-git-config-after.txt')
-          git config --system --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'system-git-config-after.txt')
-          $c+="global config unchanged: $((Get-FileHash (Join-Path $E 'global-git-config-before.txt')).Hash-eq(Get-FileHash (Join-Path $E 'global-git-config-after.txt')).Hash)"
-          $c+="system config unchanged: $((Get-FileHash (Join-Path $E 'system-git-config-before.txt')).Hash-eq(Get-FileHash (Join-Path $E 'system-git-config-after.txt')).Hash)"
-          $c|Set-Content -Encoding utf8 (Join-Path $E 'cleanup.log')
-          @("STEP_BODY_EXECUTED=cleanup","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $E 'runtime-markers-cleanup.txt')
-          if(-not(Test-Path (Join-Path $E 'first-error.txt'))){if('${{ job.status }}'-eq'success'){'none'}else{'See failing step logs.'}|Set-Content -Encoding utf8 (Join-Path $E 'first-error.txt')}
-
+          Write-Host 'STEP_BODY_EXECUTED=cleanup';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          $E=$env:EVIDENCE_ROOT;$c=@();if($env:CHECKOUT_ROOT-and(Test-Path $env:CHECKOUT_ROOT)){Set-Location $env:CHECKOUT_ROOT;$j=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_calibration';if(Test-Path $j){cmd /c "rmdir `"$j`"";$c+='junction cleanup: PASS'}else{$c+='junction cleanup: not required'};$c+="junction exists after cleanup: $(Test-Path $j)";$c+="tracked deletions: $(@(git ls-files --deleted).Count)";$c+="staged changes: $(@(git diff --cached --name-only).Count)";git status --porcelain|Set-Content -Encoding utf8 (Join-Path $E 'final-git-status.txt');$c+=if(git status --porcelain){'working tree clean: FAIL'}else{'working tree clean: PASS'};$c+=if((git rev-parse HEAD).Trim()-eq$env:CANDIDATE_SHA){'HEAD unchanged: PASS'}else{'HEAD unchanged: FAIL'};$c+=if((git rev-parse 'HEAD^{tree}').Trim()-eq$env:CANDIDATE_TREE){'tree unchanged: PASS'}else{'tree unchanged: FAIL'}}
+          git config --global --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'global-git-config-after.txt');git config --system --list --show-origin 2>&1|Set-Content -Encoding utf8 (Join-Path $E 'system-git-config-after.txt');$c+="global config unchanged: $((Get-FileHash (Join-Path $E 'global-git-config-before.txt')).Hash-eq(Get-FileHash (Join-Path $E 'global-git-config-after.txt')).Hash)";$c+="system config unchanged: $((Get-FileHash (Join-Path $E 'system-git-config-before.txt')).Hash-eq(Get-FileHash (Join-Path $E 'system-git-config-after.txt')).Hash)";$c|Set-Content -Encoding utf8 (Join-Path $E 'cleanup.log');@("STEP_BODY_EXECUTED=cleanup","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $E 'runtime-markers-cleanup.txt');if(-not(Test-Path (Join-Path $E 'first-error.txt'))){if('${{ job.status }}'-eq'success'){'none'}else{'See failing step logs.'}|Set-Content -Encoding utf8 (Join-Path $E 'first-error.txt')}
       - name: Seal and verify complete evidence
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          Write-Host "STEP_BODY_EXECUTED=evidence-seal"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          $E=$env:EVIDENCE_ROOT
-          @("STEP_BODY_EXECUTED=evidence-seal","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $E 'runtime-markers-evidence-seal.txt')
+          Write-Host 'STEP_BODY_EXECUTED=evidence-seal';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'-or(Get-ExecutionPolicy)-ne'Bypass'){throw 'Critical step shell contract failed'}
+          $E=$env:EVIDENCE_ROOT;@("STEP_BODY_EXECUTED=evidence-seal","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)","STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)","POLICY_ENV=$env:PSExecutionPolicyPreference")|Set-Content -Encoding utf8 (Join-Path $E 'runtime-markers-evidence-seal.txt')
           $required=@('runner-proof.json','toolchain-versions.json','global-git-config-before.txt','global-git-config-after.txt','system-git-config-before.txt','system-git-config-after.txt','git-topology.txt','scope-base-source.txt','scope-source-final.txt','scope-name-status.txt','scope-stat.txt','git-diff-check.txt','artifact-source-metadata.json','trace-verification.json','repository-validator.log','py-compile.log','python-tests.log','cold-start-orchestrator.log','profile-verifier.log','profile-generator.log','snapshot-verifier.log','snapshot-tests.log','fixture-tests.log','fixture-parity.log','ir-tests.log','ir-verifier.log','ir-generator.log','powershell-ast.log','matrix-file-tree.txt','cmake-configure.log','msvc-release.log','msvc-debug-rtc1.log','msvc-asan.log','ctest.log','direct-runtime.log','cold-start-runtime.log','boundary-scan.log','clean-reproducibility.log','cleanup.log','final-git-status.txt','validation-status.json','first-error.txt','runtime-markers-runner-proof.txt','runtime-markers-checkout.txt','runtime-markers-topology.txt','runtime-markers-p1.txt','runtime-markers-validation-matrix.txt','runtime-markers-cleanup.txt','runtime-markers-evidence-seal.txt')
-          $missing=@($required|Where-Object{-not(Test-Path (Join-Path $E $_) -PathType Leaf)})
-          if($missing){$missing|Set-Content -Encoding utf8 (Join-Path $E 'evidence-missing.txt');throw "Missing evidence: $($missing-join', ')"}
-          foreach($n in $required|Where-Object{$_-notin@('git-diff-check.txt','final-git-status.txt')}){if((Get-Item (Join-Path $E $n)).Length-le0){throw "Empty evidence: $n"}}
-          $r=Get-Content (Join-Path $E 'runner-proof.json') -Raw|ConvertFrom-Json;if($r.runner_name-ne'DESKTOP-P4CTGHS'-or$r.runner_os-ne'Windows'-or$r.runner_arch-ne'X64'-or$r.effective_policy-ne'Bypass'){throw 'Runner semantic seal failed'}
-          $a=Get-Content (Join-Path $E 'artifact-source-metadata.json') -Raw|ConvertFrom-Json;if($a.source_run-ne29814599329-or$a.artifact_id-ne8488882253-or$a.zip_size-ne211595-or$a.members-ne41-or$a.manifest_pass-ne'40/40'-or$a.total-ne'12/12'){throw 'P1 semantic seal failed'}
-          $t=Get-Content (Join-Path $E 'trace-verification.json') -Raw|ConvertFrom-Json;if($t.result-ne'PASS'-or@($t.records).Count-ne12){throw 'Trace semantic seal failed'}
-          $s=Get-Content (Join-Path $E 'validation-status.json') -Raw|ConvertFrom-Json
-          foreach($k in @('status','release_result','debug_result','asan_result','timeout_result','stall_result','clean_reproducibility')){if($s.$k-ne'PASS'){throw "Validation $k failed"}}
-          if($s.selected_trials_result-ne'10/10 PASS'-or[int]$s.project_warning_count-ne0){throw 'Validation semantic seal failed'}
-          $cl=Get-Content (Join-Path $E 'cleanup.log') -Raw
-          foreach($x in @('junction cleanup: PASS','junction exists after cleanup: False','tracked deletions: 0','staged changes: 0','working tree clean: PASS','HEAD unchanged: PASS','tree unchanged: PASS','global config unchanged: True','system config unchanged: True')){if($cl-notmatch[regex]::Escape($x)){throw "Cleanup semantic seal missing: $x"}}
-          $seal=[ordered]@{status='PASS';required_files=$required.Count;actual_files_excluding_manifest=0;manifest_entries=0;missing_files=@();duplicate_paths=0;run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;candidate_sha=$env:CANDIDATE_SHA}
-          $seal|ConvertTo-Json -Depth 5|Set-Content -Encoding utf8 (Join-Path $E 'evidence-seal.json')
+          $missing=@($required|?{-not(Test-Path (Join-Path $E $_)-PathType Leaf)});if($missing){throw "Missing evidence: $($missing-join', ')"};foreach($n in $required|?{$_-notin@('git-diff-check.txt','final-git-status.txt')}){if((Get-Item (Join-Path $E $n)).Length-le0){throw "Empty evidence: $n"}}
+          $r=Get-Content (Join-Path $E 'runner-proof.json') -Raw|ConvertFrom-Json;if($r.runner_name-ne'DESKTOP-P4CTGHS'-or$r.runner_os-ne'Windows'-or$r.runner_arch-ne'X64'-or$r.effective_policy-ne'Bypass'-or$r.process_policy-ne'Bypass'-or$r.policy_env-ne'Bypass'-or$r.script_extension-ne'.ps1'){throw 'Runner semantic seal failed'};$a=Get-Content (Join-Path $E 'artifact-source-metadata.json') -Raw|ConvertFrom-Json;if($a.source_run-ne29814599329-or$a.artifact_id-ne8488882253-or$a.zip_size-ne211595-or$a.members-ne41-or$a.manifest_pass-ne'40/40'-or$a.total-ne'12/12'){throw 'P1 semantic seal failed'};$t=Get-Content (Join-Path $E 'trace-verification.json') -Raw|ConvertFrom-Json;if($t.result-ne'PASS'-or@($t.records).Count-ne12){throw 'Trace semantic seal failed'};$s=Get-Content (Join-Path $E 'validation-status.json') -Raw|ConvertFrom-Json;foreach($k in @('status','release_result','debug_result','asan_result','timeout_result','stall_result','clean_reproducibility')){if($s.$k-ne'PASS'){throw "Validation $k failed"}};if($s.selected_trials_result-ne'10/10 PASS'-or[int]$s.project_warning_count-ne0){throw 'Validation semantic seal failed'}
+          $cl=Get-Content (Join-Path $E 'cleanup.log') -Raw;foreach($x in @('junction cleanup: PASS','junction exists after cleanup: False','tracked deletions: 0','staged changes: 0','working tree clean: PASS','HEAD unchanged: PASS','tree unchanged: PASS','global config unchanged: True','system config unchanged: True')){if($cl-notmatch[regex]::Escape($x)){throw "Cleanup semantic seal missing: $x"}}
+          [ordered]@{status='PASS';required_files=$required.Count;actual_files_excluding_manifest=0;manifest_entries=0;missing_files=@();duplicate_paths=0;run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;candidate_sha=$env:CANDIDATE_SHA}|ConvertTo-Json -Depth 5|Set-Content -Encoding utf8 (Join-Path $E 'evidence-seal.json')
           @'
           import hashlib,json,os
           from pathlib import Path,PurePosixPath
           root=Path(os.environ['EVIDENCE_ROOT'])
           def build():
-              files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='hash-manifest.json')
-              rows=[];seen=set()
+              files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='hash-manifest.json');rows=[];seen=set()
               for p in files:
-                  rel=p.relative_to(root).as_posix();q=PurePosixPath(rel)
-                  assert not q.is_absolute() and '..' not in q.parts and rel not in seen
-                  seen.add(rel);b=p.read_bytes();rows.append({'path':rel,'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
-              (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-              return files,rows
-          files,rows=build()
-          seal=json.loads((root/'evidence-seal.json').read_text('utf-8-sig'))
-          seal['actual_files_excluding_manifest']=len(files);seal['manifest_entries']=len(rows)
-          (root/'evidence-seal.json').write_text(json.dumps(seal,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          files,rows=build();assert len(rows)==len(files)==len({r['path'] for r in rows})
+                  rel=p.relative_to(root).as_posix();q=PurePosixPath(rel);assert not q.is_absolute() and '..' not in q.parts and rel not in seen;seen.add(rel);b=p.read_bytes();rows.append({'path':rel,'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
+              (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n',encoding='utf-8');return files,rows
+          files,rows=build();seal=json.loads((root/'evidence-seal.json').read_text('utf-8-sig'));seal['actual_files_excluding_manifest']=len(files);seal['manifest_entries']=len(rows);(root/'evidence-seal.json').write_text(json.dumps(seal,indent=2,sort_keys=True)+'\n',encoding='utf-8');files,rows=build();assert len(rows)==len(files)==len({r['path'] for r in rows})
           for row in rows:
               b=(root/row['path']).read_bytes();assert len(b)==row['size'] and hashlib.sha256(b).hexdigest()==row['sha256']
           '@|python -
           if($LASTEXITCODE){throw 'Hash manifest self-verification failed'}
-
       - name: Build and self-verify deterministic evidence ZIP
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          Write-Host "STEP_BODY_EXECUTED=package-creation"
-          Write-Host "STEP_SCRIPT=$PSCommandPath"
-          Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)"
-          @("STEP_BODY_EXECUTED=package-creation","STEP_SCRIPT=$PSCommandPath","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-package-creation.txt')
-          if(Test-Path $env:PACKAGE_ROOT){throw "Unique package root exists: $env:PACKAGE_ROOT"}
+          Write-Host 'STEP_BODY_EXECUTED=package-creation';Write-Host "STEP_SCRIPT=$PSCommandPath";Write-Host "STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))";Write-Host "STEP_POLICY=$(Get-ExecutionPolicy)";Write-Host "STEP_PROCESS_POLICY=$(Get-ExecutionPolicy -Scope Process)"
+          if([IO.Path]::GetExtension($PSCommandPath)-ine'.ps1'-or(Get-ExecutionPolicy)-ne'Bypass'){throw 'Critical step shell contract failed'}
+          @("STEP_BODY_EXECUTED=package-creation","STEP_SCRIPT=$PSCommandPath","STEP_EXTENSION=$([IO.Path]::GetExtension($PSCommandPath))","STEP_POLICY=$(Get-ExecutionPolicy)")|Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'runtime-markers-package-creation.txt');if(Test-Path $env:PACKAGE_ROOT){throw "Unique package root exists: $env:PACKAGE_ROOT"}
           @'
           import hashlib,json,os
           from pathlib import Path,PurePosixPath,PureWindowsPath
           from zipfile import ZIP_DEFLATED,ZipFile,ZipInfo
-          source=Path(os.environ['EVIDENCE_ROOT']);target=Path(os.environ['PACKAGE_ROOT'])/'evidence.zip';target.parent.mkdir(parents=True,exist_ok=False)
-          files=sorted(p for p in source.rglob('*') if p.is_file());names=[p.relative_to(source).as_posix() for p in files];assert len(names)==len(set(names))
+          source=Path(os.environ['EVIDENCE_ROOT']);target=Path(os.environ['PACKAGE_ROOT'])/'evidence.zip';target.parent.mkdir(parents=True,exist_ok=False);files=sorted(p for p in source.rglob('*') if p.is_file());names=[p.relative_to(source).as_posix() for p in files];assert len(names)==len(set(names))
           with ZipFile(target,'w',compression=ZIP_DEFLATED,compresslevel=9) as archive:
               for path,relative in zip(files,names):
-                  q=PurePosixPath(relative);w=PureWindowsPath(relative);assert relative and not q.is_absolute() and not w.is_absolute() and not w.drive and '..' not in q.parts
-                  info=ZipInfo(relative);info.date_time=(1980,1,1,0,0,0);info.compress_type=ZIP_DEFLATED;info.external_attr=0o100644<<16;info.flag_bits|=0x800
-                  archive.writestr(info,path.read_bytes(),compress_type=ZIP_DEFLATED,compresslevel=9)
+                  q=PurePosixPath(relative);w=PureWindowsPath(relative);assert relative and not q.is_absolute() and not w.is_absolute() and not w.drive and '..' not in q.parts;info=ZipInfo(relative);info.date_time=(1980,1,1,0,0,0);info.compress_type=ZIP_DEFLATED;info.external_attr=0o100644<<16;info.flag_bits|=0x800;archive.writestr(info,path.read_bytes(),compress_type=ZIP_DEFLATED,compresslevel=9)
           with ZipFile(target) as archive:
-              infos=archive.infolist();got=[i.filename for i in infos];assert got==names and len(got)==len(set(got))==len(files)
-              manifest=json.loads(archive.read('hash-manifest.json').decode('utf-8'));assert len(manifest)==len(got)-1
+              infos=archive.infolist();got=[i.filename for i in infos];assert got==names and len(got)==len(set(got))==len(files);manifest=json.loads(archive.read('hash-manifest.json').decode('utf-8'));assert len(manifest)==len(got)-1
               for row in manifest:
                   b=archive.read(row['path']);assert len(b)==row['size'] and hashlib.sha256(b).hexdigest()==row['sha256']
-              seal=json.loads(archive.read('evidence-seal.json').decode('utf-8-sig'));status=json.loads(archive.read('validation-status.json').decode('utf-8-sig'));runner=json.loads(archive.read('runner-proof.json').decode('utf-8-sig'));art=json.loads(archive.read('artifact-source-metadata.json').decode('utf-8-sig'));traces=json.loads(archive.read('trace-verification.json').decode('utf-8-sig'))
-              assert seal['status']=='PASS' and status['status']=='PASS' and runner['runner_name']=='DESKTOP-P4CTGHS' and art['manifest_pass']=='40/40' and art['total']=='12/12' and traces['result']=='PASS'
+              seal=json.loads(archive.read('evidence-seal.json').decode('utf-8-sig'));status=json.loads(archive.read('validation-status.json').decode('utf-8-sig'));runner=json.loads(archive.read('runner-proof.json').decode('utf-8-sig'));art=json.loads(archive.read('artifact-source-metadata.json').decode('utf-8-sig'));traces=json.loads(archive.read('trace-verification.json').decode('utf-8-sig'));assert seal['status']=='PASS' and status['status']=='PASS' and runner['runner_name']=='DESKTOP-P4CTGHS' and runner['process_policy']=='Bypass' and runner['script_extension']=='.ps1' and art['manifest_pass']=='40/40' and art['total']=='12/12' and traces['result']=='PASS'
           data=target.read_bytes();print(f'EVIDENCE_ZIP_SIZE={len(data)}');print(f'EVIDENCE_ZIP_SHA256={hashlib.sha256(data).hexdigest()}');print(f'EVIDENCE_ZIP_MEMBERS={len(names)}')
           '@|python -
           if($LASTEXITCODE){throw 'Deterministic evidence ZIP verification failed'}
-
       - name: Upload final evidence package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -502,11 +334,7 @@ jobs:
 
   publish-final-status:
     name: "Publish PR #42 final gate status"
-    needs:
-      - announce-run
-      - control-artifact-probe
-      - self-hosted-preflight
-      - final-windows-gate
+    needs: [announce-run, control-artifact-probe, self-hosted-preflight, final-windows-gate]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -522,24 +350,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request
-          control_result=os.environ.get('CONTROL_RESULT','')
-          control_upload=os.environ.get('CONTROL_UPLOAD','')
-          self_result=os.environ.get('SELF_RESULT','')
-          self_upload=os.environ.get('SELF_UPLOAD','')
-          gate_result=os.environ.get('GATE_RESULT','')
-          if control_result=='success' and control_upload=='success' and self_result=='success' and self_upload=='success' and gate_result=='success':
-              state='success';description='Final self-hosted Windows validation and evidence upload passed'
-          elif self_result=='failure' and not self_upload:
-              state='failure';description='Process-scoped PowerShell bypass or side-effect preflight failed'
-          elif self_upload!='success':
-              state='failure';description='Self-hosted artifact upload failed after file proof'
-          elif control_upload!='success':
-              state='failure';description='GitHub-hosted artifact control upload failed'
-          else:
-              state='failure';description='Final self-hosted Windows exact-head validation failed'
+          import json,os,urllib.request
+          cr=os.environ.get('CONTROL_RESULT','');cu=os.environ.get('CONTROL_UPLOAD','');sr=os.environ.get('SELF_RESULT','');su=os.environ.get('SELF_UPLOAD','');gr=os.environ.get('GATE_RESULT','')
+          if cr=='success' and cu=='success' and sr=='success' and su=='success' and gr=='success': state='success';description='Final self-hosted Windows validation and evidence upload passed'
+          elif sr=='failure' and not su: state='failure';description='PowerShell process policy or side-effect preflight failed'
+          elif su!='success': state='failure';description='Self-hosted artifact upload failed after file proof'
+          elif cu!='success': state='failure';description='GitHub-hosted artifact control upload failed'
+          else: state='failure';description='Final self-hosted Windows exact-head validation failed'
           body=json.dumps({'state':state,'context':os.environ['STATUS_CONTEXT'],'description':description,'target_url':f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}"}).encode('utf-8')
           req=urllib.request.Request(f"https://api.github.com/repos/Dziuras98/Nextcar/statuses/{os.environ['CANDIDATE_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
-          with urllib.request.urlopen(req) as response:
-              assert response.status==201
+          with urllib.request.urlopen(req) as response: assert response.status==201
           PY
