@@ -18,7 +18,7 @@ env:
 
 jobs:
   announce-diagnostic-run:
-    name: "Announce artifact diagnostic run"
+    name: "Announce PowerShell and artifact diagnostic run"
     runs-on: ubuntu-latest
     steps:
       - name: Publish pending diagnostic status with run ID
@@ -35,7 +35,7 @@ jobs:
           body = json.dumps({
               "state": "pending",
               "context": os.environ["DIAGNOSTIC_CONTEXT"],
-              "description": "Artifact transport diagnostics running",
+              "description": "Windows PowerShell execution diagnostic running",
               "target_url": f"https://github.com/Dziuras98/Nextcar/actions/runs/{os.environ['GITHUB_RUN_ID']}",
           }).encode("utf-8")
           request = urllib.request.Request(
@@ -92,229 +92,163 @@ jobs:
           echo "control_upload_outcome=${{ steps.control-upload.outcome }}"
           echo "control_job_status=${{ job.status }}"
 
-  self-hosted-network-diagnostics:
-    name: "Self-hosted artifact network diagnostics"
+  self-hosted-powershell-artifact-probe:
+    name: "Self-hosted built-in PowerShell artifact probe"
     needs: announce-diagnostic-run
-    if: always()
-    runs-on: [self-hosted, Windows, X64, unreal-5.8]
-    timeout-minutes: 30
-    steps:
-      - name: Runner and PowerShell information
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference = 'Continue'
-          Write-Host "runner_name=$env:RUNNER_NAME"
-          Write-Host "runner_os=$env:RUNNER_OS"
-          Write-Host "runner_arch=$env:RUNNER_ARCH"
-          Write-Host "windows_account=$(whoami)"
-          Write-Host "powershell_version=$($PSVersionTable.PSVersion)"
-          Write-Host "utc_time=$([DateTime]::UtcNow.ToString('o'))"
-          Write-Host "local_time=$([DateTime]::Now.ToString('o'))"
-          Write-Host "time_zone=$([TimeZoneInfo]::Local.Id)"
-          $runnerVersion = 'unknown'
-          $diag = Join-Path $env:RUNNER_TEMP '_diag'
-          if (Test-Path -LiteralPath $diag) {
-            $runnerVersion = Get-Content -LiteralPath $diag -Raw -ErrorAction SilentlyContinue
-          }
-          Write-Host "runner_version=$runnerVersion"
-
-      - name: Safe Actions environment and proxy diagnostics
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $names = @(
-            'ACTIONS_RESULTS_URL',
-            'ACTIONS_RUNTIME_URL',
-            'ACTIONS_CACHE_URL',
-            'ACTIONS_RUNTIME_TOKEN',
-            'GITHUB_TOKEN',
-            'HTTP_PROXY',
-            'HTTPS_PROXY',
-            'NO_PROXY'
-          )
-          foreach ($name in $names) {
-            $value = [Environment]::GetEnvironmentVariable($name)
-            if ($name -match 'TOKEN') {
-              Write-Host "$name present=$(-not [string]::IsNullOrWhiteSpace($value))"
-              continue
-            }
-            if ([string]::IsNullOrWhiteSpace($value)) {
-              Write-Host "$name present=false"
-              continue
-            }
-            if ($name -match '_URL$') {
-              try {
-                $uri = [Uri]$value
-                Write-Host ("{0} present=true scheme={1} host={2} port={3} path={4}" -f $name,$uri.Scheme,$uri.Host,$uri.Port,$uri.AbsolutePath)
-              } catch {
-                Write-Host "$name present=true parse=failed"
-              }
-              continue
-            }
-            Write-Host "$name present=true"
-          }
-          Write-Host 'WINHTTP_PROXY_BEGIN'
-          netsh winhttp show proxy
-          Write-Host 'WINHTTP_PROXY_END'
-
-      - name: DNS TCP TLS and HTTP diagnostics
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference = 'Continue'
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          $targets = New-Object System.Collections.Generic.List[object]
-          function Add-Target([string]$Source,[string]$Value) {
-            if ([string]::IsNullOrWhiteSpace($Value)) { return }
-            try {
-              $u = [Uri]$Value
-              if ($u.Scheme -ne 'https') { return }
-              $targets.Add([pscustomobject]@{
-                Source = $Source
-                Host = $u.Host
-                Uri = ("{0}://{1}:{2}{3}" -f $u.Scheme,$u.Host,$u.Port,$u.AbsolutePath)
-              })
-            } catch {
-              Write-Host "TARGET_PARSE_FAILED source=$Source"
-            }
-          }
-          foreach ($hostName in @('github.com','api.github.com','codeload.github.com','results-receiver.actions.githubusercontent.com')) {
-            $targets.Add([pscustomobject]@{Source='required';Host=$hostName;Uri="https://$hostName/"})
-          }
-          Add-Target 'ACTIONS_RESULTS_URL' $env:ACTIONS_RESULTS_URL
-          Add-Target 'ACTIONS_RUNTIME_URL' $env:ACTIONS_RUNTIME_URL
-          Add-Target 'ACTIONS_CACHE_URL' $env:ACTIONS_CACHE_URL
-          $targets = @($targets | Sort-Object Host,Uri -Unique)
-          foreach ($target in $targets) {
-            Write-Host "=== TARGET source=$($target.Source) host=$($target.Host) uri=$($target.Uri) ==="
-            try {
-              $dns = Resolve-DnsName -Name $target.Host -ErrorAction Stop
-              foreach ($record in $dns) {
-                if ($record.Type -in @('A','AAAA','CNAME')) {
-                  Write-Host ("DNS type={0} name={1} address={2} target={3}" -f $record.Type,$record.Name,$record.IPAddress,$record.NameHost)
-                }
-              }
-            } catch {
-              Write-Host "DNS_ERROR type=$($_.Exception.GetType().FullName)"
-              Write-Host "DNS_ERROR message=$($_.Exception.Message)"
-            }
-            try {
-              $tcp = Test-NetConnection -ComputerName $target.Host -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
-              Write-Host "TCP RemoteAddress=$($tcp.RemoteAddress)"
-              Write-Host "TCP NameResolutionResults=$(@($tcp.NameResolutionResults) -join ',')"
-              Write-Host "TCP TcpTestSucceeded=$($tcp.TcpTestSucceeded)"
-              Write-Host "TCP SourceAddress=$($tcp.SourceAddress)"
-              Write-Host "TCP InterfaceAlias=$($tcp.InterfaceAlias)"
-            } catch {
-              Write-Host "TCP_ERROR type=$($_.Exception.GetType().FullName)"
-              Write-Host "TCP_ERROR message=$($_.Exception.Message)"
-            }
-            try {
-              $response = Invoke-WebRequest -Uri $target.Uri -Method Head -UseBasicParsing -TimeoutSec 30
-              Write-Host "HTTP_SUCCESS status=$($response.StatusCode)"
-            } catch {
-              $response = $_.Exception.Response
-              if ($null -ne $response) {
-                Write-Host "HTTP_REACHABLE status=$([int]$response.StatusCode)"
-              } else {
-                Write-Host "HTTP_FAILED type=$($_.Exception.GetType().FullName)"
-                Write-Host "HTTP_FAILED message=$($_.Exception.Message)"
-              }
-            }
-          }
-
-      - name: Certificate store inventory
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $ErrorActionPreference = 'Continue'
-          Get-ChildItem Cert:\LocalMachine\Root |
-            Select-Object Subject, Thumbprint, NotBefore, NotAfter |
-            Format-Table -AutoSize
-          Write-Host 'network_diagnostics_completed=true'
-
-  self-hosted-artifact-probe:
-    name: "Self-hosted artifact upload probe"
-    needs:
-      - announce-diagnostic-run
-      - self-hosted-network-diagnostics
     if: always()
     runs-on: [self-hosted, Windows, X64, unreal-5.8]
     timeout-minutes: 20
     outputs:
       upload_outcome: ${{ steps.self-upload.outcome }}
     steps:
-      - name: Create self-hosted probe and relative upload copy
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+      - name: Execute built-in Windows PowerShell and create probe
+        id: powershell-proof
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $ProbeRoot = Join-Path `
-              $env:RUNNER_TEMP `
-              "nc003b-selfhosted-artifact-probe-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          $ProbeFile = Join-Path $ProbeRoot 'probe.txt'
-          if (Test-Path -LiteralPath $ProbeRoot) {
-              throw "Unique probe path already exists: $ProbeRoot"
+
+          Write-Host 'POWERSHELL_BODY_EXECUTED=true'
+          Write-Host "POWERSHELL_VERSION=$($PSVersionTable.PSVersion)"
+          Write-Host "POWERSHELL_EDITION=$($PSVersionTable.PSEdition)"
+          Write-Host "POWERSHELL_EXECUTABLE=$((Get-Process -Id $PID).Path)"
+          Write-Host "PSCOMMAND_PATH=$PSCommandPath"
+          Write-Host "GITHUB_WORKSPACE=$env:GITHUB_WORKSPACE"
+          Write-Host "RUNNER_TEMP=$env:RUNNER_TEMP"
+          Write-Host "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Host "RUNNER_TOOL_CACHE=$env:RUNNER_TOOL_CACHE"
+          Write-Host "CURRENT_DIRECTORY=$((Get-Location).Path)"
+
+          if ([string]::IsNullOrWhiteSpace($PSCommandPath)) {
+              throw 'PSCommandPath is empty; runner script materialization not proven.'
           }
+
+          $UploadRoot = Join-Path `
+              $env:GITHUB_WORKSPACE `
+              '_artifact_probe_upload'
+
+          $UploadFile = Join-Path `
+              $UploadRoot `
+              'probe.txt'
+
+          if (Test-Path -LiteralPath $UploadRoot) {
+              throw "Unique upload root already exists: $UploadRoot"
+          }
+
           New-Item `
               -ItemType Directory `
-              -Path $ProbeRoot |
+              -Path $UploadRoot |
               Out-Null
+
           @(
               'repository=Dziuras98/Nextcar'
               "run_id=$env:GITHUB_RUN_ID"
               "run_attempt=$env:GITHUB_RUN_ATTEMPT"
               'runner=DESKTOP-P4CTGHS'
-              'purpose=artifact-self-hosted-probe'
+              'shell=powershell'
+              'purpose=builtin-powershell-artifact-probe'
           ) |
               Set-Content `
-                  -LiteralPath $ProbeFile `
+                  -LiteralPath $UploadFile `
                   -Encoding utf8
-          if (-not (Test-Path -LiteralPath $ProbeFile -PathType Leaf)) {
-              throw "Probe file not created."
-          }
-          $item = Get-Item -LiteralPath $ProbeFile
-          Write-Host "PROBE_FULL_NAME=$($item.FullName)"
-          Write-Host "PROBE_LENGTH=$($item.Length)"
 
-          $UploadRoot = Join-Path $env:GITHUB_WORKSPACE '_artifact_probe_upload'
-          $UploadFile = Join-Path $UploadRoot 'probe.txt'
-          if (Test-Path -LiteralPath $UploadRoot) {
-              throw "Unique upload directory already exists: $UploadRoot"
-          }
-          New-Item -ItemType Directory -Path $UploadRoot | Out-Null
-          Copy-Item -LiteralPath $ProbeFile -Destination $UploadFile
           if (-not (Test-Path -LiteralPath $UploadFile -PathType Leaf)) {
-              throw "Upload probe file not materialized."
+              throw "PowerShell did not create probe file: $UploadFile"
           }
-          $uploadItem = Get-Item -LiteralPath $UploadFile
-          Write-Host "UPLOAD_FULL_NAME=$($uploadItem.FullName)"
-          Write-Host "UPLOAD_LENGTH=$($uploadItem.Length)"
-          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force
-          Get-ChildItem -LiteralPath $UploadRoot -Force
 
-      - name: Upload self-hosted artifact probe
+          $item = Get-Item -LiteralPath $UploadFile
+
+          if ($item.Length -le 0) {
+              throw 'Probe file is empty.'
+          }
+
+          Write-Host "UPLOAD_FULL_NAME=$($item.FullName)"
+          Write-Host "UPLOAD_LENGTH=$($item.Length)"
+          Write-Host "UPLOAD_SHA256=$((Get-FileHash -LiteralPath $UploadFile -Algorithm SHA256).Hash)"
+
+          Get-Content `
+              -LiteralPath $UploadFile |
+              ForEach-Object {
+                  Write-Host "PROBE_CONTENT=$_"
+              }
+
+          Get-ChildItem `
+              -LiteralPath $UploadRoot `
+              -Force |
+              Format-List FullName,Length,Attributes,CreationTimeUtc,LastWriteTimeUtc
+
+          'proof=true' |
+              Out-File `
+                  -FilePath $env:GITHUB_OUTPUT `
+                  -Encoding utf8 `
+                  -Append
+
+      - name: Verify PowerShell side effects from cmd
+        shell: cmd
+        run: |
+          @echo off
+          setlocal
+
+          set "UPLOAD_FILE=%GITHUB_WORKSPACE%\_artifact_probe_upload\probe.txt"
+
+          echo CMD_CURRENT_DIRECTORY=%CD%
+          echo CMD_GITHUB_WORKSPACE=%GITHUB_WORKSPACE%
+          echo CMD_UPLOAD_FILE=%UPLOAD_FILE%
+
+          if not exist "%UPLOAD_FILE%" (
+            echo ERROR: probe file created by PowerShell does not exist
+            exit /b 1
+          )
+
+          for %%I in ("%UPLOAD_FILE%") do (
+            echo CMD_UPLOAD_FULL_NAME=%%~fI
+            echo CMD_UPLOAD_LENGTH=%%~zI
+          )
+
+          type "%UPLOAD_FILE%"
+          if errorlevel 1 exit /b 1
+
+          certutil -hashfile "%UPLOAD_FILE%" SHA256
+          if errorlevel 1 exit /b 1
+
+          dir /a "%GITHUB_WORKSPACE%\_artifact_probe_upload"
+          if errorlevel 1 exit /b 1
+
+          exit /b 0
+
+      - name: Upload self-hosted built-in PowerShell probe
         id: self-upload
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: NC-003B-self-hosted-artifact-probe-${{ github.run_id }}
-          path: _artifact_probe_upload/probe.txt
+          name: NC-003B-self-hosted-powershell-probe-${{ github.run_id }}
+          path: ${{ github.workspace }}\_artifact_probe_upload\probe.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
 
-      - name: Record self-hosted probe outcome
+      - name: Record self-hosted upload outcome
         if: always()
-        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: powershell
         run: |
+          $UploadFile = Join-Path $env:GITHUB_WORKSPACE '_artifact_probe_upload\probe.txt'
           Write-Host "self_upload_outcome=${{ steps.self-upload.outcome }}"
-          Write-Host "self_job_status=${{ job.status }}"
+          Write-Host "job_status=${{ job.status }}"
+          $exists = Test-Path -LiteralPath $UploadFile -PathType Leaf
+          Write-Host "probe_exists_after_action=$exists"
+          if ($exists) {
+              $item = Get-Item -LiteralPath $UploadFile
+              Write-Host "probe_length_after_action=$($item.Length)"
+              Write-Host "probe_sha256_after_action=$((Get-FileHash -LiteralPath $UploadFile -Algorithm SHA256).Hash)"
+          }
 
   publish-diagnostic-result:
-    name: "Publish artifact diagnostic result"
+    name: "Publish PowerShell artifact diagnostic result"
     needs:
       - announce-diagnostic-run
       - control-artifact-probe
-      - self-hosted-network-diagnostics
-      - self-hosted-artifact-probe
+      - self-hosted-powershell-artifact-probe
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -322,17 +256,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CONTROL_OUTCOME: ${{ needs.control-artifact-probe.outputs.upload_outcome }}
-          SELF_OUTCOME: ${{ needs.self-hosted-artifact-probe.outputs.upload_outcome }}
-          ANNOUNCE_RESULT: ${{ needs.announce-diagnostic-run.result }}
+          SELF_OUTCOME: ${{ needs.self-hosted-powershell-artifact-probe.outputs.upload_outcome }}
           CONTROL_RESULT: ${{ needs.control-artifact-probe.result }}
-          NETWORK_RESULT: ${{ needs.self-hosted-network-diagnostics.result }}
-          SELF_RESULT: ${{ needs.self-hosted-artifact-probe.result }}
+          SELF_RESULT: ${{ needs.self-hosted-powershell-artifact-probe.result }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "announce_job_result=${ANNOUNCE_RESULT}"
           echo "control_job_result=${CONTROL_RESULT}"
-          echo "network_job_result=${NETWORK_RESULT}"
           echo "self_job_result=${SELF_RESULT}"
           echo "control_upload_outcome=${CONTROL_OUTCOME}"
           echo "self_upload_outcome=${SELF_OUTCOME}"
@@ -341,16 +271,20 @@ jobs:
           import os
           import urllib.request
 
-          passed = (
-              os.environ.get("CONTROL_OUTCOME") == "success"
-              and os.environ.get("SELF_OUTCOME") == "success"
-          )
-          state = "success" if passed else "failure"
-          description = (
-              "GitHub-hosted and self-hosted artifact probes passed"
-              if passed
-              else "Artifact transport diagnostic completed with failures"
-          )
+          control_outcome = os.environ.get("CONTROL_OUTCOME", "")
+          self_outcome = os.environ.get("SELF_OUTCOME", "")
+          self_result = os.environ.get("SELF_RESULT", "")
+
+          if control_outcome == "success" and self_outcome == "success":
+              state = "success"
+              description = "Built-in PowerShell and self-hosted artifact upload passed"
+          elif self_result == "failure" and not self_outcome:
+              state = "failure"
+              description = "Windows PowerShell script execution proof failed"
+          else:
+              state = "failure"
+              description = "Self-hosted built-in PowerShell artifact probe failed"
+
           body = json.dumps({
               "state": state,
               "context": os.environ["DIAGNOSTIC_CONTEXT"],
