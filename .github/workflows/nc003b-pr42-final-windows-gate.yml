@@ -1,5 +1,5 @@
 # manual-trigger: 2026-07-24
-# sealed evidence plane
+# literal artifact paths and deterministic evidence package
 name: "NC-003B PR42 final self-hosted Windows gate"
 
 on:
@@ -53,9 +53,10 @@ jobs:
     timeout-minutes: 180
     env:
       EVIDENCE_ROOT: ${{ github.workspace }}\_nc003b_pr42_evidence_${{ github.run_id }}_${{ github.run_attempt }}
+      PACKAGE_ROOT: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}
+      PROBE_ROOT: ${{ github.workspace }}\_nc003b_artifact_probe_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - name: Initialize static evidence path and verify Windows PowerShell
-        id: evidence-path
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference='Stop'
@@ -63,7 +64,6 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($Evidence)) { throw 'Static EVIDENCE_ROOT is unavailable.' }
           if (Test-Path -LiteralPath $Evidence) { throw "Unique evidence directory already exists: $Evidence" }
           New-Item -ItemType Directory -Path $Evidence | Out-Null
-          "root=$env:EVIDENCE_ROOT" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           $env:GITHUB_RUN_ID | Set-Content -Encoding utf8 (Join-Path $Evidence 'run-id.txt')
           $env:GITHUB_RUN_ATTEMPT | Set-Content -Encoding utf8 (Join-Path $Evidence 'run-attempt.txt')
           'final-windows-gate' | Set-Content -Encoding utf8 (Join-Path $Evidence 'job-id.txt')
@@ -89,6 +89,29 @@ jobs:
           git config --global --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'global-git-config-before.txt')
           git config --system --list --show-origin 2>&1 | Set-Content -Encoding utf8 (Join-Path $Evidence 'system-git-config-before.txt')
 
+      - name: Prepare artifact service probe
+        shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          if (Test-Path -LiteralPath $env:PROBE_ROOT) { throw "Unique probe directory already exists: $env:PROBE_ROOT" }
+          New-Item -ItemType Directory -Path $env:PROBE_ROOT | Out-Null
+          @(
+            'repository=Dziuras98/Nextcar'
+            "run_id=$env:GITHUB_RUN_ID"
+            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
+            'runner=DESKTOP-P4CTGHS'
+            'purpose=artifact-service-probe'
+          ) | Set-Content -Encoding utf8 (Join-Path $env:PROBE_ROOT 'probe.txt')
+
+      - name: Upload artifact service probe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: NC-003B-artifact-service-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}\_nc003b_artifact_probe_${{ github.run_id }}_${{ github.run_attempt }}\probe.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
       - name: Manual exact candidate checkout
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
@@ -108,6 +131,7 @@ jobs:
           function Eq($a,$e,$n){if(([string]$a).Trim() -ne $e){throw "$n mismatch"}}
           Eq (git rev-parse HEAD) $env:CANDIDATE_SHA 'HEAD'; Eq (git rev-parse 'HEAD^{tree}') $env:CANDIDATE_TREE 'tree'; Eq (git rev-list --parents -n 1 HEAD) "$env:CANDIDATE_SHA $env:SOURCE_SHA" 'candidate parents'
           Eq (git rev-parse "$env:SOURCE_SHA^{tree}") $env:SOURCE_TREE 'source tree'; Eq (git rev-list --parents -n 1 $env:SOURCE_SHA) "$env:SOURCE_SHA $env:B_SHA $env:G_SHA" 'source ordered parents'
+          Eq (git rev-parse "$env:B_SHA^{tree}") $env:B_TREE 'B tree'; Eq (git rev-parse "$env:G_SHA^{tree}") $env:G_TREE 'G tree'
           @("HEAD=$(git rev-parse HEAD)","HEAD_TREE=$(git rev-parse 'HEAD^{tree}')","SOURCE_PARENTS=$(git rev-list --parents -n 1 $env:SOURCE_SHA)") | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_ROOT 'git-topology.txt')
           $s1=@(git diff --name-status $env:BASE_SHA $env:SOURCE_SHA); $s2=@(git diff --name-status $env:SOURCE_SHA $env:CANDIDATE_SHA); $s3=@(git diff --name-status $env:BASE_SHA $env:CANDIDATE_SHA)
           function C($x){[ordered]@{m=@($x|?{$_ -match '^M\s'}).Count;d=@($x|?{$_ -match '^D\s'}).Count;p=$x.Count;r=@($x|?{$_ -match '^[RC]'}).Count}}
@@ -124,7 +148,7 @@ jobs:
           $ErrorActionPreference='Stop'; $Root=Join-Path $env:RUNNER_TEMP "nc003b-pr42-p1-$env:GITHUB_RUN_ID"; New-Item -ItemType Directory $Root|Out-Null
           $env:P1_ZIP=Join-Path $Root artifact.zip; $env:P1_EXTRACTED=Join-Path $Root extracted; $env:PROFILE_PATH=Join-Path $env:CHECKOUT_ROOT 'Tests/EngineSimCore/Fixtures/subaru_ej25_cold_start_profile.json'
           @'
-          import hashlib,json,os,re,urllib.request,zipfile
+          import hashlib,json,os,urllib.request,zipfile
           from pathlib import Path,PurePosixPath,PureWindowsPath
           req=urllib.request.Request('https://api.github.com/repos/Dziuras98/Nextcar/actions/artifacts/8488882253/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
           with urllib.request.urlopen(req) as r,open(os.environ['P1_ZIP'],'wb') as f:
@@ -132,8 +156,7 @@ jobs:
           zpath=Path(os.environ['P1_ZIP']); data=zpath.read_bytes(); assert len(data)==211595; assert hashlib.sha256(data).hexdigest()=='f7b9004e24a81f1558c1df39a7d27dd31a9cc0a916a46f00e6f4b10881b1727b'
           out=Path(os.environ['P1_EXTRACTED']); out.mkdir()
           with zipfile.ZipFile(zpath) as z:
-              infos=z.infolist(); assert len(infos)==41
-              seen=set()
+              infos=z.infolist(); assert len(infos)==41; seen=set()
               for i in infos:
                   p=PurePosixPath(i.filename.replace('\\','/')); w=PureWindowsPath(i.filename); assert i.filename and not w.is_absolute() and not w.drive and all(x not in ('','.','..') for x in p.parts); n='/'.join(p.parts).casefold(); assert n not in seen; seen.add(n)
               z.extractall(out)
@@ -200,40 +223,59 @@ jobs:
           $t=Get-Content (Join-Path $E 'trace-verification.json') -Raw|ConvertFrom-Json;if($t.result-ne'PASS'-or@($t.records).Count-ne12){throw 'trace semantic seal failed'}
           $s=Get-Content (Join-Path $E 'validation-status.json') -Raw|ConvertFrom-Json;foreach($k in @('status','release_result','debug_result','asan_result','timeout_result','stall_result','clean_reproducibility')){if($s.$k-ne'PASS'){throw "validation $k failed"}};if($s.selected_trials_result-ne'10/10 PASS'-or[int]$s.project_warning_count-ne0){throw 'validation semantic seal failed'}
           $cl=Get-Content (Join-Path $E 'cleanup.log') -Raw;foreach($x in @('junction cleanup: PASS','junction exists after cleanup: False','tracked deletions: 0','staged changes: 0','working tree clean: PASS','HEAD unchanged: PASS','tree unchanged: PASS','global config unchanged: True','system config unchanged: True')){if($cl-notmatch[regex]::Escape($x)){throw "cleanup semantic seal missing: $x"}}
-          $seal=[ordered]@{status='PASS';required_files=$Required.Count;actual_files_excluding_manifest=@(Get-ChildItem $E -Recurse -File|? Name -ne 'hash-manifest.json').Count;manifest_entries=0;missing_files=@();run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;candidate_sha=$env:CANDIDATE_SHA};$seal|ConvertTo-Json -Depth 5|Set-Content -Encoding utf8 (Join-Path $E 'evidence-seal.json')
+          $seal=[ordered]@{status='PASS';required_files=$Required.Count;actual_files_excluding_manifest=0;manifest_entries=0;missing_files=@();duplicate_paths=0;run_id=[long]$env:GITHUB_RUN_ID;run_attempt=[int]$env:GITHUB_RUN_ATTEMPT;candidate_sha=$env:CANDIDATE_SHA};$seal|ConvertTo-Json -Depth 5|Set-Content -Encoding utf8 (Join-Path $E 'evidence-seal.json')
           @'
           import hashlib,json,os
           from pathlib import Path,PurePosixPath
-          root=Path(os.environ['EVIDENCE_ROOT']); files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='hash-manifest.json'); rows=[];seen=set()
-          for p in files:
-              rel=p.relative_to(root).as_posix(); q=PurePosixPath(rel); assert not q.is_absolute() and '..' not in q.parts and rel not in seen; seen.add(rel); b=p.read_bytes(); rows.append({'path':rel,'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
-          (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          m=json.loads((root/'hash-manifest.json').read_text('utf-8')); assert len(m)==len(files)==len(seen)
-          for r in m:
-              p=root/r['path']; b=p.read_bytes(); assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
-          seal=json.loads((root/'evidence-seal.json').read_text('utf-8-sig'));seal['actual_files_excluding_manifest']=len(files);seal['manifest_entries']=len(m);(root/'evidence-seal.json').write_text(json.dumps(seal,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          # Regenerate and reverify because evidence-seal changed.
-          files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='hash-manifest.json');rows=[]
-          for p in files:
-              b=p.read_bytes();rows.append({'path':p.relative_to(root).as_posix(),'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
-          (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-          for r in json.loads((root/'hash-manifest.json').read_text('utf-8')):
-              b=(root/r['path']).read_bytes();assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
+          root=Path(os.environ['EVIDENCE_ROOT'])
+          def build():
+              files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='hash-manifest.json'); rows=[]; seen=set()
+              for p in files:
+                  rel=p.relative_to(root).as_posix(); q=PurePosixPath(rel); assert not q.is_absolute() and '..' not in q.parts and rel not in seen; seen.add(rel); b=p.read_bytes(); rows.append({'path':rel,'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
+              (root/'hash-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n',encoding='utf-8'); return files,rows
+          files,rows=build(); seal=json.loads((root/'evidence-seal.json').read_text('utf-8-sig')); seal['actual_files_excluding_manifest']=len(files);seal['manifest_entries']=len(rows);(root/'evidence-seal.json').write_text(json.dumps(seal,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          files,rows=build(); assert len(rows)==len(files)==len({r['path'] for r in rows})
+          for r in rows:
+              b=(root/r['path']).read_bytes(); assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
           '@|python -
           if($LASTEXITCODE){throw 'hash manifest self-verification failed'}
 
-      - name: Show sealed evidence inventory
+      - name: Build and self-verify deterministic evidence ZIP
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          Write-Host "EVIDENCE_ROOT=$env:EVIDENCE_ROOT";Get-ChildItem -LiteralPath $env:EVIDENCE_ROOT -Recurse -File|Sort-Object FullName|%{Write-Host ("{0}`t{1}" -f $_.Length,$_.FullName)}
-          $count=@(Get-ChildItem $env:EVIDENCE_ROOT -Recurse -File).Count;if($count-lt 51){throw "Insufficient pre-upload evidence file count: $count"}
+          $ErrorActionPreference='Stop'
+          if (Test-Path -LiteralPath $env:PACKAGE_ROOT) { throw "Unique package directory already exists: $env:PACKAGE_ROOT" }
+          @'
+          import hashlib,json,os
+          from pathlib import Path,PurePosixPath,PureWindowsPath
+          from zipfile import ZIP_DEFLATED,ZipFile,ZipInfo
+          source=Path(os.environ['EVIDENCE_ROOT']); target=Path(os.environ['PACKAGE_ROOT'])/'evidence.zip'; target.parent.mkdir(parents=True,exist_ok=False)
+          files=sorted(p for p in source.rglob('*') if p.is_file()); names=[p.relative_to(source).as_posix() for p in files]; assert len(names)==len(set(names))
+          with ZipFile(target,'w',compression=ZIP_DEFLATED,compresslevel=9) as archive:
+              for path,relative in zip(files,names):
+                  q=PurePosixPath(relative); w=PureWindowsPath(relative); assert relative and not q.is_absolute() and not w.is_absolute() and not w.drive and '..' not in q.parts
+                  info=ZipInfo(relative); info.date_time=(1980,1,1,0,0,0); info.compress_type=ZIP_DEFLATED; info.external_attr=0o100644<<16; info.flag_bits|=0x800
+                  archive.writestr(info,path.read_bytes(),compress_type=ZIP_DEFLATED,compresslevel=9)
+          with ZipFile(target) as archive:
+              infos=archive.infolist(); got=[i.filename for i in infos]; assert got==names and len(got)==len(set(got))==len(files)
+              for n in got:
+                  q=PurePosixPath(n); w=PureWindowsPath(n); assert n and not q.is_absolute() and not w.is_absolute() and not w.drive and '..' not in q.parts
+              manifest=json.loads(archive.read('hash-manifest.json').decode('utf-8')); assert len(manifest)==len(got)-1
+              for r in manifest:
+                  b=archive.read(r['path']); assert len(b)==r['size'] and hashlib.sha256(b).hexdigest()==r['sha256']
+              seal=json.loads(archive.read('evidence-seal.json').decode('utf-8-sig')); status=json.loads(archive.read('validation-status.json').decode('utf-8-sig')); runner=json.loads(archive.read('runner-proof.json').decode('utf-8-sig')); art=json.loads(archive.read('artifact-source-metadata.json').decode('utf-8-sig')); traces=json.loads(archive.read('trace-verification.json').decode('utf-8-sig'))
+              assert seal['status']=='PASS' and status['status']=='PASS' and runner['runner_name']=='DESKTOP-P4CTGHS' and art['manifest_pass']=='40/40' and art['total']=='12/12' and traces['result']=='PASS'
+          data=target.read_bytes(); print(f'EVIDENCE_ZIP_SIZE={len(data)}'); print(f'EVIDENCE_ZIP_SHA256={hashlib.sha256(data).hexdigest()}'); print(f'EVIDENCE_ZIP_MEMBERS={len(names)}')
+          '@|python -
+          if($LASTEXITCODE){throw 'deterministic evidence ZIP verification failed'}
 
-      - name: Upload sealed evidence artifact
+      - name: Upload final evidence package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: NC-003B-PR42-final-self-hosted-windows-gate-${{ github.run_id }}-1b2bc3599a0811be88a3b55987a4d27c72672a46
-          path: ${{ steps.evidence-path.outputs.root }}
+          path: ${{ github.workspace }}\_nc003b_pr42_package_${{ github.run_id }}_${{ github.run_attempt }}\evidence.zip
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
 
       - name: Set candidate final status
@@ -242,6 +284,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $state=if('${{ job.status }}'-eq'success'){'success'}else{'failure'};$description=if($state-eq'success'){'Final self-hosted Windows exact-head validation and evidence passed'}else{'Final self-hosted Windows exact-head validation or evidence failed'}
+          $state=if('${{ job.status }}'-eq'success'){'success'}else{'failure'}
+          $description=if($state-eq'success'){'Final self-hosted Windows validation and evidence upload passed'}elseif('${{ steps.upload-probe.outcome }}'-eq'failure'){'GitHub Actions artifact service unavailable'}else{'Final Windows evidence publication failed'}
           $body=@{state=$state;context=$env:STATUS_CONTEXT;description=$description;target_url="https://github.com/Dziuras98/Nextcar/actions/runs/$env:GITHUB_RUN_ID"}|ConvertTo-Json
           Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/Dziuras98/Nextcar/statuses/$env:CANDIDATE_SHA" -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} -ContentType application/json -Body $body|Out-Null
