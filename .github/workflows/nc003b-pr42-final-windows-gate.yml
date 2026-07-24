@@ -15,9 +15,98 @@ env:
   SOURCE_BLOB: d5d5b1f5641d151d0e5d4b75499326d6c1fa5cae
   SOURCE_PATH: .github/workflows/nc003b-pr42-final-windows-gate.yml
   STATUS_CONTEXT: NC-003B Bootstrap / Canonical target AST preflight
-  TARGET_CARRIER_COMMIT: 6d2a07a561d90624480193280ff633fc8728320f
-  TARGET_CARRIER_BLOB: 7dc3494afc07de9ba7b283f0aa3c410f3bcae5bf
-  TARGET_CARRIER_PATH: .github/workflows/nc003b-pr42-final-windows-gate.yml
+  TARGET_SEAL_B64_BLOCK: |-
+    JEVycm9yQWN0aW9uUHJlZmVyZW5jZT0nU3RvcCc7JHJvb3Q9JGVudjpFVklERU5DRV9ST09UOyR1cGxvYWQ9JGVudjpVUExPQURfUk9PVDskc2VhbD0nRkFJ
+    TCc7JG1vZGU9J2ZhbGxiYWNrJzskemlwTmFtZT0nJzskemlwSGFzaD0nJzskemlwU2l6ZT0nJzskY2xhc3M9J1NUT1Ag4oCUIFRPT0xDSEFJTiBESVNDT1ZF
+    UlkgRVZJREVOQ0UgUFVCTElDQVRJT04gRkFJTEVEJzskdXRmOD1OZXctT2JqZWN0IFRleHQuVVRGOEVuY29kaW5nKCRmYWxzZSkKZnVuY3Rpb24gVygkcCwk
+    dil7W0lPLkZpbGVdOjpXcml0ZUFsbFRleHQoJHAsW3N0cmluZ10kdiwkdXRmOCl9CmZ1bmN0aW9uIEVycm9yUmVjb3JkKCRlcil7W29yZGVyZWRdQHt0aW1l
+    c3RhbXBfdXRjPVtEYXRlVGltZV06OlV0Y05vdy5Ub1N0cmluZygnbycpO2V4Y2VwdGlvbl90eXBlPSRlci5FeGNlcHRpb24uR2V0VHlwZSgpLkZ1bGxOYW1l
+    O2V4Y2VwdGlvbl9tZXNzYWdlPSRlci5FeGNlcHRpb24uTWVzc2FnZTtleGNlcHRpb25fdG9fc3RyaW5nPSRlci5FeGNlcHRpb24uVG9TdHJpbmcoKTtzY3Jp
+    cHRfc3RhY2tfdHJhY2U9JGVyLlNjcmlwdFN0YWNrVHJhY2U7cG9zaXRpb25fbWVzc2FnZT0kZXIuSW52b2NhdGlvbkluZm8uUG9zaXRpb25NZXNzYWdlO2Z1
+    bGx5X3F1YWxpZmllZF9lcnJvcl9pZD0kZXIuRnVsbHlRdWFsaWZpZWRFcnJvcklkO2NhdGVnb3J5X2luZm89W3N0cmluZ10kZXIuQ2F0ZWdvcnlJbmZvfX0K
+    dHJ5IHsKICBOZXctSXRlbSAtSXRlbVR5cGUgRGlyZWN0b3J5IC1Gb3JjZSAtUGF0aCAkcm9vdCwkdXBsb2FkfE91dC1OdWxsCiAgJGNsYXNzPShHZXQtQ29u
+    dGVudCAoSm9pbi1QYXRoICRyb290ICdjbGFzc2lmaWNhdGlvbi50eHQnKSAtUmF3KS5UcmltKCkKICAkcmVxdWlyZWQ9QCgnY21ha2UtZGlzY292ZXJ5Lmpz
+    b24nLCdjbWFrZS1kaXNjb3ZlcnkubG9nJywnY21ha2UtZmlyc3QtZXJyb3IudHh0JywnbXN2Yy1kaXNjb3ZlcnkuanNvbicsJ21zdmMtZGlzY292ZXJ5Lmxv
+    ZycsJ21zdmMtZmlyc3QtZXJyb3IudHh0JywnY2xhc3NpZmljYXRpb24udHh0JywnY2FuZGlkYXRlLWNoZWNrb3V0LnR4dCcsJ3J1bi1pZC50eHQnLCdydW4t
+    YXR0ZW1wdC50eHQnLCdydW5uZXItbmFtZS50eHQnLCdydW5uZXItb3MudHh0JywncnVubmVyLWFyY2gudHh0JywndnN3aGVyZS1zdGRvdXQudHh0JywndnN3
+    aGVyZS1zdGRlcnIudHh0JywndnN3aGVyZS1leGl0LWNvZGUudHh0JywndnNkZXZjbWQtc3Rkb3V0LnR4dCcsJ3ZzZGV2Y21kLXN0ZGVyci50eHQnLCd2c2Rl
+    dmNtZC1leGl0LWNvZGUudHh0JywnZGlzY292ZXJ5LXNjcmlwdC1lcnJvci50eHQnLCdzZWFsLWZpcnN0LWVycm9yLnR4dCcsJ3NlYWwtc3RhdHVzLmpzb24n
+    LCdzZWFsLXN0YXR1cy50eHQnLCdwdWJsaWNhdGlvbi1mYWxsYmFjay5qc29uJywncHVibGljYXRpb24tZmFsbGJhY2sudHh0JykKICBmb3JlYWNoKCRuIGlu
+    ICRyZXF1aXJlZCl7CiAgICAkcD1Kb2luLVBhdGggJHJvb3QgJG4KICAgIGlmKC1ub3QoVGVzdC1QYXRoICRwIC1QYXRoVHlwZSBMZWFmKSl7dGhyb3cgIk1p
+    c3NpbmcgcmVxdWlyZWQgZXZpZGVuY2U6ICRuIn0KICAgIGlmKCRuLkVuZHNXaXRoKCcuanNvbicpKXskbnVsbD1HZXQtQ29udGVudCAkcCAtUmF3fENvbnZl
+    cnRGcm9tLUpzb259CiAgfQoKICAkc2VhbFN0YXR1c09iamVjdD1bb3JkZXJlZF1AewogICAgc3RhdHVzPSdQQVNTJwogICAgY2xhc3NpZmljYXRpb249JGNs
+    YXNzCiAgICBwYWNrYWdlX21vZGU9J3NlYWxlZCcKICAgIHRpbWVzdGFtcF91dGM9W0RhdGVUaW1lXTo6VXRjTm93LlRvU3RyaW5nKCdvJykKICB9CiAgJHNl
+    YWxTdGF0dXNKc29uPSRzZWFsU3RhdHVzT2JqZWN0fENvbnZlcnRUby1Kc29uIC1EZXB0aCAxMAogIFcgKEpvaW4tUGF0aCAkcm9vdCAnc2VhbC1zdGF0dXMu
+    anNvbicpICRzZWFsU3RhdHVzSnNvbgogIFcgKEpvaW4tUGF0aCAkcm9vdCAnc2VhbC1zdGF0dXMudHh0JykgJ1BBU1MnCgogICRlbnRyaWVzPUAoKQogIGZv
+    cmVhY2goJGYgaW4gQChHZXQtQ2hpbGRJdGVtICRyb290IC1GaWxlIC1SZWN1cnNlfFNvcnQtT2JqZWN0IEZ1bGxOYW1lKSl7CiAgICAkcmVsPSRmLkZ1bGxO
+    YW1lLlN1YnN0cmluZygkcm9vdC5MZW5ndGgpLlRyaW1TdGFydCgnXCcpLlJlcGxhY2UoJ1wnLCcvJykKICAgICRlbnRyaWVzKz1bb3JkZXJlZF1AewogICAg
+    ICByZWxhdGl2ZV9wYXRoPSRyZWwKICAgICAgc2l6ZT1baW50NjRdJGYuTGVuZ3RoCiAgICAgIHNoYTI1Nj0oR2V0LUZpbGVIYXNoICRmLkZ1bGxOYW1lIC1B
+    bGdvcml0aG0gU0hBMjU2KS5IYXNoLlRvTG93ZXJJbnZhcmlhbnQoKQogICAgfQogIH0KCiAgJG1hbmlmZXN0PVtvcmRlcmVkXUB7CiAgICBzY2hlbWE9J25j
+    MDAzYi10b29sY2hhaW4tZGlzY292ZXJ5LWV2aWRlbmNlLWZpbGUtbWFuaWZlc3QtdjEnCiAgICBydW5faWQ9JGVudjpHSVRIVUJfUlVOX0lECiAgICBydW5f
+    YXR0ZW1wdD0kZW52OkdJVEhVQl9SVU5fQVRURU1QVAogICAgZmlsZV9jb3VudD0kZW50cmllcy5Db3VudAogICAgZmlsZXM9JGVudHJpZXMKICB9CiAgJG1h
+    bmlmZXN0UGF0aD1Kb2luLVBhdGggJHJvb3QgJ2V2aWRlbmNlLWZpbGUtbWFuaWZlc3QuanNvbicKICBXICRtYW5pZmVzdFBhdGggKCRtYW5pZmVzdHxDb252
+    ZXJ0VG8tSnNvbiAtRGVwdGggOCkKICAkbWFuaWZlc3RSZWFkPUdldC1Db250ZW50ICRtYW5pZmVzdFBhdGggLVJhd3xDb252ZXJ0RnJvbS1Kc29uCiAgaWYo
+    W2ludF0kbWFuaWZlc3RSZWFkLmZpbGVfY291bnQgLW5lICRlbnRyaWVzLkNvdW50KXt0aHJvdyAnTWFuaWZlc3QgZmlsZSBjb3VudCBtaXNtYXRjaCd9CiAg
+    Zm9yZWFjaCgkZW50cnkgaW4gQCgkbWFuaWZlc3RSZWFkLmZpbGVzKSl7CiAgICAkZW50cnlQYXRoPUpvaW4tUGF0aCAkcm9vdCAoW3N0cmluZ10kZW50cnku
+    cmVsYXRpdmVfcGF0aCkuUmVwbGFjZSgnLycsJ1wnKQogICAgaWYoLW5vdChUZXN0LVBhdGggJGVudHJ5UGF0aCAtUGF0aFR5cGUgTGVhZikpe3Rocm93ICJN
+    YW5pZmVzdCBwYXRoIG1pc3NpbmcgYWZ0ZXIgcmVhZC1iYWNrOiAkKCRlbnRyeS5yZWxhdGl2ZV9wYXRoKSJ9CiAgICAkZW50cnlJdGVtPUdldC1JdGVtICRl
+    bnRyeVBhdGgKICAgIGlmKFtpbnQ2NF0kZW50cnlJdGVtLkxlbmd0aCAtbmUgW2ludDY0XSRlbnRyeS5zaXplKXt0aHJvdyAiTWFuaWZlc3Qgc2l6ZSBtaXNt
+    YXRjaCBhZnRlciByZWFkLWJhY2s6ICQoJGVudHJ5LnJlbGF0aXZlX3BhdGgpIn0KICAgICRlbnRyeUhhc2g9KEdldC1GaWxlSGFzaCAkZW50cnlQYXRoIC1B
+    bGdvcml0aG0gU0hBMjU2KS5IYXNoLlRvTG93ZXJJbnZhcmlhbnQoKQogICAgaWYoJGVudHJ5SGFzaCAtbmUgW3N0cmluZ10kZW50cnkuc2hhMjU2KXt0aHJv
+    dyAiTWFuaWZlc3QgaGFzaCBtaXNtYXRjaCBhZnRlciByZWFkLWJhY2s6ICQoJGVudHJ5LnJlbGF0aXZlX3BhdGgpIn0KICB9CiAgVyAoSm9pbi1QYXRoICRy
+    b290ICdldmlkZW5jZS1maWxlLW1hbmlmZXN0LnR4dCcpICgoJGVudHJpZXN8Rm9yRWFjaC1PYmplY3R7IiQoJF8uc2hhMjU2KSAgJCgkXy5zaXplKSAgJCgk
+    Xy5yZWxhdGl2ZV9wYXRoKSJ9KS1qb2luImBuIikKCiAgQWRkLVR5cGUgLUFzc2VtYmx5TmFtZSBTeXN0ZW0uSU8uQ29tcHJlc3Npb24KICBBZGQtVHlwZSAt
+    QXNzZW1ibHlOYW1lIFN5c3RlbS5JTy5Db21wcmVzc2lvbi5GaWxlU3lzdGVtCiAgJHppcE5hbWU9Ik5DLTAwM0ItdG9vbGNoYWluLWRpc2NvdmVyeS1ldmlk
+    ZW5jZS0kZW52OkdJVEhVQl9SVU5fSUQtJGVudjpHSVRIVUJfUlVOX0FUVEVNUFQuemlwIgogICR6aXA9Sm9pbi1QYXRoICR1cGxvYWQgJHppcE5hbWUKICBS
+    ZW1vdmUtSXRlbSAkemlwIC1Gb3JjZSAtRXJyb3JBY3Rpb24gU2lsZW50bHlDb250aW51ZQogICRmcz1bSU8uRmlsZV06Ok9wZW4oJHppcCxbSU8uRmlsZU1v
+    ZGVdOjpDcmVhdGVOZXcpCiAgdHJ5ewogICAgJHphPU5ldy1PYmplY3QgSU8uQ29tcHJlc3Npb24uWmlwQXJjaGl2ZSgkZnMsW0lPLkNvbXByZXNzaW9uLlpp
+    cEFyY2hpdmVNb2RlXTo6Q3JlYXRlLCRmYWxzZSkKICAgIHRyeXsKICAgICAgZm9yZWFjaCgkZiBpbiBAKEdldC1DaGlsZEl0ZW0gJHJvb3QgLUZpbGUgLVJl
+    Y3Vyc2V8U29ydC1PYmplY3QgRnVsbE5hbWUpKXsKICAgICAgICAkcmVsPSRmLkZ1bGxOYW1lLlN1YnN0cmluZygkcm9vdC5MZW5ndGgpLlRyaW1TdGFydCgn
+    XCcpLlJlcGxhY2UoJ1wnLCcvJykKICAgICAgICAkemU9JHphLkNyZWF0ZUVudHJ5KCRyZWwsW0lPLkNvbXByZXNzaW9uLkNvbXByZXNzaW9uTGV2ZWxdOjpO
+    b0NvbXByZXNzaW9uKQogICAgICAgICR6ZS5MYXN0V3JpdGVUaW1lPVtEYXRlVGltZU9mZnNldF06Om5ldygxOTgwLDEsMSwwLDAsMCxbVGltZVNwYW5dOjpa
+    ZXJvKQogICAgICAgICRzcmM9W0lPLkZpbGVdOjpPcGVuUmVhZCgkZi5GdWxsTmFtZSkKICAgICAgICAkZHN0PSR6ZS5PcGVuKCkKICAgICAgICB0cnl7JHNy
+    Yy5Db3B5VG8oJGRzdCl9ZmluYWxseXskZHN0LkRpc3Bvc2UoKTskc3JjLkRpc3Bvc2UoKX0KICAgICAgfQogICAgfWZpbmFsbHl7JHphLkRpc3Bvc2UoKX0K
+    ICB9ZmluYWxseXskZnMuRGlzcG9zZSgpfQoKICAkemk9R2V0LUl0ZW0gJHppcAogIGlmKCR6aS5MZW5ndGggLWxlIDApe3Rocm93ICdMb2NhbCBaSVAgZW1w
+    dHknfQoKICAkcmVhZEZzPVtJTy5GaWxlXTo6T3BlblJlYWQoJHppcCkKICB0cnl7CiAgICAkcmVhZFphPU5ldy1PYmplY3QgSU8uQ29tcHJlc3Npb24uWmlw
+    QXJjaGl2ZSgkcmVhZEZzLFtJTy5Db21wcmVzc2lvbi5aaXBBcmNoaXZlTW9kZV06OlJlYWQsJGZhbHNlKQogICAgdHJ5ewogICAgICAkemlwRW50cmllcz1A
+    e30KICAgICAgZm9yZWFjaCgkemUgaW4gJHJlYWRaYS5FbnRyaWVzKXsKICAgICAgICBpZigtbm90W3N0cmluZ106OklzTnVsbE9yRW1wdHkoJHplLk5hbWUp
+    KXskemlwRW50cmllc1skemUuRnVsbE5hbWVdPSR6ZX0KICAgICAgfQogICAgICBmb3JlYWNoKCRlbnRyeSBpbiBAKCRtYW5pZmVzdFJlYWQuZmlsZXMpKXsK
+    ICAgICAgICAkcmVsPVtzdHJpbmddJGVudHJ5LnJlbGF0aXZlX3BhdGgKICAgICAgICBpZigtbm90JHppcEVudHJpZXMuQ29udGFpbnNLZXkoJHJlbCkpe3Ro
+    cm93ICJaSVAgZW50cnkgbWlzc2luZzogJHJlbCJ9CiAgICAgICAgJHplPSR6aXBFbnRyaWVzWyRyZWxdCiAgICAgICAgaWYoW2ludDY0XSR6ZS5MZW5ndGgg
+    LW5lIFtpbnQ2NF0kZW50cnkuc2l6ZSl7dGhyb3cgIlpJUCBlbnRyeSBzaXplIG1pc21hdGNoOiAkcmVsIn0KICAgICAgICAkc3RyZWFtPSR6ZS5PcGVuKCkK
+    ICAgICAgICB0cnl7CiAgICAgICAgICAkc2hhPVtTZWN1cml0eS5DcnlwdG9ncmFwaHkuU0hBMjU2XTo6Q3JlYXRlKCkKICAgICAgICAgIHRyeXskYWN0dWFs
+    SGFzaD0oW0JpdENvbnZlcnRlcl06OlRvU3RyaW5nKCRzaGEuQ29tcHV0ZUhhc2goJHN0cmVhbSkpKS5SZXBsYWNlKCctJywnJykuVG9Mb3dlckludmFyaWFu
+    dCgpfWZpbmFsbHl7JHNoYS5EaXNwb3NlKCl9CiAgICAgICAgfWZpbmFsbHl7JHN0cmVhbS5EaXNwb3NlKCl9CiAgICAgICAgaWYoJGFjdHVhbEhhc2ggLW5l
+    IFtzdHJpbmddJGVudHJ5LnNoYTI1Nil7dGhyb3cgIlpJUCBlbnRyeSBoYXNoIG1pc21hdGNoOiAkcmVsIn0KICAgICAgfQogICAgfWZpbmFsbHl7JHJlYWRa
+    YS5EaXNwb3NlKCl9CiAgfWZpbmFsbHl7JHJlYWRGcy5EaXNwb3NlKCl9CgogICRzZWFsPSdQQVNTJwogICRtb2RlPSdzZWFsZWQnCiAgJHppcEhhc2g9KEdl
+    dC1GaWxlSGFzaCAkemlwIC1BbGdvcml0aG0gU0hBMjU2KS5IYXNoLlRvTG93ZXJJbnZhcmlhbnQoKQogICR6aXBTaXplPSR6aS5MZW5ndGgKfSBjYXRjaCB7
+    CiAgJHNlYWw9J0ZBSUwnCiAgJG1vZGU9J2ZhbGxiYWNrJwogICRjbGFzcz0nU1RPUCDigJQgRVZJREVOQ0UgU0VBTCBGQUlMRUQnCiAgJGRpYWc9RXJyb3JS
+    ZWNvcmQgJF8KICB0cnl7VyAoSm9pbi1QYXRoICRyb290ICdzZWFsLWZpcnN0LWVycm9yLnR4dCcpICgkZGlhZ3xDb252ZXJ0VG8tSnNvbiAtRGVwdGggOCl9
+    Y2F0Y2h7V3JpdGUtV2FybmluZyAkX30KICB0cnl7CiAgICAkc2VhbFN0YXR1c09iamVjdD1bb3JkZXJlZF1AewogICAgICBzdGF0dXM9J0ZBSUwnCiAgICAg
+    IGNsYXNzaWZpY2F0aW9uPSdFVklERU5DRV9TRUFMX0ZBSUxFRCcKICAgICAgZmlyc3RfZXJyb3I9JGRpYWcKICAgICAgcGFja2FnZV9tb2RlPSdmYWxsYmFj
+    aycKICAgICAgdGltZXN0YW1wX3V0Yz1bRGF0ZVRpbWVdOjpVdGNOb3cuVG9TdHJpbmcoJ28nKQogICAgfQogICAgJHNlYWxTdGF0dXNKc29uPSRzZWFsU3Rh
+    dHVzT2JqZWN0fENvbnZlcnRUby1Kc29uIC1EZXB0aCAxMAogICAgVyAoSm9pbi1QYXRoICRyb290ICdzZWFsLXN0YXR1cy5qc29uJykgJHNlYWxTdGF0dXNK
+    c29uCiAgICBXIChKb2luLVBhdGggJHJvb3QgJ3NlYWwtc3RhdHVzLnR4dCcpICdGQUlMJwogIH1jYXRjaHtXcml0ZS1XYXJuaW5nICRffQogIHRyeXsKICAg
+    IEdldC1DaGlsZEl0ZW0gLUxpdGVyYWxQYXRoICRyb290IC1Gb3JjZXxGb3JFYWNoLU9iamVjdHsKICAgICAgQ29weS1JdGVtIC1MaXRlcmFsUGF0aCAkXy5G
+    dWxsTmFtZSAtRGVzdGluYXRpb24gJHVwbG9hZCAtUmVjdXJzZSAtRm9yY2UgLUVycm9yQWN0aW9uIENvbnRpbnVlCiAgICB9CiAgfWNhdGNoe1dyaXRlLVdh
+    cm5pbmcgJF99CiAgdHJ5ewogICAgQWRkLVR5cGUgLUFzc2VtYmx5TmFtZSBTeXN0ZW0uSU8uQ29tcHJlc3Npb24KICAgIEFkZC1UeXBlIC1Bc3NlbWJseU5h
+    bWUgU3lzdGVtLklPLkNvbXByZXNzaW9uLkZpbGVTeXN0ZW0KICAgICR6aXBOYW1lPSJOQy0wMDNCLXRvb2xjaGFpbi1kaXNjb3ZlcnktZmFsbGJhY2stJGVu
+    djpHSVRIVUJfUlVOX0lELSRlbnY6R0lUSFVCX1JVTl9BVFRFTVBULnppcCIKICAgICR6aXA9Sm9pbi1QYXRoICR1cGxvYWQgJHppcE5hbWUKICAgIFJlbW92
+    ZS1JdGVtICR6aXAgLUZvcmNlIC1FcnJvckFjdGlvbiBTaWxlbnRseUNvbnRpbnVlCiAgICBbSU8uQ29tcHJlc3Npb24uWmlwRmlsZV06OkNyZWF0ZUZyb21E
+    aXJlY3RvcnkoJHJvb3QsJHppcCxbSU8uQ29tcHJlc3Npb24uQ29tcHJlc3Npb25MZXZlbF06Ok5vQ29tcHJlc3Npb24sJGZhbHNlKQogICAgJHppPUdldC1J
+    dGVtICR6aXAKICAgICR6aXBIYXNoPShHZXQtRmlsZUhhc2ggJHppcCAtQWxnb3JpdGhtIFNIQTI1NikuSGFzaC5Ub0xvd2VySW52YXJpYW50KCkKICAgICR6
+    aXBTaXplPSR6aS5MZW5ndGgKICB9Y2F0Y2h7V3JpdGUtV2FybmluZyAkX30KfSBmaW5hbGx5IHsKICB0cnl7CiAgICAkZmI9W29yZGVyZWRdQHsKICAgICAg
+    c3RhdHVzPSRzZWFsCiAgICAgIGNsYXNzaWZpY2F0aW9uPSRjbGFzcwogICAgICBwYWNrYWdlX21vZGU9JG1vZGUKICAgICAgcnVuX2lkPSRlbnY6R0lUSFVC
+    X1JVTl9JRAogICAgICBydW5fYXR0ZW1wdD0kZW52OkdJVEhVQl9SVU5fQVRURU1QVAogICAgICB0aW1lc3RhbXBfdXRjPVtEYXRlVGltZV06OlV0Y05vdy5U
+    b1N0cmluZygnbycpCiAgICB9CiAgICBXIChKb2luLVBhdGggJHVwbG9hZCAncHVibGljYXRpb24tZmFsbGJhY2suanNvbicpICgkZmJ8Q29udmVydFRvLUpz
+    b24gLURlcHRoIDgpCiAgICBXIChKb2luLVBhdGggJHVwbG9hZCAncHVibGljYXRpb24tZmFsbGJhY2sudHh0JykgJGNsYXNzCiAgICBDb3B5LUl0ZW0gKEpv
+    aW4tUGF0aCAkcm9vdCAnc2VhbC1maXJzdC1lcnJvci50eHQnKSAkdXBsb2FkIC1Gb3JjZSAtRXJyb3JBY3Rpb24gU2lsZW50bHlDb250aW51ZQogIH1jYXRj
+    aHtXcml0ZS1XYXJuaW5nICRffQogICJzZWFsX3N0YXR1cz0kc2VhbCJ8T3V0LUZpbGUgJGVudjpHSVRIVUJfT1VUUFVUIC1FbmNvZGluZyB1dGY4IC1BcHBl
+    bmQKICAicGFja2FnZV9tb2RlPSRtb2RlInxPdXQtRmlsZSAkZW52OkdJVEhVQl9PVVRQVVQgLUVuY29kaW5nIHV0ZjggLUFwcGVuZAogICJsb2NhbF96aXBf
+    bmFtZT0kemlwTmFtZSJ8T3V0LUZpbGUgJGVudjpHSVRIVUJfT1VUUFVUIC1FbmNvZGluZyB1dGY4IC1BcHBlbmQKICAibG9jYWxfemlwX3NoYTI1Nj0kemlw
+    SGFzaCJ8T3V0LUZpbGUgJGVudjpHSVRIVUJfT1VUUFVUIC1FbmNvZGluZyB1dGY4IC1BcHBlbmQKICAibG9jYWxfemlwX3NpemU9JHppcFNpemUifE91dC1G
+    aWxlICRlbnY6R0lUSFVCX09VVFBVVCAtRW5jb2RpbmcgdXRmOCAtQXBwZW5kCiAgImRpc2NvdmVyeV9jbGFzc2lmaWNhdGlvbj0kY2xhc3MifE91dC1GaWxl
+    ICRlbnY6R0lUSFVCX09VVFBVVCAtRW5jb2RpbmcgdXRmOCAtQXBwZW5kCn0K
 
 jobs:
   announce-run:
@@ -57,7 +146,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $failureClassification='STOP '+[char]0x2014+' CANONICAL TARGET WORKFLOW AST PREFLIGHT FAILED'
-          $carrierFailure='STOP '+[char]0x2014+' IMMUTABLE TARGET CARRIER BASE64 IDENTITY FAILURE'
+          $carrierFailure='STOP '+[char]0x2014+' CANONICAL TARGET CHUNK IDENTITY FAILURE'
           $sealFailure='STOP '+[char]0x2014+' CANONICAL TARGET-SEAL IDENTITY MISMATCH'
           $astFailure='STOP '+[char]0x2014+' CANONICAL TARGET POWERSHELL AST PREFLIGHT FAILED'
           $root=$env:EVIDENCE_ROOT
@@ -73,21 +162,18 @@ jobs:
           W 'classification.txt' $failureClassification;W 'preflight-first-error.txt' 'NOT_COMPLETED';W 'candidate-checkout.txt' 'CANDIDATE NOT CHECKED OUT';W 'run-id.txt' $env:GITHUB_RUN_ID;W 'run-attempt.txt' $env:GITHUB_RUN_ATTEMPT;W 'runner-name.txt' $env:RUNNER_NAME;W 'runner-os.txt' $env:RUNNER_OS;W 'runner-arch.txt' $env:RUNNER_ARCH
           try{
            $hdr=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
-           $cep=(([Environment]::GetEnvironmentVariable('TARGET_'+'CARRIER_PATH')-split'/')|%{[Uri]::EscapeDataString($_)})-join'/';$curi="https://api.github.com/repos/Dziuras98/Nextcar/contents/$cep`?ref=$([Environment]::GetEnvironmentVariable('TARGET_'+'CARRIER_COMMIT'))";$ca=Invoke-RestMethod -Uri $curi -Headers $hdr
-           if([string]$ca.type-ne'file'-or[string]$ca.encoding-ne'base64'-or[string]$ca.sha-ne[Environment]::GetEnvironmentVariable('TARGET_'+'CARRIER_BLOB')-or[string]::IsNullOrWhiteSpace([string]$ca.content)){W 'classification.txt' $carrierFailure;throw 'parent carrier API identity failed'}
-           [byte[]]$cb=[Convert]::FromBase64String(([string]$ca.content-replace'\s',''));[IO.File]::WriteAllBytes((Join-Path $root 'target-carrier-workflow.yml'),$cb);$ci=Stats $cb
-           W 'target-carrier-identity.json' ($ci|ConvertTo-Json -Depth 8);W 'target-carrier-identity.txt' (($ci.GetEnumerator()|%{"$($_.Key)=$($_.Value)"})-join"`n")
-           if($ci.git_blob-ne[Environment]::GetEnvironmentVariable('TARGET_'+'CARRIER_BLOB')){W 'classification.txt' $carrierFailure;throw 'parent carrier Git blob identity failed'}
-           $ct=[Text.Encoding]::UTF8.GetString($cb);$carrierLines=$ct-split"`n",-1;$matches=@($carrierLines|?{$_.StartsWith(('  TARGET_'+'SEAL_B64: '))})
-           if($matches.Count-ne1){W 'classification.txt' $carrierFailure;throw "parent carrier Base64 occurrence count failed: $($matches.Count)"}
-           $canonicalBase64Text=$matches[0].Substring(19)
+           $chunkLines=@(([Environment]::GetEnvironmentVariable('TARGET_'+'SEAL_B64_BLOCK')) -split "`r?`n"|Where-Object{$_ -ne ''})
+           $chunkEvidence=New-Object Collections.Generic.List[object];$chunksValid=($chunkLines.Count-eq91)
+           for($i=0;$i-lt$chunkLines.Count;$i++){$chunk=[string]$chunkLines[$i];$chunkLength=$chunk.Length;$chunkSha=H256([Text.Encoding]::ASCII.GetBytes($chunk));$chunkEvidence.Add([ordered]@{index=$i;length=$chunkLength;ascii_sha256=$chunkSha});$expectedLength=if($i-lt90){120}else{60};if($chunkLength-ne$expectedLength-or$chunk-notmatch'^[A-Za-z0-9+/=]+$'){$chunksValid=$false}}
+           W 'target-seal-chunks.json' (@($chunkEvidence)|ConvertTo-Json -Depth 8);[IO.File]::WriteAllText((Join-Path $root 'target-seal-chunks.txt'),(($chunkLines-join"`n")+"`n"),$u)
+           $canonicalBase64Text=$chunkLines-join''
            $ascii=$true;foreach($ch in $canonicalBase64Text.ToCharArray()){if([int][char]$ch-gt127){$ascii=$false;break}}
            $grammar=($canonicalBase64Text-match'^[A-Za-z0-9+/=]+$')-and($canonicalBase64Text-notmatch'\s')-and(($canonicalBase64Text.Length%4)-eq0)
            [byte[]]$b64=[Text.Encoding]::ASCII.GetBytes($canonicalBase64Text);$b64sha=H256 $b64
            [IO.File]::WriteAllText((Join-Path $root 'target-seal-base64.txt'),$canonicalBase64Text+"`n",$u)
-           $b64i=[ordered]@{occurrence_count=$matches.Count;ascii=$ascii;grammar=$grammar;character_length=$canonicalBase64Text.Length;ascii_sha256=$b64sha}
+           $b64i=[ordered]@{chunk_count=$chunkLines.Count;chunk_width=120;final_chunk_length=if($chunkLines.Count-gt0){$chunkLines[-1].Length}else{0};chunks_valid=$chunksValid;ascii=$ascii;grammar=$grammar;character_length=$canonicalBase64Text.Length;ascii_sha256=$b64sha}
            W 'target-seal-base64-identity.json' ($b64i|ConvertTo-Json -Depth 8);W 'target-seal-base64-identity.txt' (($b64i.GetEnumerator()|%{"$($_.Key)=$($_.Value)"})-join"`n")
-           if(-not$ascii-or-not$grammar-or$canonicalBase64Text.Length-ne10860-or$b64sha-ne'5406fc444df950f06e47eba792eb3f775e9b1029476e29fa22080d7c4ae4e62c'){W 'classification.txt' $carrierFailure;throw 'immutable target carrier Base64 identity failed'}
+           if(-not$chunksValid-or-not$ascii-or-not$grammar-or$canonicalBase64Text.Length-ne10860-or$b64sha-ne'5406fc444df950f06e47eba792eb3f775e9b1029476e29fa22080d7c4ae4e62c'){W 'classification.txt' $carrierFailure;throw 'canonical target chunk identity failed'}
            [byte[]]$tseal=[Convert]::FromBase64String($canonicalBase64Text);[IO.File]::WriteAllBytes((Join-Path $root 'target-seal.ps1'),$tseal);$tsi=Stats $tseal
            $ep=(($env:SOURCE_PATH-split'/')|%{[Uri]::EscapeDataString($_)})-join'/';$uri="https://api.github.com/repos/Dziuras98/Nextcar/contents/$ep`?ref=$env:SOURCE_COMMIT";$a=Invoke-RestMethod -Uri $uri -Headers $hdr
            if([string]$a.type-ne'file'-or[string]$a.encoding-ne'base64'-or[string]$a.sha-ne$env:SOURCE_BLOB-or[string]::IsNullOrWhiteSpace([string]$a.content)){throw 'API source contract failed'}
